@@ -1,0 +1,34 @@
+{
+  "batch": "slb_smoke",
+  "init_commands": [
+    "configure terminal",
+    "no slb group g_web1"
+  ],
+  "cases": [
+    {
+      "autoid": "668101",
+      "priority": "P1",
+      "description": "SLB服务组成员配置下发与回显校验",
+      "steps": [
+        {"e": "APV_0", "f": "cmd_config", "g": "slb group g_web1", "h": "", "i": "", "desc": "创建服务组"},
+        {"e": "APV_0", "f": "cmd_config", "g": "slb group member g_web1 10.1.1.11 port 80", "h": "", "i": "", "desc": "添加成员1"},
+        {"e": "APV_0", "f": "cmd_config", "g": "slb group member g_web1 10.1.1.12 port 80", "h": "", "i": "", "desc": "添加成员2"},
+        {"e": "APV_0", "f": "cmd_config", "g": "show slb group member g_web1", "h": "", "i": "", "desc": "回显成员表"},
+        {"e": "check_point", "f": "found", "g": "10\\.1\\.1\\.11", "h": "", "i": "", "desc": "断言成员1在回显中"},
+        {"e": "check_point", "f": "found_times", "g": "10\\.1\\.1\\.1[12]", "h": "", "i": "2", "desc": "断言两个成员各出现一次"}
+      ]
+    },
+    {
+      "autoid": "668102",
+      "priority": "P2",
+      "description": "SLB调度算法轮询配置生效与缓存会话保持验证",
+      "steps": [
+        {"e": "APV_0", "f": "cmd_config", "g": "slb group method g_web1 roundrobin", "h": "", "i": "", "desc": "设置轮询调度"},
+        {"e": "APV_0", "f": "cmd_config", "g": "show slb group method g_web1", "h": "method_out", "i": "", "desc": "回显调度算法并存入变量"},
+        {"e": "check_point", "f": "found", "g": "roundrobin", "h": "", "i": "", "desc": "断言轮询算法生效"},
+        {"e": "APV_0", "f": "cmd_config", "g": "show slb health", "h": "", "i": "", "desc": "查看健康检查状态"},
+        {"e": "check_point", "f": "not_found", "g": "error|fail", "h": "", "i": "", "desc": "断言无异常状态字样"}
+      ]
+    }
+  ]
+}
