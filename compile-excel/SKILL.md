@@ -29,6 +29,8 @@ description: "Compile test-case content (mindmap / case list / steps JSON) into 
 
 **若找到了 env 文件**：直接运行 `scripts/preflight.py`；只有 `ok=true` 才进入编译。探活失败时把结构化检查结果原样转述给用户，修正 env 后重跑——不要静默重试。
 
+**依赖探测（每次进入编译前）**：先 `python3 -c "import openpyxl"` 探测；缺 openpyxl 时**告知用户并征得确认后**才 `pip install openpyxl`，不要静默装包。这是生态惯例（SKILL.md 显式声明依赖 + 运行时安装），不 vendor 三方代码。
+
 ## 编译主流程
 
 1. 把用例文本整理为 cases JSON（契约见 `reference/column-semantics.md`；文件级 init 命令 + 每步 E/F/G/H/I 五元组）
