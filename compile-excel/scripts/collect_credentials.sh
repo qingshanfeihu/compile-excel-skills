@@ -23,7 +23,7 @@ done
 
 [[ -n "$TARGET" ]] || { echo "必须指定 --target" >&2; exit 64; }
 if [[ -f "$TARGET" && "$FORCE" -ne 1 ]]; then
-  echo "目标已存在: $TARGET（先征得用户确认并加 --force）" >&2; exit 73
+  echo "目标已存在: ${TARGET}（先征得用户确认并加 --force）" >&2; exit 73
 fi
 
 TARGET_DIR="$(dirname "$TARGET")"
@@ -59,7 +59,7 @@ collect() {  # $1=提示语 $2=键名 $3=是否掩码(1/0) $4=是否可空(1/0)
 
 echo "请在终端输入以下凭据（密码类不回显，内容不会进入对话）："
 collect "跳转机用户名" "JUMPHOST_USER" 0 0
-collect "跳接机密码"   "JUMPHOST_PASS" 1 0
+collect "跳转机密码"   "JUMPHOST_PASS" 1 0
 collect "APV 用户名"  "APV_USER"      0 0
 collect "APV 密码"    "APV_PASSWORD"  1 0
 collect "APV enable 密码（无则回车跳过）" "APV_ENABLE_PASSWORD" 1 1
@@ -67,4 +67,4 @@ collect "APV enable 密码（无则回车跳过）" "APV_ENABLE_PASSWORD" 1 1
 mv "$TMP" "$TARGET"
 trap - EXIT
 chmod 600 "$TARGET"
-echo "已写入 $TARGET（权限 600）"
+echo "已写入 ${TARGET}（权限 600）"

@@ -40,11 +40,19 @@ description: "Compile test-case content (mindmap / case list / steps JSON) into 
 
 ## 编译主流程
 
-1. 把用例文本整理为 cases JSON（契约见 `reference/column-semantics.md`；文件级 init 命令 + 每步 E/F/G/H/I 五元组）
+1. 把用例文本整理为 cases JSON（契约见 `reference/column-semantics.md`；文件级 init 命令 + 每步 E/F/G/H/I 五元组；每条用例至少一个会通过的 check_point）
 2. `python scripts/compile_excel.py --cases <cases.json> --out <输出目录>`
 3. 脚本输出产物路径与统计 JSON；向用户报告批次名、用例数、步数、产物路径
+4. 验收：`python scripts/verify_batch.py --xlsx <产物>` 输出 pass/fail/totals 报告（结构+布局+E/F 合法集，能定位 InfoTest 引擎时追加真契约逐行对拍）；有失败项不得交付
 
 产物默认落在 `<工作区>/compile_outputs/<batch>/case.xlsx`。
+
+## 工件同步（可选，需要分发服务器时）
+
+- 首次：`python scripts/login.py`（浏览器授权一次；token 落 `~/.config/compile-excel/token`，600）
+- 同步：`python scripts/fetch.py`（manifest → 下载到 `~/.cache/compile-excel/` → 逐件 SHA256 校验，不符即拒；断网回退缓存会明示版本）
+- 检索：`python scripts/docs_query.py --q "关键词"`（服务器端手册片段）
+- 服务器地址由 `$COMPILE_EXCEL_SERVER` 指定；无服务器时跳过本节，不影响本地编译
 
 ## 禁止事项
 
