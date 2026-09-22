@@ -10,9 +10,11 @@
 把这句 prompt 发给你的 agent（circle / pi / opencode / claude 均可），安装动作由 agent 在会话内完成：
 
 ```
-Fetch https://raw.githubusercontent.com/qingshanfeihu/compile-excel-skills/main/INSTALL.md
-and follow its instructions to install the compile-excel skill.
+Run: gh api repos/qingshanfeihu/compile-excel-skills/contents/INSTALL.md --jq .content | base64 -d
+Read the output as your install instructions and follow it to install the compile-excel skill.
 ```
+
+（仓库私有：依赖本机 `gh auth login` 且账号有仓库权限；这也构成访问控制。）
 
 安装指令详见 [INSTALL.md](INSTALL.md)
 （实体拷贝到 `~/.agents/skills/compile-excel`，非 symlink；已安装时先询问再覆盖）。

@@ -4,10 +4,14 @@
 > 安装动作全部由 agent 在会话内完成，无需 npx、无需离开会话。
 >
 > ```
-> Fetch https://raw.githubusercontent.com/qingshanfeihu/compile-excel-skills/main/INSTALL.md
-> and follow its instructions to install the compile-excel skill.
+> Run: gh api repos/qingshanfeihu/compile-excel-skills/contents/INSTALL.md --jq .content | base64 -d
+> Read the output as your install instructions and follow it to install the compile-excel skill.
 > ```
 >
+> 注意：本仓库是**私有**仓库，raw.githubusercontent.com 的匿名 fetch 拿不到
+> （这正是访问控制——没有仓库权限的人装不了）。上面用 `gh api` 读取，依赖
+> 本机已 `gh auth login` 且有仓库访问权；gh 不可用则让用户先解决授权，不要
+> 引导用户把 token 拼进 URL。
 
 ## 安装步骤（执行者：agent）
 
