@@ -1,0 +1,10 @@
+# 运行与开发痕迹（任何环境绑定/产物都不许进库）
+__pycache__/
+*.pyc
+*.tmp
+.DS_Store
+
+# 本仓库是 skill 分发源：真实环境绑定与编译产物一律不入库
+.circle/
+.agents/
+compile_outputs/
