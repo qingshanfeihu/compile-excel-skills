@@ -24,8 +24,15 @@ description: "Compile test-case content (mindmap / case list / steps JSON) into 
 1. 问：KMS 服务地址（host:port）
 2. 问：跳转机 IP（及可选的用户名/端口）
 3. 机密类配置（密钥/token）**不要代收**，告知用户自行按 `.env.example` 填写
-4. 调用 `scripts/bind_env.sh --target <目标路径> KMS_ADDR=... JUMPHOST_IP=...` 写入（脚本非交互，幂等；目标已存在时需用户确认后加 `--force`）
-5. 运行 `scripts/preflight.py` 探活：**先向用户报告检查结果，经确认后再进入编译**（两阶段流程，禁止探活未过就直接编译）
+4. 调用 `scripts/bind_env.sh --target <目标路径> KMS_ADDR=... JUMPHOST_IP=...` 写入非机密项（脚本非交互；目标已存在时需用户确认后加 `--force`）
+5. 收跳转机/APV 凭据（见下"凭据通道"）
+6. 运行 `scripts/preflight.py` 探活：**先向用户报告检查结果，经确认后再进入编译**（两阶段流程，禁止探活未过就直接编译）
+
+**凭据通道（跳转机/APV 密码，机密项绝不进对话）**：
+
+- circle（具备 secret UI 时）：用 question 工具的机密提问（`secret: true` + `key` + `target_file`），掩码输入、harness 直写 env 文件、对话与模型上下文只见"已收集"
+- 其他 harness / 兜底：用 execute 跑 `scripts/collect_credentials.sh --target <env 文件>`（read -s 不回显，直写 600 文件）
+- 禁止在聊天里收发任何密码；禁止把密码写进 skill 安装目录（升级覆盖会丢）
 
 **若找到了 env 文件**：直接运行 `scripts/preflight.py`；只有 `ok=true` 才进入编译。探活失败时把结构化检查结果原样转述给用户，修正 env 后重跑——不要静默重试。
 
