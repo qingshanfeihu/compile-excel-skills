@@ -36,18 +36,24 @@ skill 被 agent 加载后按 SKILL.md 的 Setup 段引导：三级查找
 
 ```
 compile-excel/
-├── SKILL.md                  # 加载入口：Setup 段 + 编译主流程 + 禁止事项
+├── SKILL.md                  # 加载入口：任务表 + 硬性 invariant + 工作流（渐进式披露）
 ├── scripts/
 │   ├── compile_excel.py      # 用例 JSON → FileIR → emit_xlsx（唯一出盘通道，薄 CLI）
-│   ├── ist_emit/             # InfoTest emit_xlsx 最小剪切包（见 reference/excel-contract.md）
+│   ├── ist_emit/             # InfoTest emit_xlsx 最小剪切包（见 references/excel-contract.md）
+│   ├── verify_batch.py       # 产物验收报告（pass/fail/totals）
+│   ├── login.py / fetch.py / docs_query.py / ist_client.py   # 工件同步客户端
 │   ├── bind_env.sh           # 非交互写环境绑定
+│   ├── collect_credentials.sh# 掩码凭据收集（无 secret-UI 的 harness 兜底）
 │   └── preflight.py          # 绑定检查 + TCP 探活（结构化 JSON）
 ├── templates/
-│   └── case_template.xlsx    # 冻结快照真模板（585 晋升版，SHA 钉死，见 excel-contract.md）
-├── reference/
+│   └── case_template.xlsx    # 冻结快照真模板（585 晋升版，SHA 钉死）
+├── references/               # 按需加载：SKILL.md 里有明确指针
 │   ├── column-semantics.md   # E/F/G/H/I 列语义与 cases JSON 契约
-│   └── excel-contract.md     # 契约 + 模板身份 + 与 InfoTest 的三处行为差异
+│   ├── excel-contract.md     # 契约 + 模板身份 + 与 InfoTest 的三处行为差异
+│   ├── gotchas.md            # 上机必炸写法与 lint 反馈→修法对照表
+│   ├── env-setup.md          # 首次使用 Setup 访谈 + 凭据通道
+│   └── server-sync.md        # 分发服务器对接（可选）
 ├── examples/slb_cases.json   # 样例：2 条 SLB 用例
-├── tests/                    # 结构自检（unittest）+ InfoTest 对拍脚本
+├── tests/                    # 结构自检 + InfoTest 对拍/深验脚本（随 skill 分发）
 └── .env.example
 ```
