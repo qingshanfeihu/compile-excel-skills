@@ -27,26 +27,38 @@ def main() -> int:
 
     try:
         flow = ist_client.device_authorize()
-    except ist_client.ClientError as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
-        return 1
-    except ConnectionError as exc:
+    except (ist_client.ClientError, ConnectionError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
         return 1
 
     verification_uri = flow.get("verification_uri_complete") or flow["verification_uri"]
-    print(f"请在浏览器完成授权：{verification_uri}", flush=True)
-    print(f"设备码：{flow['user_code']}", flush=True)
-    print(f"DEVICE_FLOW user_code={flow['user_code']} verification_uri={verification_uri}",
+    device_code = flow["user_code"]
+    print(f"设备码：{device_code}", flush=True)
+    print(f"DEVICE_FLOW user_code={device_code} verification_uri={verification_uri}",
           flush=True)
+
+    # 默认自动开浏览器（授权页已带设备码，用户只需点【授权】）；
+    # 打不开/选择不开时给出手动力指引，不阻塞轮询。
+    browser_opened = False
     if not args.no_browser:
         try:
-            webbrowser.open(verification_uri)
+            browser_opened = webbrowser.open(verification_uri)
         except Exception:  # noqa: BLE001 — 打不开浏览器不影响流程
-            pass
+            browser_opened = False
+    if browser_opened:
+        print(f"已打开浏览器授权页（若未弹出请手动访问）：\n  {verification_uri}\n"
+              f"在页面点击【授权】后，终端会自动继续。", flush=True)
+    else:
+        print(f"请手动打开以下 URL 完成授权（页面点击【授权】后终端自动继续）：\n"
+              f"  {verification_uri}", flush=True)
+
+    pending_shown = False
 
     def _pending() -> None:
-        print("等待授权中…（在浏览器页面点击授权）", flush=True)
+        nonlocal pending_shown
+        if not pending_shown:
+            print("等待授权中…（在授权页点击【授权】；Ctrl+C 取消）", flush=True)
+            pending_shown = True
 
     try:
         issued = ist_client.poll_device_token(
@@ -55,6 +67,10 @@ def main() -> int:
             expires_in=int(flow.get("expires_in") or 600),
             on_pending=_pending,
         )
+    except KeyboardInterrupt:
+        print(json.dumps({"ok": False, "error": "已取消（未完成授权，未写入 token）"},
+                         ensure_ascii=False))
+        return 130
     except (ist_client.ClientError, ConnectionError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
         return 1

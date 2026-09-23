@@ -170,6 +170,11 @@ def verify(path: Path, engine_root: str = "") -> dict:
     no_cp = [aid for aid, ok, _note in case_results if not ok and aid != "999999999999999"]
     report.add("every case has check_point", not no_cp, f"missing={no_cp}")
     report.add("autoid unique", len(autoids) == len(set(autoids)))
+    # InfoTest structural_gate 按全数字 ≥12 位识别用例边界（哨兵除外）
+    real_autoids = [a for a in autoids if a != "999999999999999"]
+    bad_ids = [a for a in real_autoids if not (a.isdigit() and len(a) >= 12)]
+    report.add("autoid >= 12 digits (framework boundary)", not bad_ids,
+               f"bad={bad_ids}（生产惯例 18 位）")
     report.add("case count", True, f"cases={len(autoids)} autoids={autoids}")
 
     wb.close()

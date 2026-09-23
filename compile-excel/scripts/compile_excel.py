@@ -19,7 +19,7 @@ cases.json 契约：
       "init_commands": ["...", "..."],   # 可选，文件级共享前置（合为一条 cmds_config 块）
       "cases": [
         {
-          "autoid": "自动化ID",           # 必填
+          "autoid": "202609236683010001",   # 必填：12-24 位纯数字（生产惯例 18 位）
           "priority": "P1",              # 可选，缺省 P1
           "description": "用例标题",      # 可选，进 CaseIR.title（不落卷面）
           "steps": [                      # 必填，非空；每步一行
@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -47,6 +48,11 @@ from ist_emit.case_ir import CaseIR, FileIR, Row, Step  # noqa: E402
 from ist_emit.xlsx_emit import emit_xlsx  # noqa: E402
 
 SENTINEL_AUTOID = "999999999999999"
+
+# InfoTest structural_gate._parse_workbook_model 按全数字且 ≥12 位识别用例行（用例边界）；
+# 生产惯例 18 位机器号（lint_xlsx_case 的 _AUTOID_RE = ^\d{18}$）。低于 12 位会被
+# 框架当普通行，多 case 边界退化、verdict 错归——出件前拒绝。
+_AUTOID_RE = re.compile(r"^\d{12,24}$")
 
 
 class CompileError(Exception):
@@ -161,6 +167,10 @@ def build_file_ir(doc: dict, *, sentinel: bool = True) -> FileIR:
         autoid = str(case.get("autoid") or "").strip()
         if not autoid:
             raise CompileError(f"cases[{idx}] 缺少 autoid")
+        if not _AUTOID_RE.match(autoid):
+            raise CompileError(
+                f"cases[{idx}] autoid 必须是 12-24 位纯数字（InfoTest 框架按 ≥12 位"
+                f"数字识别用例边界，生产惯例 18 位），当前 {autoid!r}")
         if any(existing.autoid == autoid for existing in case_irs):
             raise CompileError(f"autoid 重复: {autoid}")
         steps = case.get("steps")

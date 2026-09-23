@@ -34,14 +34,14 @@ SAMPLE = {
     "init_commands": ["configure terminal"],
     "cases": [
         {
-            "autoid": "900001",
+            "autoid": "202609239000010001",
             "steps": [
                 {"e": "APV_0", "f": "cmd_config", "g": "show version", "h": "", "i": ""},
                 {"e": "check_point", "f": "found", "g": "version", "h": "", "i": ""},
             ],
         },
         {
-            "autoid": "900002",
+            "autoid": "202609239000020001",
             "steps": [
                 {"e": "APV_0", "f": "cmd_config", "g": "show slb all", "h": "out1", "i": ""},
                 {"e": "check_point", "f": "found", "g": "out1", "h": "", "i": ""},
@@ -79,7 +79,7 @@ class BuildFileIRTests(unittest.TestCase):
         self.assertEqual([s.stmt_type for s in fir.cases[0].steps], [2, 3])
 
     def test_missing_check_point_rejected(self):
-        doc = {"batch": "x", "cases": [{"autoid": "1", "steps": [
+        doc = {"batch": "x", "cases": [{"autoid": "202609239000980001", "steps": [
             {"e": "APV_0", "f": "cmd_config", "g": "show version"}]}]}
         with self.assertRaises(CompileError):
             build_file_ir(doc)
@@ -90,8 +90,15 @@ class BuildFileIRTests(unittest.TestCase):
             build_file_ir(doc)
 
     def test_found_times_contract(self):
-        doc = {"batch": "x", "cases": [{"autoid": "1", "steps": [
+        doc = {"batch": "x", "cases": [{"autoid": "202609239000990001", "steps": [
             {"e": "check_point", "f": "found_times", "g": "a", "h": "", "i": "x"}]}]}
+        with self.assertRaises(CompileError):
+            build_file_ir(doc)
+
+    def test_short_autoid_rejected(self):
+        doc = {"batch": "x", "cases": [{"autoid": "668301", "steps": [
+            {"e": "APV_0", "f": "cmd_config", "g": "show version"},
+            {"e": "check_point", "f": "found", "g": "version"}]}]}
         with self.assertRaises(CompileError):
             build_file_ir(doc)
 
@@ -122,7 +129,8 @@ class EmitStructureTests(unittest.TestCase):
         self.assertTrue(self.stats["ok"])
         self.assertEqual(self.stats["batch"], "unit_batch")
         self.assertEqual(self.stats["case_count"], 3)  # 2 真 case + 哨兵
-        self.assertEqual(self.stats["autoids"], ["900001", "900002", "999999999999999"])
+        self.assertEqual(self.stats["autoids"],
+                         ["202609239000010001", "202609239000020001", "999999999999999"])
         self.assertTrue(self.target.is_file())
 
     def test_execution_sheet_real_semantics(self):
@@ -148,7 +156,7 @@ class EmitStructureTests(unittest.TestCase):
         self.assertEqual(rows[1][4], "APV_0")
         self.assertEqual(rows[1][5], "cmds_config")
         # r32: case 900001 首步（A/B/C/D 齐, C=2）
-        self.assertEqual(rows[2][0], "900001")
+        self.assertEqual(rows[2][0], "202609239000010001")
         self.assertEqual(rows[2][1], "P1")
         self.assertEqual(rows[2][2], 2)
         # r33: 第二步只有 E-I，A 列为空
@@ -157,7 +165,7 @@ class EmitStructureTests(unittest.TestCase):
         # r34: case 间空行
         self.assertTrue(all(v is None for v in rows[4]))
         # r35: case 900002 首步
-        self.assertEqual(rows[5][0], "900002")
+        self.assertEqual(rows[5][0], "202609239000020001")
         # r38: 哨兵 case（P9, time sleep 1）；其后全空
         self.assertEqual(rows[8][0], "999999999999999")
         self.assertEqual(rows[8][1], "P9")

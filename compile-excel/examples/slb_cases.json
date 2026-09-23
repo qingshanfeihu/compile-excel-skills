@@ -6,7 +6,7 @@
   ],
   "cases": [
     {
-      "autoid": "668101",
+      "autoid": "202609236681010001",
       "priority": "P1",
       "description": "SLB服务组成员配置下发与回显校验",
       "steps": [
@@ -19,7 +19,7 @@
       ]
     },
     {
-      "autoid": "668102",
+      "autoid": "202609236681020001",
       "priority": "P2",
       "description": "SLB调度算法轮询配置生效与缓存会话保持验证",
       "steps": [
