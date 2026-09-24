@@ -38,6 +38,8 @@ def _engine_name(name: str) -> str:
 
 
 def _infotest_name(engine_name: str) -> str | None:
+    if engine_name == "cex_core.engine.scripts":
+        return "scripts"
     if engine_name.startswith("cex_core.engine.scripts."):
         return "scripts." + engine_name[len("cex_core.engine.scripts."):]
     if engine_name.startswith("cex_core.engine."):

@@ -33,6 +33,10 @@ MANUAL_SOURCE_UNAVAILABLE = 'command_tree_unavailable'
 PARAM_CONTRACT_UNAVAILABLE = 'projection_unavailable'
 
 def _param_contract_unavailable(reason: str) -> dict:
+    """投影取不到那一态的契约壳。两处只差 reason，形状与空值只有这一份。
+
+    取不到投影 ≠ 头未匹配。后者是「查了没有」的查找事实（返回 None），前者是 unknown。
+    """
     return {'status': PARAM_CONTRACT_UNAVAILABLE, 'reason': reason, 'head': '', 'version': None, 'device_os_build': None, 'args': [], 'selected': None}
 
 def param_contract_of(command: str, position: int | None=None) -> dict | None:
@@ -93,6 +97,15 @@ _MIRROR_ROOT = _cex_data_path('') / 'knowledge' / 'framework' / 'mirror'
 _SOURCE_OVERLAY: dict | None = None
 
 def _source_cached_functions() -> tuple:
+    """按源缓存的闭集：本模块里挂了 `cache_clear` 的全局函数，换源必须一并清掉。
+
+    这张名单从前手抄了 12 个函数名。它当时恰好全，但给某个函数加 `@lru_cache` 却忘了
+    补名字不会有任何东西变红——换源之后旧源的答案照旧命中，而那正是 `source_overlay`
+    要防的事。改由本模块全局现取；`__module__` 那一条把别处 import 进来的缓存函数排
+    除在外，清别人的缓存不是本函数的职责。
+    对账守门：tests/case_compiler/test_apv_lang.py::
+    test_source_cached_functions_cover_every_lru_cached_function。
+    """
     return tuple((value for value in list(globals().values()) if callable(getattr(value, 'cache_clear', None)) and getattr(value, '__module__', '') == __name__))
 
 def _clear_source_caches() -> None:
@@ -101,6 +114,7 @@ def _clear_source_caches() -> None:
 
 @contextmanager
 def source_overlay(sources):
+    """部署期把源换成 staging 那份，退出还原；不换的话契约与闭集不同源。"""
     global _SOURCE_OVERLAY
     previous = _SOURCE_OVERLAY
     _SOURCE_OVERLAY = dict(sources) if sources else None
@@ -160,6 +174,11 @@ CMD_PRIMITIVE_FS = SEG_CMD_PRIMITIVE_FS
 _SEAT_RUNTIME_CLASS = {'apv': ('lib/apv/apv.py', 'APV', APV_CMD_PRIMITIVE_FS), 'segment': ('lib/apv/apv_ssh.py', 'APV_SSH', SEG_CMD_PRIMITIVE_FS)}
 
 def _mirror_cmd_primitives(family: str) -> frozenset[str]:
+    """从 mirror 类体现算某族席位的传输原语 F 集。
+
+    **不按 status 过滤**：enabled/disabled 是签发权威轴，F 是不是传输原语是
+    运行时形态轴。加 status 过滤会让 Seg*_tmp（契约里整族 disabled）算成空集。
+    """
     rel, cls, closure = _SEAT_RUNTIME_CLASS[family]
     declared = public_methods(rel, cls)
     if not declared:
@@ -457,5 +476,6 @@ _PARAM_SPLIT_RE = PARAM_SPLIT_RE
 SHELL_EXIT_CHANNEL_ON_DEVICE_CLI = False
 
 def observe_exit_channel_error(host: str) -> str:
+    """LLM-facing teach-back for an OBSERVE_EXIT block whose host is a device under test."""
     name = str(host or '').strip() or 'the device under test'
     return f"OBSERVE_EXIT on {name!r} is not supported: {name} is an APV CLI host and the framework sends the G cell verbatim to the product CLI (cmd_config), so the shell exit-status wrapper `( cmd ); ist_case_exit_code=$?; …` has no channel there and would be rejected as a non-CLI command. Observe the product command's outcome with OBSERVE_ASSERT (found / abs_found on its output), or place the configuration in CONFIG; OBSERVE_EXIT is for shell hosts reached through test_env (routera / routerb / server*)."

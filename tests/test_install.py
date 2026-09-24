@@ -102,9 +102,10 @@ def test_all_harnesses_then_rerun_and_upgrade(box):
     ]
 
     circle = box["home"] / ".circle"
-    skill = circle / "skills" / "compile-excel"
-    assert (skill / "SKILL.md").is_file()
-    assert (skill / ".cex_home").read_text(encoding="utf-8").strip() == str(dist)
+    for name in ("compile-excel", "mindmap-recompose"):
+        skill = circle / "skills" / name
+        assert (skill / "SKILL.md").is_file()
+        assert (skill / ".cex_home").read_text(encoding="utf-8").strip() == str(dist)
     api = _FakeCircleApi()
     runpy.run_path(str(circle / "extensions" / "compile-excel" / "extension.py"))["register"](api)
     assert list(api.tools) == SPEC_NAMES
@@ -155,7 +156,7 @@ def test_missing_dependencies_are_reported_not_installed(box, tmp_path):
     bare.chmod(0o755)
     rc, report = _install(box, "--harness", "circle", env={**box["env"], "CEX_PYTHON": str(bare)})
     deps = report["dependencies"]
-    assert set(deps["missing"]) == {"openpyxl", "beautifulsoup4", "PyYAML"}
+    assert set(deps["missing"]) == set(runpy.run_path(str(INSTALL))["DEP_MODULES"])
     assert "--install-deps" in deps["next"] and deps["actions"] == []
 
 
@@ -187,3 +188,14 @@ def test_real_pi_cli_registers_the_package(box):
     assert rc == 0 and report["ok"], report
     listed = subprocess.run([str(pi), "list"], capture_output=True, text=True, timeout=120, env=env)
     assert str(box["dist"]) in listed.stdout
+
+
+def test_dependency_check_covers_every_requirement():
+    """依赖自检只探 DEP_MODULES 里的包；requirements.txt 加了包而表里没有，缺依赖就查不出来。"""
+    installer = runpy.run_path(str(INSTALL))
+    names = set()
+    for line in (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines():
+        spec = line.split("#", 1)[0].strip()
+        if spec:
+            names.add(spec.split(">", 1)[0].split("=", 1)[0].split("<", 1)[0].strip())
+    assert names == set(installer["DEP_MODULES"])

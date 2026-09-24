@@ -108,7 +108,8 @@ def cex_cmd_check(args: dict[str, Any]) -> dict[str, Any]:
     for command in commands[:200]:
         verdict = resolve_vendor_command(str(command), projection)
         results.append({"command": str(command), **{k: verdict.get(k) for k in (
-            "decided", "hit", "head", "reason_code", "parameter_error") if k in verdict}})
+            "decided", "hit", "head", "src", "origin", "reason_code", "parameter_error")
+            if k in verdict}})
     return {"ok": True, "projection": projection_path.name,
             "all_hit": all(r.get("hit") for r in results), "results": results}
 
@@ -183,6 +184,32 @@ def cex_bug_get(args: dict[str, Any]) -> dict[str, Any]:
                                           str(args.get("ticket") or ""))}
 
 
+def cex_recompose_prepare(args: dict[str, Any]) -> dict[str, Any]:
+    from . import recompose
+
+    return recompose.prepare(_ws(args), str(args.get("mindmap") or ""),
+                             out_name=str(args.get("out_name") or ""),
+                             spec=str(args.get("spec") or ""))
+
+
+def cex_recompose_submit_cases(args: dict[str, Any]) -> dict[str, Any]:
+    from . import recompose
+
+    return recompose.submit_cases(_ws(args), str(args.get("out_name") or ""), args.get("cases"))
+
+
+def cex_recompose_seal(args: dict[str, Any]) -> dict[str, Any]:
+    from . import recompose
+
+    return recompose.seal(_ws(args), str(args.get("out_name") or ""))
+
+
+def cex_lang_query(args: dict[str, Any]) -> dict[str, Any]:
+    from . import recompose
+
+    return recompose.lang_query(_ws(args), args, out_name=str(args.get("out_name") or ""))
+
+
 TOOLS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "cex_init": cex_init,
     "cex_status": cex_status,
@@ -205,6 +232,10 @@ TOOLS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "cex_portal_login_wait": cex_portal_login_wait,
     "cex_portal_logout": cex_portal_logout,
     "cex_bug_get": cex_bug_get,
+    "cex_recompose_prepare": cex_recompose_prepare,
+    "cex_recompose_submit_cases": cex_recompose_submit_cases,
+    "cex_recompose_seal": cex_recompose_seal,
+    "cex_lang_query": cex_lang_query,
 }
 
 

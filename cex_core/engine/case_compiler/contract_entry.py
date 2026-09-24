@@ -331,6 +331,7 @@ def _author_card_text(value: Any, masked: bool) -> str:
     return '〇' * len(text) if masked else text
 
 def _author_card_anchor(value: Any, authored_text: str, masked: bool) -> str:
+    """旧卡把来源对象存为字符串；仅遮掉其中与作者正文完全相等的 quote 字段。"""
     text = str(value)
     if not masked or len(text) > 65536:
         return text

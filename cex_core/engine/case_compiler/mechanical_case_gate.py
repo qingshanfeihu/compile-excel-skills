@@ -369,6 +369,20 @@ def _gate_https_certificate_lifecycle(steps: Sequence[Any], init: str, report: _
             report.reject(gate, 'https_certificate_teardown_missing', f'steps:{host}:{virtual_service}', 'the certified SSL host remains unpaired, or its teardown occurs before the last HTTPS observation. Keep SSL_CERT_LOAD as a standard-library block: the engine defers its certified object-scoped teardown pair until after the final signed business assertion and before trailing dependent-object teardown.')
 
 def _base_claim_kinds(contract: Mapping[str, Any]) -> dict[str, str]:
+    """基线契约每条期望的权威组（六源闭集名），供一致性叠加层对账。
+
+    权威组从 `provenance_ir._CLAIM_ORIGIN` 派生，不在本文件另抄一份表。此前这里
+    手抄了那张表的一个子集：缺 `config_derived` / `captured_relation` /
+    `membership_derived` / `status_derived` 四种、多一个全仓不存在的
+    `relation_derived`，而未命中的来源被 `.get(..., "")` 静默跳过。这是潜在漂移面，
+    不是活缺陷：那四种来源目前到不了基线契约卡（`contract_entry` 把
+    `assertion.source.kind` 限在 `{intent, spec, defect_spec, manual}`，唯一生产者
+    也只产 `{spec, defect_spec, intent}`）；把手抄换成恒等式，防的是闭集将来放开时
+    的静默少判——改写拦不住（`consistency_endorsement_claim_kind_upgrade` 看不到
+    基线取值）、期望作用域的基数少数一条（`spec_endorsement_expectation_not_bound`）。
+    两张表的一致性现在是恒等式，不是人工对齐；漂移由
+    tests/ist_core/compile_engine/test_claim_origin_orthogonality.py 的对账守门当场翻红。
+    """
     from cex_core.engine.case_compiler.provenance_ir import claim_authority_source
     out: dict[str, str] = {}
     for item in contract.get('expectations') or []:

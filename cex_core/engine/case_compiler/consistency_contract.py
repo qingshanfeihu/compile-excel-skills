@@ -113,6 +113,11 @@ def write_consistency_contract(outputs_root: str | Path, overlay: Mapping[str, A
     return (target, sha256_bytes(payload))
 
 def parse_consistency_contract(raw: bytes) -> tuple[dict[str, Any], str]:
+    """把契约字节解析成（契约, 字节 sha256）。
+
+    落盘读取与密封字节回放共用这一份预算与结构规则：契约一旦被密封进见证就不再
+    回到案目录取字节，两条路的解析口径必须是同一份，否则同一串字节会有两种结论。
+    """
     if not isinstance(raw, bytes) or not 1 <= len(raw) <= _MAX_BYTES:
         raise ConsistencyContractError('consistency contract exceeds its byte budget')
     validate_json_budget(raw, error_type=ConsistencyContractError, message='consistency contract exceeds its JSON structure budget', max_depth=32, max_tokens=8192)
@@ -125,6 +130,7 @@ def parse_consistency_contract(raw: bytes) -> tuple[dict[str, Any], str]:
     return (payload, sha256_bytes(raw))
 
 def load_consistency_contract_document(path: str | Path) -> tuple[dict[str, Any], str, bytes]:
+    """读盘并解析，另带原字节——要把这一份契约密封进见证的调用方用它。"""
     raw = read_regular_nofollow(Path(path), error_type=ConsistencyContractError, invalid_message='consistency contract path is invalid', directory_message='consistency contract directory is unavailable', open_message='consistency contract is unavailable', bounds_message='consistency contract exceeds its byte budget', changed_message='consistency contract changed while being read', max_bytes=_MAX_BYTES, min_bytes=1, require_current_uid=True)
     assert isinstance(raw, bytes)
     payload, sha256 = parse_consistency_contract(raw)

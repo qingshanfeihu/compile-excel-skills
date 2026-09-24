@@ -31,9 +31,10 @@
    It prints a JSON report. What it does: copies the distribution to
    `~/.local/share/compile-excel/current`, then
    - claude: registers that directory as a plugin marketplace and installs the `compile-excel`
-     plugin (skill + `cex_*` tools over MCP) with the `claude` CLI;
-   - pi: `pi install <that directory>` (skill + extension);
-   - circle: copies the skill to `~/.circle/skills/compile-excel` and writes the extension entry to
+     plugin (skills + `cex_*` tools over MCP) with the `claude` CLI;
+   - pi: `pi install <that directory>` (skills + extension);
+   - circle: copies the skills to `~/.circle/skills/compile-excel` and
+     `~/.circle/skills/mindmap-recompose`, and writes the extension entry to
      `~/.circle/extensions/compile-excel/extension.py`.
 
    Read the report:

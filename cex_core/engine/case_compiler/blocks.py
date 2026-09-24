@@ -1,4 +1,99 @@
 # 生成：tools/extract_engine.py ← InfoTest main/case_compiler/blocks.py（sha256 fd9c31d8c99845f7）。不在这里手改。
+"""组合子构造层（V4 专属构件 + V10 通用 STEP）。
+
+worker 的输出语言从「五列步骤表」升到「语义组合子」:专属构件把常见底层表示
+(寄存器分配、捕获比较三步式、E/F/H 列语义、观测-断言排序)确定性拼好；通用
+``STEP`` 保留完整能力面，同时在选择点校验派发、arity、动作闭集与寄存器引用。
+整案时序/载荷等跨步不变量仍由 emit 的成品规则复核，不能把“能展开”误报成
+“整案已经安全”。
+
+历史证据(2026-07-04,docs/PLAN_v4_engine.md 调研 E/J):34 个成品卷反解为最初
+5 种专属组合子再展开,33/34 字节级等价；唯一失败卷恰是上机 fail 的坏形态卷。
+V10 在此之上新增更多专属构件与通用 STEP；该数字只证明原始子集，不外推为
+当前完整能力面的正确率。
+
+组合子 schema(原生数组,每元素一个 dict,kind 必填):
+- ``{"kind":"CONFIG", "cmds":[...], "desc":..., "host":"APV_0"}``
+  设备配置。cmds 为命令列表(每条一个元素——多条命令的换行由展开器拼,双转义病
+  在此表示下不存在);单条→cmd_config,多条→cmds_config。
+- ``{"kind":"OBSERVE_ASSERT", "host":..., "cmd":..., "desc":...,
+   "asserts":[{"op":"found"|"not_found"|"abs_found", "pattern":...,
+               "ref":"config_derived:<recipe>",
+               "binding_input":{"rule_id":..., "source_input":{...}}}]}``
+  观测一次(不带 H)+ 对该回显断言 1..n 条。``config_derived`` 断言必须给出
+  独立结构化输入，展开器重跑注册规则后铸造 receipt，不能用最终 G 自签。
+- ``{"kind":"OBSERVE_EXIT", "host":..., "cmd":...,
+   "expect":"success"|"failure", "desc":..., "expectation_id":...,
+   "semantic_key":...}``
+  观测命令的原始 shell exit code。引擎把命令放进子 shell，再输出
+  固定 ``IST_EXIT_STATUS=<n>`` 标记；期望正则由注册生成器按
+  ``expect`` 派生，worker 不能从本轮响应体挑一个词当 expected。
+- ``{"kind":"CAPTURE_COMPARE", "host":..., "capture_cmd":..., "cmd":...,
+   "relation":"same"|"differs", "desc":...}``
+  捕获比较:第一次观测存寄存器,第二次观测产 result,断言两次相同(same→found)
+  或不同(differs→not_found)。cmd 省略=与 capture_cmd 相同。寄存器名自动分配。
+- ``{"kind":"OBSERVE_ONLY", "host":..., "cmd":..., "desc":...}``
+  只观测不断言(轮转填充/发流量)。
+- ``{"kind":"OBSERVE_DIST", "host":..., "cmd":..., "total":N, "field":"<正则前缀>",
+   "buckets":[{"anchor":..., "expected":N, "tol":N}, ...], "desc":..., "ref":...}``
+  观测一次 + 分布区间断言(每桶一条锚定区间正则的 found)。字段名与 raw steps 侧
+  ``F="dist"`` 声明逐字一致;不重实现区间/守恒/反恒真判定——那些交给 emit 既有
+  ``expand_distribution_step``(唯一权威,内部工单 草案)。
+- ``{"kind":"OBSERVE_MEMBER", "host":..., "cmd":..., "ips":[...], "present":bool,
+   "desc":..., "ref":...}``
+  观测一次 + 命中归属断言(输出是否落在给定成员 IP 集合)。字段名与 raw steps 侧
+  ``F="member"`` 声明逐字一致;同上不重实现,交给 ``expand_membership_step``。
+- ``{"kind":"CAPTURE", "host":..., "cmd":..., "save_as":"<寄存器名>", "desc":...}``
+  观测一次,输出存入 worker 自选的命名寄存器(对应 raw 侧非 check_point 步的 H 语义:
+  "输出寄存器")。寄存器名跨 block 可见——供**同一 blocks 数组内、位置更靠后**的
+  ``EXPECT_FROM`` 引用。命名不得撞 ``CAPTURE_COMPARE`` 内部自动分配的 ``v<N>``
+  形态(避免同一 runtime ``locals()`` 命名空间里两种分配来源互相覆盖)。
+- ``{"kind":"EXPECT_FROM", "host":..., "cmd":..., "expected_from":"<寄存器名>",
+   "op":"found"|"not_found"|"abs_found", "desc":...}``
+  观测一次(产生被断言输出,不带 H)+ 断言该输出与**先前已捕获**寄存器的关系
+  (对应 raw 侧 check_point 步的 H 语义:"期望值来源")。``expected_from`` 必须
+  是**同一 blocks 数组里、位置更靠前**的某个 ``CAPTURE`` 已声明的寄存器名——
+  这条跨步约束由展开器在遍历时逐块核对,不满足直接拒绝展开(结构上写不出
+  "先引用后捕获"的违例,不必等 emit 期的 ``_check_capture_refs_defined`` 事后
+  抓 NameError)。与 ``CAPTURE_COMPARE`` 的关系:后者是"捕获+第二次观测+比较"
+  三步紧邻绑定的特化形态(op 只有 found/not_found 两种、寄存器名不暴露给
+  worker);``CAPTURE``/``EXPECT_FROM`` 是它的通用化——捕获与引用之间允许插入
+  任意其它 block(如捕获配置前基线、改配置、再用 EXPECT_FROM 断言变化),
+  op 对齐 ``_ASSERT_OPS`` 全集,寄存器名由 worker 命名以便跨越中间 block 引用。
+- ``{"kind":"SLEEP", "seconds":N}``
+- ``{"kind":"SSL_CERT_LOAD", "vhost":..., "bound_object":..., "cert_group":...,
+   "pairs":[{"key_file":..., "cert_file":...}], ...}``
+  引擎标准库证书装载块。提交/写时检查在进入本展开器前用仓内唯一参考实现降成
+  CONFIG/STEP 基础块，并由 teardown atlas 自动附对象级清场；expected 仍由旁边
+  的断言组合子承载。字段正本由生成器从参考展开函数投影进 blocks_schema.json。
+- ``{"kind":"STEP", "E":..., "F":..., "G":..., "H"?:..., "I"?:..., "ref":...}``
+  通用单步构件。它仍属于 blocks IR，不是绕过 blocks 的 raw steps 逃生阀。
+  E/F 必须命中框架活体派发表；方法族参数个数、execute 动作精确成员、H/I 捕获
+  顺序与注入占位符都会在展开时校验，不能用它无条件塞入任意字符串。
+
+host 语义:``APV_0``/``APV_1``=被测设备第一/二台(观测走 cmd_config;双机场景 CONFIG
+也可带 host 指定下发目标,默认 APV_0);其余=测试机主机名(E=test_env,
+F=主机名,须在网络事实源中)。
+
+断言身份(``expectation_id`` / ``semantic_key``,U2 权威对账键):由契约卡铸造、
+逐字转写,承载位是**单条断言**——``OBSERVE_ASSERT.asserts[]`` 每项各带一对;
+``CAPTURE_COMPARE``/``OBSERVE_DIST``/``OBSERVE_MEMBER``/``EXPECT_FROM`` 各产恰
+一条合成断言,写在组合子上;``STEP`` 只在 ``E=check_point`` 时接受。其余位置
+(CONFIG/OBSERVE_ONLY/CAPTURE/SLEEP、OBSERVE_ASSERT 块级、非 check_point 的 STEP)
+出现即拒展开——那里没有 check_point 可绑,静默丢弃会让 emit 双射规则报"断言没有
+expectation_id",错在哪一层看不出来。"其余位置"含**嵌套子容器**
+(``OBSERVE_DIST.buckets[]``、``binding_input.source_input``、``assertion_type``
+内部等):没有任何展开分支会读它们,写在那里同样是静默丢弃,故一并拒
+(``_nested_assertion_id_error``)。**显式 provenance 条目**(第二个入参)同样不许
+带这两个键——它是"每组合子一条"的粒度,一条会被复制到该组合子产出的每一行,
+正是"一个 id 落到 N 个 check_point"的双射规则原型缺陷
+(``_reject_explicit_provenance_assertion_ids``)。
+
+同一次展开内的**覆盖率是全有或全无**：emit 身份规则要求每条 check_point 都显式
+绑定契约 id，所以只要有一条断言带了身份键，其余
+每条都必须带齐两键,否则在展开处就拒并点名缺哪个下标(``_ASSERTION_ID_FIELDS``
+两个字段名都写进文案)——留到 emit 期只会报"没有双射",看不出是哪条漏了。
+"""
 from __future__ import annotations
 import copy
 import hashlib
@@ -19,6 +114,11 @@ _REF_KINDS = ('footprint', 'manual', 'precedent', 'env_facts', 'intent', 'config
 _REF_LOCATOR_REQUIRED = frozenset({'footprint', 'manual', 'precedent', 'env_facts', 'intent', 'skeleton'})
 
 def _parse_ref(ref: Any) -> dict:
+    """`"<kind>:<体>"` 或裸 kind → {kind, ref};无/不认识先标 emit_auto。
+
+    emit_auto 只是构建阶段的来源占位，不是放行结论；断言步骤会在 provenance
+    authority 规则被拒，非断言机械步骤才可保留该来源。
+    """
     s = str(ref or '').strip()
     if not s:
         return {'kind': 'emit_auto', 'ref': ''}
@@ -28,6 +128,13 @@ def _parse_ref(ref: Any) -> dict:
     return {'kind': 'emit_auto', 'ref': s}
 
 def _dispatch_source(e: str, f: str, g: str, ref: Any=None) -> dict:
+    """把框架可机械证明的 test_env 派发投影成专用 provenance。
+
+    显式来源始终优先；自动投影只覆盖 ``E=test_env`` 且 F 确实存在于
+    framework mirror 的 Env 方法闭集的步骤。G 不按命令关键字分类——框架
+    的真实契约就是把整段 G 作为该 Env 方法的 shell 载荷执行。危险载荷仍由
+    structural gate 的独立必崩规则负责，本来源只证明派发路径存在。
+    """
     source_text = str(ref or '').strip()
     parsed = _parse_ref(ref)
     if parsed == {'kind': 'test_env_dispatch', 'ref': ''}:
@@ -66,6 +173,13 @@ def _observe_step(host: str, cmd: str, desc: str, save_as: str='') -> dict:
     return st
 
 def _answerer_shape_error(i: int, kind: str, b: dict) -> str | None:
+    """answerer 字段的形态校验——写了就得写对；**哪些块必须写**不在本层判。
+
+    展开层只保证字段形状可机读（闭集、ref/note 形态），交互块缺 answerer 的
+    硬拒与 ref 解析（块存在性/CONFIG 身份/拓扑设备名）都在交卷规则
+    ``_gate_answerer_statement``——主机角色判别是结构信号（``_DUT_HOSTS`` 成员
+    关系），两层共用同一闭集，谁也不读命令文本。
+    """
     answerer = b.get('answerer')
     if answerer is None:
         return None
@@ -96,6 +210,7 @@ COMMAND_TIMEOUT_MIN_S = 1
 COMMAND_TIMEOUT_MAX_S = 600
 
 def _command_timeout_error(i: int, kind: str, b: dict) -> str | None:
+    """CONFIG/STEP 的读窗字段共用校验，生成器从同一函数提取拒绝与边界。"""
     if 'timeout_s' not in b:
         return None
     value = b.get('timeout_s')
@@ -106,6 +221,7 @@ def _command_timeout_error(i: int, kind: str, b: dict) -> str | None:
     return None
 
 def _timeout_command_error(i: int, kind: str, command: str) -> str | None:
+    """显式读窗不能覆盖已有关键字，也不能给批命令暗加产品参数。"""
     from cex_core.engine.case_compiler.excel_contract import ExcelContractError, parse_g_arguments
     try:
         args, kwargs = parse_g_arguments(command, 'cmd_config')
@@ -121,9 +237,14 @@ _NO_ASSERTION_ID_KINDS = frozenset({'CONFIG', 'OBSERVE_ONLY', 'CAPTURE', 'SLEEP'
 _ASSERTION_ID_BLOCK_KINDS = frozenset({'CAPTURE_COMPARE', 'OBSERVE_DIST', 'OBSERVE_MEMBER', 'EXPECT_FROM', 'OBSERVE_EXIT'})
 
 def _exit_status_command(command: str) -> str:
+    """保留被观测命令的 exit code，再以固定数据面标记输出。"""
     return f"""( {command} ); ist_case_exit_code=$?; echo; printf 'IST_EXIT_STATUS=%s' "$ist_case_exit_code"; echo"""
 
 def _probe_tool_name(command: str) -> str:
+    """被观测命令的可执行体名：结构解析首个非赋值、非 sudo/env/timeout 前缀的 token。
+
+    只看 shell 结构，不看产品词：`FOO=1 sudo timeout 5 curl ...` → ``curl``。
+    """
     try:
         tokens = shlex.split(command)
     except ValueError:
@@ -143,6 +264,13 @@ def _probe_tool_name(command: str) -> str:
     return ''
 
 def _exit_status_masking_error(command: str) -> str:
+    """拒绝会把被测命令退出码换成另一条 shell 动作结果的组合语法。
+
+    ``&&`` 是有意保留的合取形态：链上任一命令失败，整链即非零，适合表达
+    “这些访问都成功”这一条聚合可达性主张。管道、顺序执行、或分支、后台执行
+    与命令替换则可能让最后一条辅助动作的状态覆盖真正探针，不能签发
+    ``status.exit-code`` 收据。重定向不改变命令退出码，因此允许。
+    """
     if '\n' in command or '\r' in command:
         return _EXIT_STATUS_MASKING_REFUSAL
     if '`' in command or '$(' in command:
@@ -165,6 +293,11 @@ def _exit_status_masking_error(command: str) -> str:
     return ''
 
 def _assertion_identity(container: dict) -> tuple[dict[str, str], str]:
+    """取断言级 ``expectation_id``/``semantic_key``,缺席返回空 dict。
+
+    只接受非空字符串:这两个键是权威对账用的身份,空串在双射规则里与"没写"同义,
+    在这里就拒掉比让它一路走到 emit 期再报"没有双射"好定位。
+    """
     out: dict[str, str] = {}
     for name in _ASSERTION_ID_FIELDS:
         if name not in container:
@@ -176,6 +309,7 @@ def _assertion_identity(container: dict) -> tuple[dict[str, str], str]:
     return (out, '')
 
 def _reject_block_level_assertion_ids(i: int, kind: str, b: dict) -> str | None:
+    """非断言承载组合子上的断言身份键 → 同 STEP 的 unsupported field 拒绝。"""
     present = [name for name in _ASSERTION_ID_FIELDS if name in b]
     if not present:
         return None
@@ -183,6 +317,7 @@ def _reject_block_level_assertion_ids(i: int, kind: str, b: dict) -> str | None:
     return _err(i, kind, f"unsupported field(s): {', '.join(present)}{hint}")
 
 def _collect_nested_assertion_ids(value: Any, path: str, out: list[str]) -> None:
+    """深度收集 value 内部出现的断言身份键路径(调用方负责跳过合法承载位)。"""
     if isinstance(value, dict):
         for key, sub in value.items():
             child = f'{path}.{key}' if path else str(key)
@@ -195,6 +330,16 @@ def _collect_nested_assertion_ids(value: Any, path: str, out: list[str]) -> None
             _collect_nested_assertion_ids(sub, f'{path}[{index}]', out)
 
 def _nested_assertion_id_error(i: int, kind: str, b: dict) -> str | None:
+    """断言身份键出现在合法承载位之外的**嵌套**容器里 → 拒展开。
+
+    合法承载位只有两处:组合子块级(``_ASSERTION_ID_BLOCK_KINDS`` 与 E=check_point
+    的 STEP)与 ``OBSERVE_ASSERT.asserts[]`` 项级,它们各由
+    ``_reject_block_level_assertion_ids`` / ``_assertion_identity`` 分层判。这里补的
+    是模块 docstring 承诺的"其余位置出现即拒"的嵌套层——``buckets[]``、
+    ``binding_input.source_input``、``assertion_type`` 内部这些子容器没有任何展开
+    分支会读身份键,写在那里等于静默丢弃,最终只在 emit 双射规则报"断言没有
+    expectation_id",错在哪一层看不出来。
+    """
     found: list[str] = []
     for key, value in b.items():
         if key in _ASSERTION_ID_FIELDS:
@@ -214,6 +359,19 @@ def _nested_assertion_id_error(i: int, kind: str, b: dict) -> str | None:
     return _err(i, kind, f"unsupported field(s): {', '.join(found)} — assertion identity is only read at the assertion-bearing position (the combinator itself, or each OBSERVE_ASSERT asserts[] entry); nested containers are never consulted, so an id written there is silently dropped")
 
 def _reject_explicit_provenance_assertion_ids(i: int, kind: str, pv: Any) -> str | None:
+    """显式 provenance 条目自带断言身份键 → 拒展开(不是覆盖,是拒)。
+
+    显式通道是"每个组合子一条"的粒度(错误文案逐字:steps count equal to blocks
+    count),一条 ``dict(base)`` 会被复制到该组合子产出的**每一行**——含非
+    check_point 行，也含 N 条断言共用一个 id。显式 provenance 的粒度无法表达
+    「哪条断言兑现哪个 claim」，还会把身份复制到非断言行。它绕开了本层全部分层校验
+    (``_reject_block_level_assertion_ids`` / ``_assertion_identity`` /
+    ``_nested_assertion_id_error`` 都只查 block 字典,从不查 pv),以及覆盖闸
+    (prov_out 上 id 反而"齐全")。所以身份只有一个合法声明处:blocks 上的承载位。
+
+    这条同时消掉"两个来源各写一个 id、blocks 静默胜出"的无声丢弃——调用方
+    写了没被采用时会拿到打回文案,而不是什么都不发生。
+    """
     if not isinstance(pv, dict):
         return None
     present = [name for name in _ASSERTION_ID_FIELDS if name in pv]
@@ -222,11 +380,18 @@ def _reject_explicit_provenance_assertion_ids(i: int, kind: str, pv: Any) -> str
     return f"provenance_steps[{i}] (for blocks[{i}]({kind})): unsupported field(s): {', '.join(present)} — the explicit provenance channel carries one entry per combinator, so one id there would be copied onto every row this combinator expands to (including non-assertion rows, and every one of N assertions). Declare the pair on the assertion itself: each OBSERVE_ASSERT asserts[] entry, the combinator that synthesizes exactly one assertion, or an E=check_point STEP."
 
 def _assertion_slot_label(kind: str, block_index: int, offset: int) -> str:
+    """展开产物里某条 check_point 对应的作者输入下标(打回文案点名用)。"""
     if kind == 'OBSERVE_ASSERT':
         return f'blocks[{block_index}].asserts[{offset - 1}]'
     return f'blocks[{block_index}]'
 
 def _assertion_identity_coverage_error(prov_out: list[dict], slots: list[tuple[str, int]]) -> str | None:
+    """同一次展开内断言身份要么全带、要么全不带,部分覆盖即拒。
+
+    emit 身份规则要求整案每条 check_point 都带完整身份——漏一条就无法对账。
+    部分覆盖在展开期放行 = 把"哪条漏了"的信息丢掉，只剩 emit 期一句
+    "没有双射"。这里在末尾全局扫一次,点名缺失的 block/assert 下标与两个字段名。
+    """
     if not slots:
         return None
     touched = 0
@@ -245,6 +410,7 @@ def _assertion_identity_coverage_error(prov_out: list[dict], slots: list[tuple[s
     return f'assertion identity coverage is partial: {carried} of {len(slots)} check_point assertions carry both {_ASSERTION_ID_FIELDS[0]} and {_ASSERTION_ID_FIELDS[1]}, but {detail}. The emit identity gate requires every final assertion to carry a contract identity, so within one case either all assertions carry the pair minted by the typed expectation contract, or none may.'
 
 def _derived_binding_source(*, source_kind: str, recipe_id: str, rule_id: str, source_input: dict[str, Any], output_step: dict[str, Any], output_ordinal: int=0) -> tuple[dict[str, Any] | None, str]:
+    """由组合子结构铸造 receipt；不读取命令词面或设备输出。"""
     from cex_core.engine.case_compiler.provenance_ir import build_config_binding_derivation_receipt
     receipt, error = build_config_binding_derivation_receipt(source_kind=source_kind, recipe_id=recipe_id, rule_id=rule_id, source_input=source_input, output_step=output_step, output_ordinal=output_ordinal)
     if receipt is None:
@@ -252,6 +418,16 @@ def _derived_binding_source(*, source_kind: str, recipe_id: str, rule_id: str, s
     return ({'kind': source_kind, 'ref': receipt['recipe_id'], 'receipt': receipt}, '')
 
 def _expand_generic_step(i: int, b: dict, defined_registers: set[str], capture_registers: set[str] | None=None) -> tuple[dict | None, dict | None, str | None]:
+    """展开并校验 blocks 内的通用单步构件。
+
+    本入口不替代 emit 的整案结构规则；它负责在 blocks 选择点就能判定的闭集：
+    E/F 派发、方法参数个数、execute 动作精确成员、H/I 先捕获后引用及注入格式，
+    以及 H 写入与 CAPTURE 寄存器的冲突。
+
+    ``capture_registers`` 是 CAPTURE / CAPTURE_COMPARE 按 SSA 纪律管着的那部分
+    寄存器名；运行时只有一个寄存器命名空间且 H 是普通覆盖赋值，所以一条裸
+    STEP 写进这些名字会静默改掉后面 EXPECT_FROM 仍要读的基线。
+    """
     extra = sorted(set(b) - _STEP_FIELDS)
     if extra:
         client_hint = ' STEP has no host/cmd/asserts fields: a client command with an assertion belongs in OBSERVE_ASSERT {host, cmd, asserts}, which derives test_env dispatch provenance mechanically.' if any((field in extra for field in ('host', 'cmd', 'asserts'))) else ''
@@ -382,6 +558,7 @@ def _expand_generic_step(i: int, b: dict, defined_registers: set[str], capture_r
     return (step, step_provenance, None)
 
 def _validate_expanded_contract_steps(steps: list[dict]) -> str | None:
+    """对所有专属组合子的落地 E/F/G 再走同一 contract，避免 STEP 之外另有真值。"""
     from cex_core.engine.case_compiler.excel_contract import ExcelContractError, contract_entry, enabled_fs_by_e, load_excel_contract, validate_g_for_entry
     try:
         contract = load_excel_contract()
@@ -415,6 +592,15 @@ def _validate_expanded_contract_steps(steps: list[dict]) -> str | None:
     return None
 
 def _bind_expanded_block(*, block_index: int, kind: str, block: dict, steps: list[dict], provenance: list[dict], occurrences: dict[str, int], available_observation_refs: set[str]) -> str | None:
+    """在组合子生产边界铸造显式 observation→assertion def-use。
+
+    专属组合子的 producer/use 关系由其结构定义，不读取命令词面或运行回显。
+    通用 STEP 的孤立 assertion 必须显式给 ``observation_ref``；不能退回邻接猜测。
+
+    **显式 ``observation_ref`` 一律要闭合**（不分 kind）：它压过结构化生产者写进
+    断言行，所以指向本 blocks 数组里不存在的名字 = 悬空引用。``available_observation_refs``
+    是跨 block 累积的，本块自己产的 observation 在检查前就已入集，故自引用照常合法。
+    """
     if len(steps) != len(provenance):
         return _err(block_index, kind, 'expanded provenance is not step-aligned')
     observations: list[str] = []
@@ -456,6 +642,16 @@ def _bind_expanded_block(*, block_index: int, kind: str, block: dict, steps: lis
     return None
 
 def expand_blocks(blocks: list, provenance_steps: list | None=None) -> tuple[list[dict] | None, list[dict] | None, str | None]:
+    """组合子 → 五列步骤表(+ 按 block 粒度的 provenance 同步展开)。
+
+    Returns:
+        (steps, expanded_provenance_steps, err)。err 非 None 时前两者为 None。
+        provenance_steps 传入时须与 blocks 等长(一个组合子一条 layer/source),
+        展开器把每条复制到该组合子的每个 step;**不传时自动组装**——layer 由
+        kind 机械映射(命令步→G、断言步→V、SLEEP→E),source 从各 block 的
+        ref/cmd_ref/asserts[].ref 前缀解析(见 _parse_ref)——worker 只标来源,
+        不拼 IR 结构。两种情况返回值都与 steps 逐位对齐(backfill_efg 契约)。
+    """
     if not isinstance(blocks, list) or not blocks:
         return (None, None, 'blocks must be a non-empty array')
     if provenance_steps is not None and len(provenance_steps) != len(blocks):
@@ -845,12 +1041,36 @@ def expand_blocks(blocks: list, provenance_steps: list | None=None) -> tuple[lis
     return (steps, prov_out, None)
 
 def capture_register_final_operator(operator: Any, register: Any) -> str:
+    """check_point 以 H 寄存器为期望值来源时的卷面终形算子：``found`` → ``abs_found``。
+
+    框架 ``found()`` 把期望值当**正则**（``re.compile(expect)``），而寄存器捕获值是
+    dig/show 整段回显，含 ``+``/``.``/``@`` 等正则元字符，连自匹配都不成立（实证
+    ``re.search(v1, v1) == False``、``re.search(re.escape(v1), v1) == True``）；
+    ``abs_found()`` 用 ``re.escape(expect)`` **字面**匹配，捕获比较「同值」才判得对。
+    ``not_found`` 不转（框架无 ``abs_not_found``）。
+
+    本函数是这条归一化的**唯一实现**：emit 写卷（``_steps_to_caseir``）与交付对账的
+    ``lower_derived_assertions`` 共用同一判据，U1 契约登记侧与 U3 卷面侧读到同一份
+    派生终形，found/abs_found 漂移在构造上不可能（内部工单；2026-09-23 案 <case>，
+    02 章 §2.7.1）。
+    """
     op = str(operator or '').strip()
     if op == 'found' and str(register or '').strip():
         return 'abs_found'
     return op
 
 def lower_derived_assertions(steps: list[dict], provenance_steps: list[dict] | None) -> tuple[list[dict] | None, list[dict] | None, str | None]:
+    """把组合子中间态降到运行时真正支持的断言方法。
+
+    ``expand_blocks`` 有意把 ``OBSERVE_DIST`` / ``OBSERVE_MEMBER`` 保留为
+    ``check_point.dist`` / ``check_point.member`` 中间声明，随后由两个注册展开器
+    改写为普通 ``found`` / ``not_found``；引用 H 寄存器的 ``check_point`` 再经
+    ``capture_register_final_operator`` 归一到卷面终形（``found`` → ``abs_found``，
+    与 emit 写卷同一条实现）。写时预检、节点 1 交卷规则和 emit 都必须在
+    运行时方法闭集校验之前完成这一步；否则合法组合子会被误报成不存在的方法。
+
+    本函数只编排既有展开器与终形归一，不重写分布区间、集合成员或来源回执语义。
+    """
     from cex_core.engine.case_compiler.distribution_assertion import expand_distribution_steps, expand_provenance_steps_with_plan
     from cex_core.engine.case_compiler.membership_assertion import attach_membership_derivation_receipts, expand_membership_steps
     distribution_source_steps = steps

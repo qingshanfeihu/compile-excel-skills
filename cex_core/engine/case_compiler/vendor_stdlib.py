@@ -193,6 +193,20 @@ def _scope_ambiguous(candidates: list[tuple[str, str]]) -> str:
     return f'本机有 {len(candidates)} 个命令树代际候选（{listed}），无参推导不替人择一：显式给出版本与 build。'
 
 def _command_tree_scope(version: str='', device_build: str='', *, gap: dict[str, str] | None=None) -> tuple[str, str, str, str] | None:
+    """(product, platform, inventory_version, build)：加载与诊断共用的作用域推导。
+
+    推不出唯一作用域（版本或 build 有多个候选）返回 None——与 ``load_vendor_stdlib`` 返回 None 的
+    条件逐字一致，两处不各写一套。
+
+    传 ``gap`` 就在返回 None 时填 ``gap["reason"]``（中文判词，不含凭据）。
+    ``load_vendor_stdlib`` 的契约是「坏就当没有」、不能改成抛；但**无参路径**
+    （``_command_tree_scope("", "")``）此前连诊断都只有一句「版本 / build 有多个候选或
+    缺席」——零候选与多候选同形（3f408b262 已分型判词）。裸号找坐标现在有两条线索：
+    compile_ref 平面副本（环境派生、不入库，多半没有），以及 `available_vendor_builds`
+    对 runtime/command_tree 全分区的枚举（带活动代际健康校验）——后者是投影出库后的
+    唯一活路，交卷门禁只拿裸尾号 ``capability_build`` 就靠它定域。两条都零命中才是
+    真·没跑过批，判词教人先开批或显式给版本与 build。
+    """
     raw_build = device_build or configured_device_os_build()
     product, platform = _product_platform_from_device_build(raw_build)
     ver = (version or os.getenv('IST_COMMAND_INVENTORY_VERSION', '') or _inventory_version_from_device_build(raw_build)).strip()
@@ -218,6 +232,15 @@ def _command_tree_scope(version: str='', device_build: str='', *, gap: dict[str,
     return (product, platform, ver, build)
 
 def diagnose_active_command_tree(version: str='', device_build: str='', *, store_root: Path | None=None) -> tuple[str, str]:
+    """只读诊断当前 build 的命令树活动代际（内部工单，2026-09-14）：返回 ``(status, detail)``。
+
+    status ∈ ``ok`` / ``absent`` / ``corrupt`` / ``stale_policy``；detail 是 ``command_tree_sync`` 的
+    中文判词原文（固定短语：「活动指针与 manifest SHA 不一致」「manifest 资产摘要不一致」「与 operator
+    SHA256 pin 不一致」……；作用域推不出来那一支带 compile_ref / runtime/command_tree 两个仓相对位置，
+    不带绝对路径与凭据），供预检如实上屏。``load_vendor_stdlib`` 为了调用方
+    「坏就当没有」的契约把这些判词吞成 None，预检只能给一句通用建议、方向还可能是错的——这里把原因
+    带出来。只诊不修：不同步、不清缓存、不删任何代际。
+    """
     gap: dict[str, str] = {}
     scope = _command_tree_scope(version, device_build, gap=gap)
     if scope is None:
@@ -678,6 +701,12 @@ def resolve_vendor_command(cmd: str, version: str='', device_build: str='') -> d
     return {'decided': True, 'hit': True, 'head': head, 'src': str(entry.get('src', '')), 'version': inv.get('version', ''), 'device_build': inv.get('device_os_build', ''), 'origin': str(entry.get('origin') or '')}
 
 def _recorded_headers(inv: object) -> dict | None:
+    """投影里的命令头表；取不到（投影缺席或形态不对）就返回 None，调用方不产事实。
+
+    同词异序、共享前缀后的下一词、补全排名这类「投影事实」只在投影**可读且形态完整**
+    时才是事实；`headers` 缺席或不是映射时读它等于把「读不到」签成「没有」（INV-28
+    式①）。`test_inv_28_unknown_exit` 用畸形 `{"heads": {}}` 钉住：unavailable，不是 miss。
+    """
     if not isinstance(inv, dict):
         return None
     headers = inv.get('headers')
@@ -711,6 +740,11 @@ _PERMUTATION_EXTRA_TOKENS = 1
 _PERMUTATION_SHOWN_K = 8
 
 def recorded_heads_with_token_permutation(cmd: str, version: str='', device_build: str='', *, extra_tokens: int=_PERMUTATION_EXTRA_TOKENS, limit: int=_PERMUTATION_SHOWN_K) -> list[str]:
+    """命令树里用了同一组词、只是词序不同（或至多多一个词）的已记载头。
+
+    精确词序命中不收录——那是命中不是近邻。查询少于 3 词也不收录，避免
+    ``sdns pool`` 这种前缀把整族倒出来。这是投影事实，不是推荐。
+    """
     headers = _recorded_headers(load_vendor_stdlib(version, device_build))
     if headers is None:
         return []
@@ -735,6 +769,13 @@ def recorded_heads_with_token_permutation(cmd: str, version: str='', device_buil
 _NEXT_TOKEN_SHOWN_K = 32
 
 def recorded_next_tokens_after_shared_prefix(cmd: str, version: str='', device_build: str='', *, limit: int=_NEXT_TOKEN_SHOWN_K) -> dict | None:
+    """最长整词共享前缀之后、投影里实际出现过的下一词闭集。
+
+    complete 按最短头排名，前缀族（``sdns pool`` 191 头）截成 5 条时，定义头
+    ``sdns pool name`` 会被 disable/enable/failover 挤出列表（Bug77137_4 s5：
+    模型改猜 create/add 直到预算耗尽）。下一词是库存事实，不是推荐；查询里
+    没整词命中的那一截不进前缀。
+    """
     headers = _recorded_headers(load_vendor_stdlib(version, device_build))
     if headers is None:
         return None

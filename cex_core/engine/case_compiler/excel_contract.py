@@ -680,6 +680,12 @@ def validate_execute_action(e: str, raw: Any, contract: Mapping[str, Any] | None
     return action_contract
 
 def validate_g_arguments_for_entry(entry: Mapping[str, Any], raw: Any) -> None:
+    """G 参数与签名的绑定校验，不含 enabled 检查。
+
+    认证卷对「因无收据而禁」的候选行也要求参数语法闭合，但不能要求
+    enabled——认证的目的正是给它签收据后翻成 enabled（2026-09-22 事故
+    回归修复配套）。生产 case.xlsx 的行校验仍走 validate_g_for_entry。
+    """
     args, kwargs = parse_g_arguments(raw, str(entry.get('f') or ''))
     signature = entry.get('signature')
     if not isinstance(signature, Mapping):

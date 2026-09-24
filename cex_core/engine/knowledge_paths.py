@@ -219,6 +219,12 @@ def output_scope() -> str:
     return validate_output_scope(scope)
 
 def workspace_bucket_root(bucket: str, *, project_root: Path | None=None, workspace_root: Path | None=None) -> Path:
+    """``…/workspace/<bucket>``——两个桶名字面量的唯一出处。
+
+    根从哪来由调用方给：引擎侧传自己那份可注入的 ``_shared.project_root()``，
+    沙箱侧传已 ``resolve()`` 过的 workspace 根，归档回放传归档根。两个参数都不给
+    时用本模块的 ``WORKSPACE_ROOT``。
+    """
     if bucket not in WORKSPACE_BUCKETS:
         raise ValueError(f'unknown workspace bucket: {bucket!r}')
     if project_root is not None and workspace_root is not None:
@@ -232,10 +238,18 @@ def workspace_bucket_root(bucket: str, *, project_root: Path | None=None, worksp
     return base / bucket
 
 def scope_bucket(root: Path, *, scope: str | None=None) -> Path:
+    """把当前用户段拼到桶根上；单租户（``output_scope()`` 为空）原样返回。
+
+    ``root`` 由调用方给，是为了让「桶根是调用方模块的可替换全局」这一类读法
+    （`provenance_ir` 的 ``WORKSPACE_OUTPUTS`` / ``WORKSPACE_INPUTS``）能用同一份
+    拼法：那些名字被替换时，拼出来的路径必须跟着换。``scope`` 显式给出时不再问
+    ``output_scope()``——调用方已经取过一次的场景省一次调用，且两次取值必然一致。
+    """
     resolved = output_scope() if scope is None else scope
     return root / resolved if resolved else root
 
 def scoped_bucket_root(bucket: str, *, project_root: Path | None=None, workspace_root: Path | None=None, scope: str | None=None) -> Path:
+    """``…/workspace/<bucket>[/<用户段>]``——作用域化桶根的唯一解析器。"""
     return scope_bucket(workspace_bucket_root(bucket, project_root=project_root, workspace_root=workspace_root), scope=scope)
 
 def scoped_outputs_root() -> Path:

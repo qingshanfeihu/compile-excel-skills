@@ -14,29 +14,43 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SKILL = REPO_ROOT / "skills" / "compile-excel"
+SKILLS_DIR = REPO_ROOT / "skills"
+SKILL = SKILLS_DIR / "compile-excel"
+# 技能名 → 描述里必须保留的一个中文触发词（匹配用户的中文输入）
+TRIGGERS = {"compile-excel": "编译用例", "mindmap-recompose": "脑图重组"}
 
 
 def _texts() -> dict[str, str]:
-    files = [SKILL / "SKILL.md", *sorted((SKILL / "references").glob("*.md"))]
-    return {str(p.relative_to(SKILL)): p.read_text(encoding="utf-8") for p in files}
+    files = []
+    for skill in sorted(SKILLS_DIR.iterdir()):
+        if (skill / "SKILL.md").is_file():
+            files += [skill / "SKILL.md", *sorted((skill / "references").glob("*.md"))]
+    return {str(p.relative_to(SKILLS_DIR)): p.read_text(encoding="utf-8") for p in files}
 
 
-def test_frontmatter_has_name_and_description():
-    text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+def test_every_skill_is_known_and_packaged():
+    present = {p.parent.name for p in SKILLS_DIR.glob("*/SKILL.md")}
+    assert present == set(TRIGGERS)
+    install = (REPO_ROOT / "install.py").read_text(encoding="utf-8")
+    assert all(f'"{name}"' in install for name in TRIGGERS)
+
+
+@pytest.mark.parametrize("name", sorted(TRIGGERS))
+def test_frontmatter_has_name_and_description(name):
+    text = (SKILLS_DIR / name / "SKILL.md").read_text(encoding="utf-8")
     head = text.split("---", 2)[1]
-    assert re.search(r"^name: compile-excel$", head, re.M)
+    assert re.search(rf"^name: {name}$", head, re.M)
     description = re.search(r'^description: "(.+)"$', head, re.M)
     assert description and "Do NOT trigger" in description.group(1)
-    # 中文触发词保留（匹配用户的中文输入）
-    assert "编译用例" in description.group(1)
+    assert TRIGGERS[name] in description.group(1)
 
 
 def test_referenced_scripts_and_references_exist():
     missing = []
     for name, text in _texts().items():
+        skill = SKILLS_DIR / name.split("/", 1)[0]
         for rel in sorted(set(re.findall(r"\b((?:scripts|references)/[\w.-]+\.(?:py|md))", text))):
-            if not (SKILL / rel).is_file():
+            if not (skill / rel).is_file() and not (skill / "references" / Path(rel).name).is_file():
                 missing.append(f"{name}: {rel}")
     assert missing == []
 
@@ -52,6 +66,16 @@ def test_named_tools_exist_in_the_tool_specs():
             if tool not in known:
                 unknown.append(f"{name}: {tool}")
     assert unknown == []
+
+
+def test_recompose_skill_names_no_engine_side_tools():
+    """InfoTest 重组孔的工具（fs_* / kb_bug_search / submit_machine_mindmap* / 裸 lang_query）
+    在客户端不存在；正文里出现就是让模型去调一个不存在的东西。"""
+    engine_only = re.compile(r"\b(fs_(?:read|grep|glob|ls|write)|kb_bug_search"
+                             r"|submit_machine_mindmap(?:_cases)?)\b|(?<!cex_)\blang_query\b")
+    hits = [f"{name}: {m.group(0)}" for name, text in _texts().items()
+            if name.startswith("mindmap-recompose/") for m in engine_only.finditer(text)]
+    assert hits == []
 
 
 def test_skill_does_not_route_to_the_retired_env_binding():

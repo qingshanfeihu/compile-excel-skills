@@ -19,6 +19,12 @@ _PATTERNS = [
     re.compile(r"""["'/]\s*""" + "environ" + r"""ment["']"""),
     re.compile(r"from\s+main\.|import\s+main\."),
 ]
+# 逐字放行的同名字面（文件 → 原文）：不是配置文件路径。只剥这一段原文再扫，同一文件里别处
+# 再出现照样报。facts.py 那条是编写失败原因的枚举值（环境类原因），不是路径。
+_KNOWN_LITERALS = {
+    "cex_core/engine/ist_core/compile_engine/facts.py":
+        ("AUTHORING_CAUSE_ENV = '" + "environ" + "ment'",),
+}
 
 
 def test_code_does_not_touch_infotest_configuration():
@@ -29,6 +35,9 @@ def test_code_does_not_touch_infotest_configuration():
         if rel in ALLOWED or rel.startswith("tests/"):
             continue
         text = (REPO_ROOT / rel).read_text(encoding="utf-8", errors="ignore")
+        for literal in _KNOWN_LITERALS.get(rel, ()):
+            assert text.count(literal) == 1, f"{rel}: 放行的原文变了，重核这条放行：{literal}"
+            text = text.replace(literal, "")
         for pattern in _PATTERNS:
             if pattern.search(text):
                 offenders.append(f"{rel}: {pattern.pattern}")

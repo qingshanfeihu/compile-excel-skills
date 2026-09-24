@@ -41,7 +41,9 @@ Read the output as your install instructions and follow it to install the compil
 2. `cex_login_start` / `cex_login_wait`：浏览器里用用户名 + 访问码授权，对话里不出现任何口令；
 3. `cex_client_config`、`cex_sync`：取组织常量与编译数据包（逐件 SHA-256 校验）；
 4. 需要缺陷单时 `cex_portal_login_*` 扫码登录门户，`cex_bug_get` 按单号取单（脱敏后存 `defects/`）；
-5. 编译、静态验收、租床上机、返工、回填，产物在 `compile_outputs/<批次>/`。
+5. 输入是人工脑图时，先用 `mindmap-recompose` 技能重组成机械脑图（`cex_recompose_*`，每个案过编译
+   引擎自己的提交检查）；
+6. 编译、静态验收、租床上机、返工、回填，产物在 `compile_outputs/<批次>/`。
 
 文件夹里唯一的凭据是 `.compile-excel/token.json`（0600，目录自带 `.gitignore`）；门户会话存在用户级
 `~/.cache/compile-excel/`（0600），不进文件夹。
@@ -65,6 +67,9 @@ skills/compile-excel/         # skill 本体（安装时整份拷进 harness 的
 │   ├── excel-contract.md     # 契约 + 模板身份 + 与 InfoTest 的三处行为差异
 │   └── gotchas.md            # 上机必炸写法与 lint 反馈→修法对照表
 └── examples/slb_cases.json   # 样例：2 条 SLB 用例
+skills/mindmap-recompose/     # 人工脑图 → 机械脑图（零发明；规则移植自 InfoTest 重组孔，[Rn] 编号不变）
+├── SKILL.md                  # 工作流、来源纪律、XMind 结构事实、分类与自检
+└── references/               # 字段契约、step_structure、一致性判定、适配、命令接地、输出形状
 cex_core/                     # 判据与出件共享库（harness 无关）
 ├── ist_emit/                 # InfoTest emit_xlsx 最小剪切包（见 references/excel-contract.md）
 ├── templates/case_template.xlsx   # 冻结快照真模板（SHA 钉死）
@@ -72,13 +77,15 @@ cex_core/                     # 判据与出件共享库（harness 无关）
 ├── scan_destructive.py       # 自毁命令扫描（规则来自数据包 domain_grammar.json，读不到即拒）
 ├── security_scrub.py         # 凭据脱敏（逐字抽自 InfoTest）
 ├── defects/                  # 缺陷页解析 + 脱敏（逐字抽自 InfoTest main/ingest）
-└── engine/                   # 判据引擎：InfoTest 27 个判据模块的生成副本（数据根 CEX_ENGINE_DATA_ROOT；
-                              #   范围、边界、对拍结果见 MANIFEST.json 与 docs/engine-parity.md §7）
-cex_client/                   # 客户端（只用标准库）
+└── engine/                   # 判据引擎：InfoTest 48 个模块的生成副本（数据根 CEX_ENGINE_DATA_ROOT；
+                              #   范围、边界、对拍结果见 MANIFEST.json 与 docs/engine-parity.md §7–§8）
+cex_client/                   # 客户端（标准库；脑图重组另需 pydantic、langchain-core）
 ├── workspace.py              # 唯一路径解析器：<文件夹>/.compile-excel/
 ├── auth.py / bundle.py       # 设备流登录与令牌轮换；数据包同步
 ├── gateway.py / device.py    # 网关 MCP 客户端、租约；提交、状态、结果与回执
 ├── portal.py / bugs.py       # 门户扫码登录；按单号取缺陷单
+├── engine_env.py             # 从数据包摆出引擎数据根（InfoTest 仓根布局，一律复制）
+├── recompose.py              # 脑图重组胶水：准备 / 按案提交 / 密封，判据全调 cex_core/engine
 ├── tools.py                  # 工具实现（三个适配器共用）
 └── tool_specs.json           # 工具 schema 单一来源
 adapters/pi/                  # pi 扩展：index.ts（转发到 cex_tool）+ tools.generated.ts（由 specs 生成）

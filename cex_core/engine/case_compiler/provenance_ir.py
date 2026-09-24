@@ -1,4 +1,19 @@
 # 生成：tools/extract_engine.py ← InfoTest main/case_compiler/provenance_ir.py（sha256 c7d4bd2c9535b6d6）。不在这里手改。
+"""三层 Provenance IR（V3 步骤1，论文 §3.5 定义3.6/3.7 的带来源 G⊔E⊔V 分解）。
+
+draft 产出 steps 的同时，为**每一步**标注它属于哪一层、来源是什么：
+- G 层（骨架/文法）：source = footprint feature_id / 先例 xlsx 名
+- E 层（环境常量）：source = env_facts 拓扑行（可达子网/服务 IP）
+- V 层（业务语义）：source = 先例链 / 手册行号 / 作者意图
+
+这是 draft↔grade↔verify↔writeback 的公共契约：
+- grade（步骤2）验 provenance 而非重新 grep；
+- verify（步骤5）按 layer 把 fail 路由到 G/E/V；
+- writeback（步骤4）只把已验证的 G/E 段事实写回 footprint。
+
+设计红线（§3.7ter）：provenance 只**记录** draft 已做的来源决策，
+不替代骨架选择——layer/source 是 draft 自己标的语义注解，不是确定性规则。
+"""
 from __future__ import annotations
 from cex_core.engine._root import _cex_data_path
 import ast
@@ -22,6 +37,15 @@ from cex_core.engine.knowledge_paths import KNOWLEDGE_AUTO_ENV, KNOWLEDGE_DATA_R
 from cex_core.engine.common.schema_identity import accepts_schema
 
 def _scoped_outputs_root() -> Path:
+    """当前作用域的 outputs 根，用**本模块的** ``WORKSPACE_OUTPUTS`` 拼。
+
+    与下面 DefectSpec 那段的 inputs 侧同一个 `scope_bucket()`。
+    不调 `knowledge_paths.scoped_outputs_root()`：那个函数读的是 knowledge_paths
+    自己的模块全局，而本模块的 ``PROJECT_ROOT`` / ``WORKSPACE_INPUTS`` /
+    ``WORKSPACE_DEFECTS`` / ``WORKSPACE_OUTPUTS`` 是可被替换的模块级名字（隔离根、
+    测试树都靠替换它们生效）。四个根里只有 outputs 例外，就会在同一次调用里一半
+    指隔离根、一半指真仓——而且是静默的。桶根当参数传，拼法仍是单源那一份。
+    """
     return scope_bucket(WORKSPACE_OUTPUTS)
 _CODE_ROOT = _cex_data_path('')
 _logger = logging.getLogger(__name__)
@@ -34,9 +58,11 @@ _EXPECT_KINDS = frozenset({'Author', 'Manual', 'ConfigBinding', 'Spec', 'DefectS
 _CLAIM_ORIGIN: dict[str, tuple[str, str]] = {'intent': ('Author', ''), 'author': ('Author', ''), 'spec': ('Spec', ''), 'defect_spec': ('DefectSpec', ''), 'manual': ('Manual', ''), 'capability_xml': ('CapabilityXml', ''), 'config_derived': ('ConfigBinding', 'config_derived'), 'captured_relation': ('ConfigBinding', 'captured_relation'), 'distribution_derived': ('ConfigBinding', 'distribution_derived'), 'membership_derived': ('ConfigBinding', 'membership_derived'), 'status_derived': ('Author', 'status_derived')}
 
 def claim_authority_source(source_kind: str) -> str:
+    """source.kind → 签发该 claim 的权威组（六源闭集名）；未知来源返回空串，不猜。"""
     return _CLAIM_ORIGIN.get(str(source_kind or '').strip(), ('', ''))[0]
 
 def claim_derivation(source_kind: str) -> str:
+    """source.kind → 派生配方名；非派生来源返回空串。"""
     return _CLAIM_ORIGIN.get(str(source_kind or '').strip(), ('', ''))[1]
 _RUNTIME_ONLY_KINDS = frozenset({'DeviceRuntime', 'Probe', 'Observed', 'CurrentRun', 'Precedent', 'Footprint'})
 _FLIP_KINDS = frozenset({'Flipped', 'Exempt'})
@@ -53,6 +79,7 @@ KNOWN_PROVENANCE_CLAIM_LIMIT = 12
 _SOURCE_LOCATOR_REQUIRED = frozenset({'footprint', 'manual', 'spec', 'defect_spec', 'capability_xml', 'precedent', 'env_facts', 'intent', 'skeleton'})
 
 def known_provenance_facts(autoid: str, *, outputs_root: Path) -> list[str]:
+    """渲染引擎已盖章的出处身份和固定 source-kind 路由，不参与判定。"""
     lines = ['<known_provenance_facts>', 'The following values are engine-read facts, not suggestions and not a credential.']
     aid = str(autoid or '').strip()
     if re.fullmatch('\\d{18}', aid):
@@ -83,6 +110,7 @@ def known_provenance_facts(autoid: str, *, outputs_root: Path) -> list[str]:
 
 @dataclass
 class StepSource:
+    """一步的来源。kind 决定路由类型，ref 是具体定位（feature_id/行号/xlsx名）。"""
     kind: str = 'unknown'
     ref: str = ''
     receipt: dict[str, Any] = field(default_factory=dict)
@@ -93,6 +121,7 @@ class StepSource:
 
 @dataclass
 class StepIR:
+    """一个编译步骤 + 三层来源标注。E/F/G 与 xlsx 列语义一致（见 compile_emit）。"""
     E: str
     F: str
     G: str
@@ -115,6 +144,7 @@ class StepIR:
 
 @dataclass
 class CaseProvenance:
+    """一个 case 的完整 provenance：autoid + 逐步来源 + 族骨架引用（步骤3）。"""
     autoid: str
     steps: list[StepIR] = field(default_factory=list)
     skeleton_ref: str = ''
@@ -153,10 +183,18 @@ _CONFIG_BINDING_GENERATORS = {'config.literal-copy': 'main/case_compiler/provena
 _EXIT_STATUS_EXPECTATIONS: dict[str, str] = {'success': '(?m)^IST_EXIT_STATUS=0\\r?$'}
 
 def _transport_failure_pattern(codes: tuple[int, ...]) -> str:
+    """退出码类 → 单条 found 正则；多码用交替，单码也带括号，形态统一可机读。"""
     alternation = '|'.join((str(code) for code in sorted(set((int(c) for c in codes)))))
     return f'(?m)^IST_EXIT_STATUS=({alternation})\\r?$'
 
 def exit_status_assertion(expect: str, probe: str='', codes: tuple[int, ...] | list[int]=()) -> tuple[dict[str, str] | None, str]:
+    """把结构化成功/失败极性派生为固定 check_point 三元组。
+
+    规则是纯函数：失败极性的退出码类 ``codes`` 由 blocks 展开器按探针工具名
+    ``probe`` 查文法数据（`domain_grammar.probe_tool_transport_failure_codes`）后
+    随 source_input 传入，收据材料因此同时钉住工具名与当时的码类；表变即新收据，
+    旧收据仍按当时的码类复算成立（历史事实不改写）。
+    """
     from cex_core.engine.case_compiler.blocks import _EXIT_STATUS_EXPECTS
     value = str(expect or '').strip().lower()
     if value not in _EXIT_STATUS_EXPECTS:
@@ -189,6 +227,7 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 def _safe_file_under(path: Path, root: Path) -> Path | None:
+    """只接受真实存在、解析后仍位于显式只读根内的普通文件。"""
     try:
         resolved_root = root.resolve(strict=True)
         resolved = path.resolve(strict=True)
@@ -207,6 +246,7 @@ def _line_locator(locator: str) -> tuple[str, int | None, int | None]:
 _LOCATOR_ERROR_AMBIGUOUS = 'ambiguous_locator'
 
 class _LocatorResolutionError(str):
+    """保留人读散文，同时给内部 wrapper 一个不依赖措辞的机读码。"""
 
     def __new__(cls, message: str, *, code: str=''):
         instance = super().__new__(cls, message)
@@ -220,6 +260,7 @@ def _is_ambiguous_locator_error(error: str) -> bool:
     return isinstance(error, _LocatorResolutionError) and error.code == _LOCATOR_ERROR_AMBIGUOUS
 
 def _narrow_to_bound_manual_version(candidates: list[Path], root: Path) -> list[Path]:
+    """把候选收窄到本次编译绑定的手册版本；拿不到版本或收窄后为空就原样退回。"""
     try:
         from cex_core.engine.case_compiler.criterion_author_rules import resolve_compile_manual_version
         version = str(resolve_compile_manual_version() or '')
@@ -239,6 +280,7 @@ def _narrow_to_bound_manual_version(candidates: list[Path], root: Path) -> list[
     return narrowed
 
 def _unique_named_file(root: Path, locator: str, *, suffix: str='') -> tuple[Path | None, str]:
+    """把项目相对路径、根内相对路径或唯一 basename/stem 解析为真实文件。"""
     raw = locator.strip()
     if not raw:
         return (None, 'empty locator')
@@ -301,6 +343,12 @@ def _unique_named_file(root: Path, locator: str, *, suffix: str='') -> tuple[Pat
     return (unique[0], '')
 
 def _unique_named_file_across_roots(roots: tuple[Path, ...], locator: str, *, suffix: str='') -> tuple[Path | None, Path | None, str]:
+    """在多个显式只读根中解析一个文件，跨根同名时失败关闭。
+
+    ``knowledge/data/manual`` 是 WebDAV 同步后的现役手册；
+    ``knowledge/data/markdown`` 保留历史分章与其它 KMS 文档。两根都能签发
+    ``manual`` receipt，但检索顺序不表示权威度，因此不能取第一个命中。
+    """
     matches: list[tuple[Path, Path]] = []
     for root in roots:
         path, error = _unique_named_file(root, locator, suffix=suffix)
@@ -348,6 +396,12 @@ def _canonical_json_sha256(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
 
 def _defect_spec_resolution_seal(receipt: dict[str, Any], *, create: bool, project_root: Path | None=None) -> str:
+    """要求 DefectSpec 收据来自引擎完成的三后端检索。
+
+    resolver 收据本身是普通 JSON，worker 能删掉同号候选再重算一份语义上自洽的
+    收据。引擎在内部 ``kb_bug_search`` 完成固定三后端探测后，把完整收据字节以
+    O_EXCL 密封到 worker 不可写的 runtime；消费端只接受逐字节命中的密封收据。
+    """
     from cex_core.engine.defect_spec_source import defect_backend_lookup_is_sealable
     if not defect_backend_lookup_is_sealable(receipt.get('lookup'), ticket_id=str(receipt.get('ticket_number') or '')):
         return 'DefectSpec resolution seal backend closure is incomplete'
@@ -405,9 +459,18 @@ def _defect_spec_resolution_seal(receipt: dict[str, Any], *, create: bool, proje
             os.close(directory_fd)
 
 def seal_defect_spec_resolution_receipt(receipt: dict[str, Any], *, project_root: Path | None=None) -> str:
+    """由引擎在三后端检索完成后首次密封 resolver 收据。"""
     return _defect_spec_resolution_seal(receipt, create=True, project_root=project_root)
 
 def _immutable_seal(*, family: str, scope_key: str, item_key: str, payload: dict[str, Any], label: str, create: bool, allow_missing: bool=False, observed_sink: dict[str, Any] | None=None, observation_sink: dict[str, Any] | None=None, project_root: Path | None=None) -> str:
+    """首次落盘即冻结的身份封印：同一 key 上出现第二份不同内容一律判漂移。
+
+    seal 落在 worker 不可写的 ``runtime/``，文件名只使用身份摘要；既有 seal
+    只读不覆盖。这样设备 actual 即使被回填，也不能凭同一身份再铸一张
+    ``compiled_pre_device`` 收据。``label`` 只进错误文本、不进封印内容——同一份
+    I/O 纪律服务多个封印族，消息仍各自指向自己的域。漂移时把既有封印内容
+    回填 ``observed_sink``，供调用方把「原来封的是什么」写进拒绝理由。
+    """
     root = Path(project_root) if project_root is not None else PROJECT_ROOT
     seal_dir = root / 'runtime' / 'compiler_seals' / family / scope_key
     seal_name = f'{item_key}.json'
@@ -477,6 +540,10 @@ def _immutable_seal(*, family: str, scope_key: str, item_key: str, payload: dict
             os.close(directory_fd)
 
 def _defect_spec_compilation_seal(compilation: dict[str, Any], *, create: bool, allow_missing: bool=False) -> str:
+    """固定同一缺陷声明首次编译出的 F/G，阻断删收据后重铸 expected。
+
+    新 claim 有新 ``claim_sha256``，不与旧声明混用；I/O 纪律见 ``_immutable_seal``。
+    """
     autoid = str(compilation.get('autoid') or '').strip()
     expectation_id = str(compilation.get('expectation_id') or '').strip()
     claim_sha256 = str(compilation.get('claim_sha256') or '').strip()
@@ -485,6 +552,13 @@ def _defect_spec_compilation_seal(compilation: dict[str, Any], *, create: bool, 
     return _immutable_seal(family='defect_spec', scope_key=hashlib.sha256(autoid.encode('utf-8')).hexdigest(), item_key=hashlib.sha256(f'{expectation_id}\x00{claim_sha256}'.encode('utf-8')).hexdigest(), payload=compilation, label='DefectSpec compilation', create=create, allow_missing=allow_missing)
 
 def _validate_defect_spec_expected_receipt(step: StepIR, *, resolver_receipt: dict[str, Any] | None=None, require_value_match: bool=True) -> tuple[dict[str, Any] | None, str]:
+    """复验逐案 DefectSpec 收据与当前 ticket/source 身份。
+
+    ``kb_bug_search`` 的原始命中只是候选。这里只接受引擎已解析的
+    ``ist.defect-spec-receipt``，并把 locator 限制到收据安全投影的
+    ``title``/``description`` 字段。设备 actual、复现步骤、日志和评论既不在
+    投影闭集中，也不可通过 locator 引用。
+    """
     supplied = resolver_receipt if resolver_receipt is not None else step.source.receipt
     if not isinstance(supplied, dict) or not supplied:
         return (None, 'DefectSpec requires the complete engine-resolved receipt')
@@ -604,6 +678,11 @@ def _validate_defect_spec_expected_receipt(step: StepIR, *, resolver_receipt: di
     return (dict(supplied), '')
 
 def validate_defect_spec_claim(claim: Any, *, autoid: str='', expectation_id: str='', semantic_key: str='') -> tuple[dict[str, Any] | None, str]:
+    """验证 pending DefectSpec 自然语言声明。
+
+    claim 只保留 resolver 安全投影的已选字段；后续 F/G 可以是
+    编译后的可执行形态，但权威类型始终是 DefectSpec。
+    """
     if not isinstance(claim, dict):
         return (None, 'DefectSpec claim must be an object')
     body_keys = {'schema', 'kind', 'autoid', 'expectation_id', 'semantic_key', 'origin', 'source_text', 'locator', 'resolver_receipt', 'resolver_receipt_sha256'}
@@ -622,9 +701,18 @@ def validate_defect_spec_claim(claim: Any, *, autoid: str='', expectation_id: st
     return (dict(claim), '')
 
 def _validate_capability_xml_expected_receipt(step: StepIR) -> tuple[dict[str, Any] | None, str]:
+    """在真实 G6 生成器落地前拒绝所有 CapabilityXml expected。
+
+    当前命令树及其公开投影只声明命令和参数能力，不能证明某个断言的
+    operator/value。调用方自报 ``producer/status`` 再给自身字段做摘要不构成
+    权威收据；即使 XML 字节里碰巧出现相同文本，也不能替代按 locator 机械解析
+    声明结构。未来接入引擎独占生成器时，应由生成器直接重建 claim 并验证其
+    不可变代际，而不是恢复这里对调用方自报收据的信任。
+    """
     return (None, 'CapabilityXml expected generation is unavailable; the current command-tree projection proves capability only and caller-supplied receipts are not authority')
 
 def _derive_rule_config_literal_copy(source_input: dict[str, Any]) -> tuple[list[dict[str, str]] | None, str]:
+    """config.literal-copy：配置字面值直拷为一条 check_point。"""
     if set(source_input) != {'operator', 'value'}:
         return (None, 'config literal-copy input requires exactly operator/value')
     operator = str(source_input.get('operator') or '').strip()
@@ -634,6 +722,7 @@ def _derive_rule_config_literal_copy(source_input: dict[str, Any]) -> tuple[list
     return ([{'E': 'check_point', 'F': operator, 'G': value}], '')
 
 def _derive_rule_config_fixture_literal_backref(source_input: dict[str, Any]) -> tuple[list[dict[str, str]] | None, str]:
+    """config.fixture-literal-backref：回指前序 CONFIG 字面值的断言直拷。"""
     required = {'operator', 'value', 'fixture_kind', 'config_block_index', 'config_command_index'}
     if set(source_input) != required:
         return (None, 'fixture literal back-reference input fields are not closed')
@@ -647,6 +736,7 @@ def _derive_rule_config_fixture_literal_backref(source_input: dict[str, Any]) ->
     return ([{'E': 'check_point', 'F': operator, 'G': value}], '')
 
 def _derive_rule_capture_static_relation(source_input: dict[str, Any]) -> tuple[list[dict[str, str]] | None, str]:
+    """capture.static-relation：两次观测的同/异关系 → found/not_found。"""
     if set(source_input) != {'relation'}:
         return (None, 'capture relation input requires exactly relation')
     relation = str(source_input.get('relation') or '').strip()
@@ -656,6 +746,7 @@ def _derive_rule_capture_static_relation(source_input: dict[str, Any]) -> tuple[
     return ([{'E': 'check_point', 'F': operator, 'G': ''}], '')
 
 def _derive_rule_capture_static_reference(source_input: dict[str, Any]) -> tuple[list[dict[str, str]] | None, str]:
+    """capture.static-reference：H 寄存器引用断言的算子直拷。"""
     if set(source_input) != {'operator', 'register'}:
         return (None, 'capture reference input requires exactly operator/register')
     operator = str(source_input.get('operator') or '').strip()
@@ -665,6 +756,7 @@ def _derive_rule_capture_static_reference(source_input: dict[str, Any]) -> tuple
     return ([{'E': 'check_point', 'F': operator, 'G': ''}], '')
 
 def _derive_rule_membership_literal_set(source_input: dict[str, Any]) -> tuple[list[dict[str, str]] | None, str]:
+    """membership.literal-set：成员集合声明 → 锚定集合正则的 found/not_found。"""
     from cex_core.engine.case_compiler.membership_assertion import expand_membership_step
     expanded, error = expand_membership_step({'E': 'check_point', 'F': 'member', 'member': source_input})
     if error or not isinstance(expanded, dict):
@@ -672,6 +764,7 @@ def _derive_rule_membership_literal_set(source_input: dict[str, Any]) -> tuple[l
     return ([{'E': str(expanded.get('E') or ''), 'F': str(expanded.get('F') or ''), 'G': str(expanded.get('G') or '')}], '')
 
 def _derive_rule_status_exit_code(source_input: dict[str, Any]) -> tuple[list[dict[str, str]] | None, str]:
+    """status.exit-code：成功极性 → 退出码 0；失败极性 → 探针工具的传输层失败退出码类。"""
     keys = set(source_input)
     if keys not in ({'expect'}, {'expect', 'probe', 'codes'}):
         return (None, 'exit-status input requires exactly expect, or expect+probe+codes for failure')
@@ -682,6 +775,7 @@ def _derive_rule_status_exit_code(source_input: dict[str, Any]) -> tuple[list[di
     return ([output] if output is not None else None, error)
 
 def _derive_rule_distribution_interval(source_input: dict[str, Any]) -> tuple[list[dict[str, str]] | None, str]:
+    """distribution.interval：分布声明 → 每桶一条锚定区间正则的 found。"""
     from cex_core.engine.case_compiler.distribution_assertion import expand_distribution_step
     expanded, error = expand_distribution_step({'E': 'check_point', 'F': 'dist', 'dist': source_input})
     if error or not isinstance(expanded, list):
@@ -690,6 +784,7 @@ def _derive_rule_distribution_interval(source_input: dict[str, Any]) -> tuple[li
 _CONFIG_BINDING_RULE_HANDLERS = {'config.literal-copy': _derive_rule_config_literal_copy, 'config.fixture-literal-backref': _derive_rule_config_fixture_literal_backref, 'capture.static-relation': _derive_rule_capture_static_relation, 'capture.static-reference': _derive_rule_capture_static_reference, 'distribution.interval': _derive_rule_distribution_interval, 'membership.literal-set': _derive_rule_membership_literal_set, 'status.exit-code': _derive_rule_status_exit_code}
 
 def _derive_config_binding_outputs(*, source_kind: str, rule_id: str, source_input: dict[str, Any]) -> tuple[list[dict[str, str]] | None, str]:
+    """只从独立结构化输入复算 expected tuple，不读取设备 actual。"""
     if rule_id not in _CONFIG_BINDING_RULES.get(source_kind, frozenset()):
         return (None, 'derivation rule is not registered for source.kind')
     handler = _CONFIG_BINDING_RULE_HANDLERS.get(rule_id)
@@ -700,6 +795,7 @@ _GENERATOR_BINDING = 'rule-logic-ast-v1'
 _CONFIG_BINDING_RULE_LOGIC = {'config.literal-copy': (('main/case_compiler/provenance_ir.py', ('_derive_rule_config_literal_copy',)),), 'config.fixture-literal-backref': (('main/case_compiler/provenance_ir.py', ('_derive_rule_config_fixture_literal_backref',)),), 'capture.static-relation': (('main/case_compiler/provenance_ir.py', ('_derive_rule_capture_static_relation',)),), 'capture.static-reference': (('main/case_compiler/provenance_ir.py', ('_derive_rule_capture_static_reference',)),), 'distribution.interval': (('main/case_compiler/provenance_ir.py', ('_derive_rule_distribution_interval',)), ('main/case_compiler/distribution_assertion.py', ('expand_distribution_step',)), ('main/case_compiler/regex_anchor_proof.py', ('analyze_regex_anchors',))), 'membership.literal-set': (('main/case_compiler/provenance_ir.py', ('_derive_rule_membership_literal_set',)), ('main/case_compiler/membership_assertion.py', ('expand_membership_step',))), 'status.exit-code': (('main/case_compiler/provenance_ir.py', ('_derive_rule_status_exit_code',)), ('main/case_compiler/blocks.py', ('_EXIT_STATUS_EXPECTS',)))}
 
 def _strip_docstrings(tree: ast.AST) -> None:
+    """就地剥掉 docstring：文档串与注释同属非逻辑改动，不得影响语义指纹。"""
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)):
             body = node.body
@@ -707,6 +803,7 @@ def _strip_docstrings(tree: ast.AST) -> None:
                 del body[0]
 
 def _module_top_level(tree: ast.Module) -> dict[str, ast.AST]:
+    """模块顶层名字 → 定义节点（函数/类/赋值）；import 语句不算逻辑单元。"""
     names: dict[str, ast.AST] = {}
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -723,6 +820,11 @@ def _referenced_names(node: ast.AST) -> set[str]:
     return {child.id for child in ast.walk(node) if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load)}
 
 def _logic_closure(top_level: dict[str, ast.AST], entries: tuple[str, ...]) -> dict[str, ast.AST] | None:
+    """从入口名字出发，沿模块内名字引用走到不动点——规则的完整逻辑闭包。
+
+    闭包内的模块级定义全部进指纹；局部变量/内建名不在模块顶层，自然被排除。
+    入口名字缺任何一个都失败关闭（返回 None），宁可拒铸也不签一份漏算的指纹。
+    """
     if any((entry not in top_level for entry in entries)):
         return None
     closure: dict[str, ast.AST] = {}
@@ -739,6 +841,12 @@ def _logic_closure(top_level: dict[str, ast.AST], entries: tuple[str, ...]) -> d
     return closure
 
 def _config_binding_generator_fingerprint(rule_id: str) -> tuple[str | None, str]:
+    """从引擎当前源码现算规则逻辑指纹；任何一环缺失都失败关闭。
+
+    外部引用账里出现未登记的**项目内**引用（``main.*``）或无法归类的引用，
+    说明规则把逻辑缝进了指纹材料之外的模块——拒绝铸造/复验，迫使作者先把
+    该模块登记进 ``_CONFIG_BINDING_RULE_LOGIC``。
+    """
     analysis, error = _config_binding_logic_analysis(rule_id)
     if analysis is None:
         return (None, error)
@@ -753,10 +861,16 @@ def _config_binding_generator_fingerprint(rule_id: str) -> tuple[str | None, str
 _BUILTIN_NAMES = frozenset(dir(builtins))
 
 def _package_for_path(path: str) -> str:
+    """单元文件路径 → 它所属包的 dotted 名（main/case_compiler/x.py → main.case_compiler）。"""
     parts = path[:-3].split('/') if path.endswith('.py') else path.split('/')
     return '.'.join(parts[:-1])
 
 def _resolve_relative_import(package: str, level: int, module: str) -> str | None:
+    """相对 import 归一化为绝对模块路径；超出包树根返回 None（下游失败关闭）。
+
+    Python 语义：level=1 是当前包，level=2 上溯一层，依此类推；上溯超出顶层
+    包在运行时本就是 ImportError，账上按无法归类处理。
+    """
     parts = package.split('.') if package else []
     if level < 1 or level - 1 > len(parts) - 1:
         return None
@@ -766,6 +880,11 @@ def _resolve_relative_import(package: str, level: int, module: str) -> str | Non
     return '.'.join(base) if base else None
 
 def _importfrom_module(node: ast.ImportFrom, package: str) -> str | None:
+    """ImportFrom 来源模块的绝对形式；归一化不了的一律 None（下游按 ``::name`` 失败关闭）。
+
+    ``from . import x``（module=None）的名字指向包属性/子模块，形态歧义，
+    同样返回 None——不记账则下游查无来源，按 ``::name`` 失败关闭，方向安全。
+    """
     if node.level == 0:
         return node.module
     if node.module is None:
@@ -773,6 +892,12 @@ def _importfrom_module(node: ast.ImportFrom, package: str) -> str | None:
     return _resolve_relative_import(package, node.level, node.module)
 
 def _module_import_bindings(tree: ast.Module, package: str) -> dict[str, str]:
+    """模块顶层 import 绑定：本地名 → 来源（``re`` 或 ``pkg.mod::name``）。
+
+    相对 import（``from .mod import y``）先按单元包归一化成绝对形式再记账——
+    它只是绝对拼写的另一种写法：指向已登记模块的相对拼写同样算已解析，
+    指向未登记项目模块的相对拼写归一化后照旧以 ``main.`` 开头进运行时闸。
+    """
     bindings: dict[str, str] = {}
     for node in tree.body:
         if isinstance(node, ast.Import):
@@ -788,6 +913,7 @@ def _module_import_bindings(tree: ast.Module, package: str) -> dict[str, str]:
     return bindings
 
 def _function_import_bindings(node: ast.AST, package: str) -> dict[str, str]:
+    """函数/闭包节点体内 import 绑定（局部）：本地名 → 来源（相对拼写已归一化）。"""
     bindings: dict[str, str] = {}
     for child in ast.walk(node):
         if isinstance(child, ast.Import):
@@ -803,6 +929,7 @@ def _function_import_bindings(node: ast.AST, package: str) -> dict[str, str]:
     return bindings
 
 def _assign_referenced_names(node: ast.AST) -> set[str]:
+    """模块级赋值节点内 Load 的名字，剔除节点内部绑定的名（推导式变量等）。"""
     loads = {child.id for child in ast.walk(node) if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load)}
     bound = {child.id for child in ast.walk(node) if isinstance(child, ast.Name) and isinstance(child.ctx, (ast.Store, ast.Del))}
     bound |= {child.arg for child in ast.walk(node) if isinstance(child, ast.arg)}
@@ -815,12 +942,28 @@ def _child_table(table: symtable.SymbolTable, name: str) -> symtable.SymbolTable
     return None
 
 def _walk_tables(table: symtable.SymbolTable) -> list[symtable.SymbolTable]:
+    """该表与全部后代表（lambda/嵌套 def 的全局引用也要分类）。"""
     tables = [table]
     for child in table.get_children():
         tables.extend(_walk_tables(child))
     return tables
 
 def _config_binding_logic_analysis(rule_id: str) -> tuple[dict[str, Any] | None, str]:
+    """解析一条规则的全部登记单元：模块内逻辑闭包 + 未解析外部引用账。
+
+    外部引用＝闭包代码 Load 到、但既不在闭包内也不是内建名的名字（函数内
+    from-import 的名字、模块顶层 import 别名都算进来；``from __future__
+    import annotations`` 下注解名不被 symtable 记为引用，天然除外）。相对
+    import 先按单元包归一化为绝对形式再记账——``from .mod import y`` 与
+    绝对拼写同判。指向**已登记单元闭包成员**的 import 算已解析——它的
+    实现已在指纹材料里；解析依据是 import 的来源模块，来源被改指未登记
+    模块照样进账。返回
+    ``{"closures": {path: {name: node}}, "externals": frozenset(qualified)}``；
+    分类覆盖现役形态（函数 + 简单模块级常量），拿不准的一律按 ``::name``
+    进账失败关闭，宁可误拦也不漏账。覆盖面边界：``exec``/``__import__``/
+    ``getattr`` 字符串这类**动态**引用在静态分析里根本不产生名字，不在
+    本闸覆盖面—— ``::name`` 兜底只盖得住「有名字但归不了类」的形态。
+    """
     units = _CONFIG_BINDING_RULE_LOGIC.get(rule_id)
     if units is None:
         return (None, 'derivation rule has no registered logic units')
@@ -840,6 +983,7 @@ def _config_binding_logic_analysis(rule_id: str) -> tuple[dict[str, Any] | None,
         per_unit[path] = {'tree': tree, 'closure': closure, 'table': table, 'package': _package_for_path(path), 'module_imports': _module_import_bindings(tree, _package_for_path(path))}
 
     def _resolve_import(source: str) -> bool:
+        """from-import 来源 ``pkg.mod::name`` 指向任一登记单元的闭包成员 ⇒ 已解析。"""
         if '::' not in source:
             return False
         module, _, name = source.rpartition('::')
@@ -889,6 +1033,16 @@ def _config_binding_logic_analysis(rule_id: str) -> tuple[dict[str, Any] | None,
     return ({'closures': {path: unit['closure'] for path, unit in per_unit.items()}, 'externals': frozenset(externals)}, '')
 
 def derivation_output_count(*, source_kind: str, rule_id: str, source_input: dict[str, Any]) -> tuple[int | None, str]:
+    """按注册生成器复算该派生输入会产出几行断言（= 扇出组的大小）。
+
+    规则侧要把 ``OBSERVE_DIST`` 扇出的 N 行归回**一个** claim，组大小必须由
+    ``source_input`` 重跑生成器算出，不能读调用方自报的行数：同一个
+    ``expectation_id`` 写在两条参数逐字节相同的 dist 上会得到 6 行、ordinal 序列
+    ``[0,1,2,0,1,2]``，按自报行数就成了一个"合法的 6 行组"。
+
+    只暴露条数，不返回派生内容——内容的权威仍是
+    ``build_config_binding_derivation_receipt`` 的逐字节重建。
+    """
     if not isinstance(source_input, dict):
         return (None, 'config binding source_input must be an object')
     outputs, error = _derive_config_binding_outputs(source_kind=str(source_kind or '').strip(), rule_id=str(rule_id or '').strip(), source_input=source_input)
@@ -898,11 +1052,30 @@ def derivation_output_count(*, source_kind: str, rule_id: str, source_input: dic
 _CAPTURE_REGISTER_RULES = frozenset({'capture.static-relation', 'capture.static-reference'})
 
 def _capture_register_final_form_matches(actual: Mapping[str, Any], derived: Mapping[str, Any], rule_id: str) -> bool:
+    """H 寄存器引用断言的卷面终形等价：derived=found ≡ actual=abs_found。
+
+    emit_xlsx_tool 在 check_point 引用 H 寄存器时把 found 归一成 abs_found 并写回
+    steps（内部工单：backfill_efg 从同一列表回填 E/F/G，卷面与 provenance 必须同形）。
+    框架 found 把期望值当正则、abs_found 当字面；寄存器捕获值含正则元字符，
+    只有字面匹配语义成立——所以这是同一条断言的机械形（收据铸造时）与终形
+    （emit 归一化后）两种形态，不是身份漂移。
+
+    闭集只有 capture.static-* 两条规则：它们的输出按构造恒为 H 寄存器引用，
+    等价可以从规则结构机械得出。反方向不外溢——裸 abs_found（无寄存器）是
+    字面匹配语义、config/distribution/membership/status 派生的 found 是 G 列
+    正则锚定，两者与 found 都不是同一断言，不进本等价。
+    """
     if rule_id not in _CAPTURE_REGISTER_RULES:
         return False
     return actual.get('E') == derived.get('E') and actual.get('G') == derived.get('G') and (str(actual.get('F') or '') == 'abs_found') and (str(derived.get('F') or '') == 'found')
 
 def build_config_binding_derivation_receipt(*, source_kind: str, recipe_id: str, rule_id: str, source_input: dict[str, Any], output_step: dict[str, Any], output_ordinal: int=0) -> tuple[dict[str, Any] | None, str]:
+    """由结构化输入和注册规则铸造可独立复算的 ConfigBinding receipt。
+
+    ``generator.sha256`` 锚的是规则逻辑的语义指纹（``_GENERATOR_BINDING``），
+    由引擎从自己的源码现算——收据只是声明，复验时重新现算比对，调用方自报的
+    hash 不能给自己背书。
+    """
     kind = str(source_kind or '').strip()
     rule = str(rule_id or '').strip()
     if kind not in _DERIVED_SOURCE_KINDS:
@@ -932,6 +1105,12 @@ _DERIVATION_RECEIPT_DRIFT = 'ConfigBinding derivation receipt identity drift'
 _DERIVATION_ANCHOR_KEYS = ('schema', 'source_kind', 'recipe_id', 'rule_id', 'source_input', 'source_input_sha256', 'output_ordinal', 'derived_output', 'derived_output_sha256', 'status')
 
 def reconcile_config_binding_derivation_receipt(supplied: Any, rebuilt: dict[str, Any] | None) -> tuple[dict[str, Any] | None, str]:
+    """派生收据复验的唯一入口：新形态逐字节相等才直接通过。
+
+    不一致时只给旧 file-bytes 形态一条显式迁移通道（语义重算一致则按新绑定
+    重铸，不一致则显式退役）；其余任何不一致都是 identity drift，失败关闭。
+    返回的收据以引擎重建值为准——调用方自报的 receipt 永远只是待核对的输入。
+    """
     if not isinstance(supplied, dict) or not isinstance(rebuilt, dict):
         return (None, _DERIVATION_RECEIPT_DRIFT)
     if supplied == rebuilt:
@@ -939,6 +1118,16 @@ def reconcile_config_binding_derivation_receipt(supplied: Any, rebuilt: dict[str
     return _migrate_legacy_derivation_receipt(supplied, rebuilt)
 
 def _migrate_legacy_derivation_receipt(supplied: dict[str, Any], rebuilt: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+    """旧形态（generator.sha256 = 生成器文件字节）收据的显式迁移判定。
+
+    迁移判据＝语义重算：旧收据除 generator.sha256/receipt_sha256/binding 外的
+    全部语义锚必须逐字节等于引擎当前重建值——即同一 rule_id + source_input 在
+    现役规则逻辑下仍派生出同一 derived_output；且旧收据自身的 receipt_sha256
+    必须与其 material 自洽（证明它确由铸造算法产出，不是手工拼的）。通过则按
+    新绑定形态重铸返回（惰性迁移，落盘即完成换绑）；不通过则显式退役——返回
+    带 retired 字样的可见错误，绝不静默放行。旧收据里的文件字节 hash 无从复得，
+    不作为判据参与任何一边的判定。
+    """
     generator = supplied.get('generator')
     if not isinstance(generator, dict) or set(generator) != _LEGACY_GENERATOR_KEYS:
         return (None, _DERIVATION_RECEIPT_DRIFT)
@@ -960,6 +1149,7 @@ def _migrate_legacy_derivation_receipt(supplied: dict[str, Any], rebuilt: dict[s
 _INTENT_SELECTOR_RE = re.compile('^u\\d+:\\d{18}:\\d+:\\d+$')
 
 def _intent_selectors(payload: Any) -> list[str]:
+    """intent.json 里实际可当 selector 用的键（expectation_id 形态），去重按序。"""
     found: list[str] = []
     stack = [payload]
     while stack:
@@ -975,9 +1165,29 @@ def _intent_selectors(payload: Any) -> list[str]:
     return sorted(found)
 
 def _step_redeems_author_claim(step: 'StepIR') -> bool:
+    """这一步能不能兑现 pending Author claim：只有断言步能。
+
+    intent 是 Author 期望值的签发通道，盖了章的 expectation_id 经 pending Author
+    claim 落到带 expectation_id/semantic_key 的 check_point 断言上。命令步（配置、
+    观测、test_env 派发）没有期望值可签，出处要指它自己真查过的那份材料。
+    """
     return step.E.strip() == 'check_point'
 
 def _intent_on_non_assertion(step: 'StepIR', locator: str, *, selector_resolves: bool) -> str:
+    """命令步想拿盖章身份当出处时的拒绝文案：说清该改哪一步、该换成什么。
+
+    用错来源类别 ≠ 断言缺字段（2026-09-03 slb5_pipeline4 案 <case> 实证）：旧代码
+    把这条判在身份分支之后，配置步本来就没有 semantic_key，于是回「this assertion
+    carries no expectation_id」，worker 照着去改断言身份，越改越不对——单批 49 次
+    拒收里 28 次是这一条。
+
+    ``selector_resolves=False`` 那一支同源（<batch>/4/5 + ipo 四批实证）：
+    `intent:step:1` 这种自造 selector 此前命中的是「selector 不存在，可选的是
+    u1:<autoid>:…」，而该步是命令步——把「换个 selector」当修法，下一轮换成真
+    expectation_id 再撞上面那条。四批里落在命令步上的 selector 拒绝 280 次（占该子
+    因 87%）。所以命令步上 selector 解析不出来时，主句先说命令步这件事，并且不列
+    候选 selector：列出来就是引擎自己把写手指回同一个错位置。
+    """
     if selector_resolves:
         lead = f'E={step.E!r} is a command step, not an assertion, so it cannot take source.kind=intent to redeem an Author claim (locator {locator})'
     else:
@@ -993,6 +1203,7 @@ def _json_contains_key(value: Any, key: str) -> bool:
     return False
 
 def _json_values_for_key(value: Any, key: str) -> list[Any]:
+    """返回 JSON 树中精确键名对应的值，不做文本或模糊匹配。"""
     matches: list[Any] = []
     if isinstance(value, dict):
         for current_key, current_value in value.items():
@@ -1005,6 +1216,11 @@ def _json_values_for_key(value: Any, key: str) -> list[Any]:
     return matches
 
 def resolve_source_receipt(case: CaseProvenance, step: StepIR, *, outputs_root: Path | None=None) -> tuple[dict[str, Any] | None, str]:
+    """把 provenance 指针解析成真实、带 SHA-256 的来源凭据。
+
+    外部来源必须落到现有只读资产；内部确定性推导则绑定本案 E/F/G 快照。
+    该函数不依据调用方自带 receipt 放行。
+    """
     kind = str(step.source.kind or '')
     locator = str(step.source.ref or '').strip()
     if kind == 'manual':
@@ -1202,6 +1418,11 @@ def resolve_source_receipt(case: CaseProvenance, step: StepIR, *, outputs_root: 
     return (None, f"source.kind={kind or 'unknown'} has no resolvable receipt")
 
 def seal_defect_spec_compilations(case: CaseProvenance, *, outputs_root: Path | None=None) -> list[str]:
+    """在成功编译终点发布 DefectSpec 的首次 F/G seal。
+
+    调用前不信任旁挂 receipt，而是再次从盖章 intent、当前缺陷票与当前 F/G
+    重建 compilation；ready（直接逐字声明）没有 compilation，故无需此 seal。
+    """
     problems: list[str] = []
     for index, step in enumerate(case.steps):
         if str(step.source.kind or '') != 'defect_spec':
@@ -1229,6 +1450,12 @@ _NEGATIVE_ASSERT_OPERATORS = frozenset({'not_found'})
 _EXPECTATION_DIRECTION_SEAL_SCHEMA = 'ist.expectation-direction-seal'
 
 def direction_family(token: str) -> str:
+    """方向令牌的载体族：``status.exit-code`` / ``capture.static-relation`` / ``operator``。
+
+    同一判词换承载（退出码类 ↔ 框架算子）时两个令牌不同族，族间的极性没有可比的
+    定义（`found "timed out"` 与 `expect=failure` 都能兑现「访问失败」），所以封印只在
+    同族之内比对，跨族只是方法重编（11 章「冻结的只是方向，不是 F/G」）。
+    """
     return str(token or '').split(':', 1)[0]
 
 def _directions_by_family(tokens) -> dict[str, set[str]]:
@@ -1240,11 +1467,19 @@ def _directions_by_family(tokens) -> dict[str, set[str]]:
     return grouped
 
 def direction_flip_families(sealed_tokens, current_tokens) -> list[str]:
+    """首轮封印与本轮方向集之间真正翻面的载体族；空列表即无翻面。
+
+    只有两侧都出现的族才可比：同族令牌集不同即翻面；只在一侧出现的族是换承载。
+    """
     sealed = _directions_by_family(sealed_tokens)
     current = _directions_by_family(current_tokens)
     return sorted((family for family in sealed.keys() & current.keys() if sealed[family] != current[family]))
 
 def expectation_direction(step: StepIR) -> str:
+    """把一条已编译断言投影成方向令牌；读不出方向返回空串。
+
+    令牌只有身份意义、不参与取值，唯一用途是与首轮封印比对。
+    """
     if str(step.E or '').strip() != 'check_point':
         return ''
     receipt = step.source.receipt
@@ -1262,6 +1497,7 @@ def expectation_direction(step: StepIR) -> str:
     return ''
 
 def _direction_token_shape_valid(token: str) -> bool:
+    """复核封印令牌是否属于现有产者文法；只判记录形态，不签预期语义。"""
     operator_tokens = {'operator:negative' if operator in _NEGATIVE_ASSERT_OPERATORS else 'operator:positive' for operator in _ASSERT_OPERATORS}
     if token in operator_tokens:
         return True
@@ -1280,6 +1516,11 @@ def _direction_token_shape_valid(token: str) -> bool:
     return False
 
 def _contract_author_claim_shas(contract: Any, *, autoid: str) -> dict[str, str]:
+    """冻结契约卡的 ``expectations[].author_claim`` → claim_sha256。
+
+    身份复核复用 ``vk_derivation._author_claim``（卡来自受信路径不等于身份本身），
+    不在这里写第二套判据。
+    """
     expectations = contract.get('expectations') if isinstance(contract, dict) else None
     if not isinstance(expectations, list):
         return {}
@@ -1298,6 +1539,13 @@ def _contract_author_claim_shas(contract: Any, *, autoid: str) -> dict[str, str]
     return shas
 
 def author_claim_shas(autoid: str, *, outputs_root: Path | None=None, contract: Any=None) -> dict[str, str]:
+    """expectation_id → 已盖章 Author claim 的 claim_sha256；读不到返回空表。
+
+    两个供给面并取：冻结契约卡（现役批的正本——`workspace/outputs/<批>/contracts/
+    <autoid>.json`，由调用方读好传进来）与 ``<autoid>/intent.json``（`intent` 源类
+    断言复验读的那份）。两处都读不到就返回空表——本闸不因读不到而冒签「这条判词
+    没被签发过」，也不因此拒绝。
+    """
     shas = _contract_author_claim_shas(contract, autoid=autoid)
     aid = str(autoid or '').strip()
     if not aid or Path(aid).name != aid:
@@ -1325,6 +1573,23 @@ def author_claim_shas(autoid: str, *, outputs_root: Path | None=None, contract: 
 EXPECTATION_DIRECTION_FLIP_EXITS = "A signed expectation's direction is frozen at its first compile: the method may be recompiled (probe tool, observation command, host, exit-code class, operator form) but the asserted outcome may not be flipped. If this run showed the product behaving the other way, keep the assertion and attribute the case as disposition=defect_candidate with a signed expected_with_source receipt. If another signed source (spec/manual/capability_xml) states the opposite, that is a source conflict for the upstream conflict graph to reconcile, never a rewrite here."
 
 def seal_expectation_directions(case: CaseProvenance, *, outputs_root: Path | None=None, project_root: Path | None=None, contract: Any=None, disclosures: list[dict[str, Any]] | None=None, failure_observations: list[dict[str, Any]] | None=None) -> list[str]:
+    """封印每条已签发 Author 判词首次编译出的方向，并在重编轮复核它没被翻面。
+
+    按 claim 分组而不是按断言行：一条判词被 N 条命令兑现（<case> 三条 curl）或被
+    ``OBSERVE_DIST`` 扇出成 N 桶时，方向是这一组的集合，集合稳定即未翻面。案内
+    序列化对照行由编译器铸造、沿用同一 expectation_id 且必然反极性，在此排除——
+    它是规则产物，不是作者的第二条声明。
+
+    集合比较保留两类未核披露：封印令牌全部保留、只新增对侧
+    令牌的**纯扩张**（如 {negative}→{negative,positive}）机械上证不出翻面——作者
+    在同一判词下补正向前置是否合法属相位/语义解读，按披露处理不硬拒
+    （``disclosures`` 出参，调用方绑定当前卷面落披露）。旧 capture 封印只存同/异
+    令牌，没有操作数、观测和阶段；同族令牌替换也不能证明作者预期翻面，故同样披露。
+    其余族的令牌消失仍保留既有限制，本次不证明 status/operator 规则的语义健全性。
+
+    封印按 ``claim_sha256`` 入 key：作者改了脑图即新 claim、新 key、重新封印，
+    本闸只管「同一句话被编成了相反的断言」。
+    """
     claim_shas = author_claim_shas(case.autoid, outputs_root=outputs_root, contract=contract)
     if not claim_shas:
         return []
@@ -1410,11 +1675,15 @@ def seal_expectation_directions(case: CaseProvenance, *, outputs_root: Path | No
     return problems
 
 def _step_g_snippet(step: StepIR) -> str:
+    """G 原文首行截断，供违例文本定位载体。观测命令与配置命令展开后同为
+    F='cmd_config'，只报 E/F 会把排障指向错误的块类（<case> 实证约 20 轮，
+    见 内部取证文档（已脱敏）"""
     lines = str(step.G or '').strip().splitlines()
     text = lines[0].strip() if lines else ''
     return text[:60] + ('…' if len(text) > 60 else '')
 
 def check_source_locators(case: CaseProvenance, *, outputs_root: Path | None=None) -> list[str]:
+    """验证每个来源确实可复查，并为通过项重铸当前 SHA receipt。"""
     problems: list[str] = []
     for index, step in enumerate(case.steps):
         kind = str(step.source.kind or '')
@@ -1444,6 +1713,13 @@ def check_source_locators(case: CaseProvenance, *, outputs_root: Path | None=Non
     return problems
 
 def validate_expected_with_source(value: Any) -> tuple[dict[str, Any] | None, str]:
+    """验证产品缺陷候选的“预期 + 静态签发来源”结构。
+
+    自由文本 ``"手册:应当..."`` 无法证明手册或行号存在，不能把产品候选从
+    engine 责任升级到 product。Author/CapabilityXml 必须带已铸造
+    receipt；DefectSpec 必须带逐案 resolver 收据；Spec/Manual 仍由引擎就地解析。运行回显、probe、先例与
+    footprint 都不是 expected 签发者。
+    """
     if not isinstance(value, dict):
         return (None, 'expected_with_source must be an object with `expected` and `source:{kind,ref}`; free text is not a source receipt')
     expected = str(value.get('expected') or '').strip()
@@ -1547,10 +1823,12 @@ def validate_expected_with_source(value: Any) -> tuple[dict[str, Any] | None, st
     return ({'expected': expected, 'source': {'kind': 'capability_xml' if resolved.kind == 'capability_xml' else resolved.kind, 'ref': resolved.ref, 'receipt': resolved.receipt}}, '')
 
 def product_expected_source_is_valid(value: Any) -> bool:
+    """产品候选资格消费点共用的纯布尔入口。"""
     resolved, _error = validate_expected_with_source(value)
     return resolved is not None
 
 def _nested_text_values(value: Any) -> list[str]:
+    """展开机读对象里的字符串值，供精确身份谓词复用。"""
     if isinstance(value, str):
         return [value]
     if isinstance(value, dict):
@@ -1566,6 +1844,14 @@ def _nested_text_values(value: Any) -> list[str]:
     return []
 
 def _expect_derivation_kind(expect: Mapping[str, Any]) -> str | None:
+    """expect 是否派生形态；是则返回归一后的派生配方名（可能是非法值）。
+
+    现役写法是配方名本身（== 断言步的 ``source.kind``）；2026-09-03 前的盘上
+    形态是散文 ``compiler-derived:<kind>``——读侧归一兼容，写侧只有现役一种
+    形态（单源读写纪律，不留双写漂移）。没有 ``derivation`` 键时返回
+    ``None``（非派生形态），交由各权威组自己的形态分支判；键存在但值非法
+    （空串/未知配方）仍按派生形态走，由校验分支给出明确拒绝。
+    """
     if 'derivation' not in expect:
         return None
     raw = str(expect.get('derivation') or '').strip()
@@ -1574,6 +1860,14 @@ def _expect_derivation_kind(expect: Mapping[str, Any]) -> str | None:
     return raw
 
 def compile_assertion_types(case: CaseProvenance, *, current_run_ids: tuple[str, ...]=(), required: bool | None=None) -> list[str]:
+    """检查 IDE 断言三元组的凭据形态，不判断凭据内容是否正确。
+
+    读取边界：历史归档 provenance 可能没有 ``assertion_schema``，也没有
+    ``assertion_type``；本函数仍能只读解析这类记录。现役 ``compile_emit`` 不接受
+    调用方提交的 raw untyped provenance；只有 blocks 编译器可从受约束的结构化
+    输入机械派生类型。一旦声明新 schema 或任一断言带型，所有
+    ``check_point`` 都必须完整带型，禁止新旧形态在同一案内混排。
+    """
     assertions = [(index, step) for index, step in enumerate(case.steps) if step.E.strip() == 'check_point']
     typed = any((step.assertion_type is not None for step in case.steps))
     if required is None:
@@ -1728,6 +2022,12 @@ def compile_assertion_types(case: CaseProvenance, *, current_run_ids: tuple[str,
     return problems
 
 def synthesize_assertion_types(case: CaseProvenance) -> list[str]:
+    """为尚未带型的新案机械生成 IDE 断言类型。
+
+    这里只把已经存在于步骤 IR 的来源投影成固定形态，不判断来源内容是否
+    正确：来源真实性仍由 ``check_source_locators`` / receipt 规则负责。显式
+    带型的断言不被改写，随后仍由 ``compile_assertion_types`` 校验。
+    """
     problems: list[str] = []
     for index, step in enumerate(case.steps):
         if step.E.strip() != 'check_point' or step.assertion_type is not None:
@@ -1771,6 +2071,7 @@ def synthesize_assertion_types(case: CaseProvenance) -> list[str]:
     return problems
 
 def compile_expect_authority(case: CaseProvenance) -> list[str]:
+    """编译入口只接受静态声明或确定性绑定提供的 expected。"""
     problems: list[str] = []
     for index, step in enumerate(case.steps):
         if step.source.kind == 'precedent':
@@ -1787,6 +2088,7 @@ def compile_expect_authority(case: CaseProvenance) -> list[str]:
 check_emit_source_authority = compile_expect_authority
 
 def parse_provenance(provenance_json: str) -> CaseProvenance | None:
+    """容错解析 provenance_json；空/坏返回 None（调用方据此回退 V2 行为）。"""
     if not provenance_json or not provenance_json.strip():
         return None
     try:
@@ -1795,6 +2097,7 @@ def parse_provenance(provenance_json: str) -> CaseProvenance | None:
         return None
 
 def steps_match(provenance: CaseProvenance, steps: list[dict]) -> bool:
+    """校验 provenance 的步骤与实际 emit 的 steps 在 E/F/G 上一致（防 draft 标注与产物脱节）。"""
     if len(provenance.steps) != len(steps):
         return False
     for ps, st in zip(provenance.steps, steps):
@@ -1803,6 +2106,9 @@ def steps_match(provenance: CaseProvenance, steps: list[dict]) -> bool:
     return True
 
 def backfill_efg(provenance: CaseProvenance, steps: list[dict]) -> bool:
+    """按位置把 emit steps 的 E/F/G 回填进 provenance——draft 只标 layer/source、不必手抄 E/F/G。
+    （手抄一长串 E/F/G 极易错位，一错位 steps_match 就失败、旁挂跳过、draft 就重 emit 空转。）
+    步骤数一致即逐位回填并返回 True；数目对不上才返回 False（旁挂跳过）。"""
     if len(provenance.steps) != len(steps):
         return False
     for ps, st in zip(provenance.steps, steps):
@@ -1812,6 +2118,15 @@ def backfill_efg(provenance: CaseProvenance, steps: list[dict]) -> bool:
     return True
 
 def check_runtime_consistency(provenance: CaseProvenance) -> list[str]:
+    """不瞎写硬契约：device_runtime 来源 ⟺ G 值是 <RUNTIME> 占位，双向自洽。
+
+    抓三类骗通过规则的写法（纯结构自洽，不判值对错——离线本就判不了对错）：
+    - 标了 device_runtime 却填了具体值（假装弃权、实则编数）；
+    - 填了 <RUNTIME> 占位却把来源标成 footprint/precedent 等（占位却谎称有源）；
+    含 <RUNTIME> 子串即视为占位，不只看整串相等。设备观察永远不能成为
+    expected 来源，因此不存在 device_verified 晋升态。
+    返回违规说明列表（空＝自洽）。只看 check_point（断言点）步骤——占位只对期望值有意义。
+    """
     problems: list[str] = []
     for i, s in enumerate(provenance.steps):
         if s.E.strip() != 'check_point':

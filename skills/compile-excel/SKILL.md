@@ -21,7 +21,7 @@ portal session sits in a private per-user cache. Nothing secret passes through t
 | First use in this folder | `cex_status` → `cex_init` → `cex_login_start` / `cex_login_wait` → `cex_client_config` → `cex_sync` ([workspace setup](references/workspace-setup.md)) |
 | Every session | `cex_status`; log in again only if `logged_in` is false; `cex_sync` |
 | Read a defect ticket as source | `cex_portal_login_start` → user scans → `cex_portal_login_wait` → `cex_bug_get` |
-| Recompose a mindmap before compiling | `mindmap-recompose` skill when installed (direct preview) → author only its contract cases |
+| Recompose a mindmap before compiling | `mindmap-recompose` skill → author from its sealed `machine_mindmap.json` |
 | Look up manual text | `cex_docs_query` |
 | Ground commands against the build | `cex_cmd_check` while authoring; `scripts/cmdtree_check.py` as the gate |
 | Compile cases | You write `cases.json` → `scripts/compile_excel.py` |
@@ -111,13 +111,21 @@ again; the tool does not retry by itself. Never ask for a portal password.
 
 ### 4. Recompose before authoring (when the input is a human mindmap)
 
-When the `mindmap-recompose` skill is installed, dispatch it first (direct invocation =
-preview) and:
+Run the `mindmap-recompose` skill first. It seals
+`compile_outputs/<out_name>/machine_mindmap.json`, every case of which passed the compile
+engine's submission checks. Author from that file:
 
-- author `cases.json` **only from its contract cases** (verbatim intent + sourced method +
-  verbatim expectation);
-- anything it filed as `proposal` (e.g. 「访问成功」 traffic verdicts with no client on the bed)
-  does not become an assertion: report it to the user as un-compiled;
+- author `cases.json` **only from cases with a contract** (verbatim intent + sourced method +
+  verbatim expectation; `expectations_by_step` carries every authored expectation, with its
+  origin);
+- a case with a `scenario2` record (incomplete source) or a `consistency.verdict` of
+  `mutually_exclusive` is not compiled: report it to the user as abandoned, with the reason the
+  file records;
+- `consistency.missing_preconditions` (verdict `underdetermined`) names precondition steps you
+  add before the authored steps; `adapted_steps` is the executable form of each authored step,
+  and its `basis` goes into the report beside the original;
+- anything filed as `proposal` (e.g. 「访问成功」 traffic verdicts with no client on the bed) does not
+  become an assertion: report it to the user as un-compiled;
 - keep `exp_recipe / step_recipe / true_gap` counts in your final report.
 
 Without that skill, hold yourself to the same rule: every expectation is a verbatim substring of

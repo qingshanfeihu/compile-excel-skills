@@ -233,17 +233,38 @@ def _violation(code: str, locus: str, detail: str, legal_form: str) -> dict[str,
     return {'code': code, 'locus': locus, 'detail': detail, 'legal_form': legal_form}
 
 def _locus_list(loci: Sequence[str]) -> str:
+    """locus 清单按上限截断，剩下的报个数——清单本身撑爆载荷就本末倒置了。"""
     shown = list(loci[:MAX_TRUNCATED_LOCI_SHOWN])
     rest = len(loci) - len(shown)
     return ', '.join(shown) + (f', and {rest} more' if rest else '')
 
 def _budget_cut_note(kind: str, loci: Sequence[str]) -> str:
+    """被截条目**已全部判过**时的说法：条数精确，locus 逐个点名。
+
+    「还有一些没渲染」不够写手用：不知道还有几条、在哪儿，就判不出改完上面这批
+    值不值得再交一次，也无从预判下一轮会被同一批违例再拒。
+    """
     return f'{len(loci)} further {kind}s are not rendered; the rejection payload reached its budget. They are at: {_locus_list(loci)}. Repair the ones above and submit again; the rest are reported then.'
 
 def _budget_stop_note(kind: str, *, rendered: int, stopped_at: str, unjudged: Sequence[str]) -> str:
+    """边判边渲染的循环到顶时的说法：判到哪儿停的，哪些 locus 这份载荷没覆盖。
+
+    与 `_budget_cut_note` 的差别是**不报被截违例的条数**——到顶就不再往下判，那个
+    数字没算过。报出来的都是算过的：渲染了几条、停在哪个 locus、剩下哪些条目这份
+    载荷没说话。编个「还有 N 条」比不说更坏。
+    """
     return f'{rendered} {kind}s are rendered above, and the rejection payload reached its budget at {stopped_at}: judging stopped there. These {len(unjudged)} loci are not covered by this payload: {_locus_list(unjudged)}. Repair the ones above and submit again; whatever is left is judged and reported then.'
 
 def budget_violations(violations: Sequence[Mapping[str, str]], *, max_chars: int=MAX_VIOLATION_PAYLOAD_CHARS) -> list[dict[str, str]]:
+    """按码去重合法形态、收住载荷，并给每个被截的码补一条「截了几条、在哪儿」。
+
+    入参是**已经判完**的整份清单，所以被截那些条目的 locus 与条数都是现成的：
+    通知因此报精确数字（`_budget_cut_note`），不说「还有一些」。
+
+    截断通知不计入 `max_chars`：预算的钱该花在违例上，让某个码的通知去挤掉**另一个
+    码**的违例是把话说少了。整份载荷因此是 `max_chars` 加每个被截码一条通知，
+    locus 清单按 `MAX_TRUNCATED_LOCI_SHOWN` 收口、条数照实报。
+    """
     emitted_codes: set[str] = set()
     out: list[dict[str, str]] = []
     cut: dict[str, list[str]] = {}
@@ -284,6 +305,11 @@ MAX_ADAPTED_STEP_CHARS = 4000
 MAX_ADAPTED_BASIS_CHARS = 2000
 
 def _ip_address(token: Any) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """IP 形态字面解析出的地址对象；不是 IP 形态就 `None`。
+
+    规范键与地址族共用这一次解析——族信息本来就在解析结果里，再解析一遍只会多出
+    一条判不出来的 `except`。
+    """
     text = str(token or '').strip()
     match = _IP_LITERAL_RE.fullmatch(text)
     if match is None:
@@ -294,6 +320,7 @@ def _ip_address(token: Any) -> ipaddress.IPv4Address | ipaddress.IPv6Address | N
         return None
 
 def _ip_key(token: Any) -> str | None:
+    """IP 形态字面的规范键：去掉 %zone 与 /prefix，v4/v6 都按 ipaddress 规范串。"""
     address = _ip_address(token)
     return None if address is None else str(address)
 
@@ -306,6 +333,7 @@ def _ip_literals(text: Any) -> set[str]:
     return out
 
 def _adaptation_tokens(text: str) -> list[str]:
+    """对齐用记号流：IP 字面整段一个记号，其余逐字符。"""
     out: list[str] = []
     pos = 0
     for match in _IP_LITERAL_RE.finditer(text):
@@ -318,6 +346,12 @@ def _adaptation_tokens(text: str) -> list[str]:
     return out
 
 def _adaptation_literal_map(authored: str, adapted: str) -> tuple[dict[str, set[str]], bool]:
+    """作者 IP 字面 → 适配后取值的逐字面映射（按序列对齐，不按集合计数）。
+
+    返回 (mapping, aligned)：mapping[作者字面] = {替换值…}；某段替换里作者侧
+    与适配侧 IP 个数对不齐、或作者字面被整段删除时 aligned=False，调用方退回
+    按步的基数下界。
+    """
     a_tokens = _adaptation_tokens(authored)
     b_tokens = _adaptation_tokens(adapted)
     matcher = difflib.SequenceMatcher(None, a_tokens, b_tokens, autojunk=False)
@@ -347,6 +381,7 @@ SUBSTITUTION_BASIS_BED_ROLE = 'bed_role'
 _CONDITION_ATOM_RE = re.compile('[A-Za-z0-9_][A-Za-z0-9_.:%-]*')
 
 def _condition_atoms(text: Any) -> list[str]:
+    """条件文本里的记号流：拉丁/数字连写段。中文散文不进这一格。"""
     return [match.group(0) for match in _CONDITION_ATOM_RE.finditer(str(text or ''))]
 
 def _atom_in_text(atom: str, text: Any) -> bool:
@@ -357,12 +392,25 @@ def _atom_in_text(atom: str, text: Any) -> bool:
 _ORDINAL_MARKER_RE = re.compile('^\\d{1,3}\\.(?=.)')
 
 def _atom_is_head_token(atom: str, token: str) -> bool:
+    """记号是不是这个命令头 token——容作者写在命令前面的序号标记。
+
+    语料里的步骤原文常写成 `2.slb virtual addrlists "addlist1" …`：序号和命令之间
+    只有一个点，记号流因此把 `2.slb` 连成一个。不容这一形态，带序号的那些步一条
+    命令头都接不上，整格恒空。只剥纯数字前缀，`www.test.com` 不受影响。
+    """
     if atom == token:
         return True
     stripped = _ORDINAL_MARKER_RE.sub('', atom, count=1)
     return stripped != atom and stripped == token
 
 def _argument_atoms(text: Any, grounded_heads: Sequence[tuple[str, tuple[str, ...]]]) -> set[str]:
+    """落在某条已接地命令头之后的记号集——「实参位」。
+
+    与比对器判 `stated_conditions[].value` 用的是同一条纪律（14 章 §7「实参＝头/
+    对象路径之后的 token」）：一个词只在某条命令的实参里才是一个**取值**，散文里的
+    同一个词不是。命令头取每案自己 `command_check` 里已接地的那批，代码不写死任何
+    命令；一条头都接不上时这一格恒空，规则据此不判。
+    """
     atoms = [atom.lower() for atom in _condition_atoms(text)]
     out: set[str] = set()
     for _command, head in grounded_heads:
@@ -379,6 +427,11 @@ def _argument_atoms(text: Any, grounded_heads: Sequence[tuple[str, tuple[str, ..
     return out
 
 def _atom_replacements(before: Any, after: Any) -> list[tuple[str, str]]:
+    """两段文本按记号流对齐后 1:1 的替换对；长度不等的替换段整段跳过。
+
+    只收 1:1 是故意的：`a b → c` 这种不等长替换说不出「谁换成了谁」，硬配对等于
+    引擎替模型猜对应关系。
+    """
     a = [atom.lower() for atom in _condition_atoms(before)]
     b = [atom.lower() for atom in _condition_atoms(after)]
     out: list[tuple[str, str]] = []
@@ -389,6 +442,22 @@ def _atom_replacements(before: Any, after: Any) -> list[tuple[str, str]]:
     return out
 
 def adaptation_value_substitutions(*, author_text: Any, text: Any, value: Any, sealed_step: Any, adapted_step: Any, grounded_heads: Sequence[tuple[str, tuple[str, ...]]]) -> list[tuple[str, str]]:
+    """「适配把作者写在命令实参位上的 stated 取值换成了另一个字面」逐条挑出来。
+
+    四条同时成立才算一次换值；任一条不成立就不是这一格的事，宁可少判：
+
+    1. `author_text` → `text` 对齐后有一对 1:1 的记号替换（旧 → 新）；
+    2. 旧记号在整条适配文本里已经不在了——还在就是措辞变了，不是取值被换了；
+    3. 新记号属本条件声明的 `value`、旧记号不属。`value` 是引擎带下游的那一个
+       （契约卡、编写侧信封、比对器实参比对都读它），两侧都不动它的替换改变不了
+       引擎认定的作者取值；
+    4. 旧记号在**密封原文**里、新记号在**适配文本**里，都落在某条已接地命令头的
+       实参位上。散文里的同一个词不是取值——记法归一（作者写 `v4`、适配写
+       `IPv4`）正是从这一条出去的。
+
+    返回 (旧记号, 新记号) 列表，全部小写。判定零领域词表：命令头来自本案
+    `command_check`，取值切分与比对器共用 `stated_value_tokens`。
+    """
     value_atoms = {token.lower() for token in stated_value_tokens(value) if token}
     if not value_atoms:
         return []
@@ -409,6 +478,7 @@ def adaptation_value_substitutions(*, author_text: Any, text: Any, value: Any, s
     return out
 
 def _bed_facts() -> Any:
+    """床事实取不到就抛（批入口已排除，见 `env_facts.require_env_facts`）。"""
     from cex_core.engine.ist_core.tools._shared.env_facts import require_env_facts
     return require_env_facts()
 
@@ -422,10 +492,32 @@ def _address_unreachable_on_bed(facts: Any, literal: str) -> bool | None:
         return None
 
 def _address_family(literal: Any) -> int | None:
+    """地址族，与 `_ip_key` 同一次解析。"""
     address = _ip_address(literal)
     return None if address is None else address.version
 
 def recomputable_substitution_basis(old_atom: str, new_atom: str) -> str | None:
+    """这次换值有没有**引擎可重算**的依据；`None` 表示没有，规则据此拒。
+
+    两条依据都只对床事实投影重算，不含任何领域词表——它们对应的正是重组孔被要求
+    做的两件事（`agents/mindmap-recompose.md` 的适配规则）：
+
+    - `unreachable_address`：作者字面是这张床**不可达**的地址、适配字面可达，**且两
+      者同地址族**。条款原话是「他床字面改转为同地址族的自动化取值」
+      （`docs/engine/02_decision_space.md` §2.27 改写制）：不可达才是「他床字面」，
+      同族才是「改转」——v4 换成 v6 不是重绑，是换了测试点。
+    - `bed_role`：**作者那个原子不是地址字面**，而适配字面是床事实里点得出的东西
+      （设备名，或这张床可达的地址）。作者写角色、适配落到这张床上的具体值，落点在
+      不在床上是引擎算得出的。算法名、协议词、权重、次数都不在床事实里，借不到这条。
+
+    **作者写的就是地址字面时只有上面第一条路**：本床已经连得上的地址被换掉，换的是
+    测试点本身，不是重绑——`<case>` 的 dig 目标串段正是这类。重组孔虽拿不到床事实，
+    但经 concretizations/manual 见证仍可能撞上床可达值，所以这道口不能留。
+
+    床事实取不到就抛（批入口已排除，见 `env_facts.require_env_facts`）：「判不出依据
+    在不在」既不是「没有依据」（那会误拒），也不能当「有依据」放行——放行正是把重组孔
+    换掉的作者取值当成引擎认可的取值签下去。
+    """
     facts = _bed_facts()
     old_unreachable = _address_unreachable_on_bed(facts, old_atom)
     new_unreachable = _address_unreachable_on_bed(facts, new_atom)
@@ -445,9 +537,15 @@ def _normalized_step_text(text: Any) -> str:
     return re.sub('\\s+', ' ', str(text or '').replace('\xa0', ' ')).strip()
 
 def step_is_adapted(authored_text: Any, adapted_text: Any) -> bool:
+    """「这一步有没有适配」只有这一份判据：空白归一后不相等才算适配。
+
+    三个消费方（提交口校验、比对器/审计短路、契约卡披露）都调它，避免
+    一边 strip 一边不 strip、一边看 2000 字截断视图一边看全文的分叉。
+    """
     return _normalized_step_text(authored_text) != _normalized_step_text(adapted_text)
 
 def adapted_step_texts(case: Mapping[str, Any]) -> dict[str, str] | None:
+    """适配步索引；未提交或形状不可用返回 None（消费方回退密封原文）。"""
     raw = case.get(ADAPTED_STEPS_KEY)
     if not isinstance(raw, list):
         return None
@@ -473,6 +571,13 @@ def case_has_adaptation(case: Mapping[str, Any]) -> bool:
 _LEGAL_FORM_ADAPTED = '[{"n": "<step number, same set and order as steps[]>", "text": "<the adapted step text>", "basis": "<why this adaptation preserves the authored scenario; may be empty when a step needed no change>"}] — one entry per authored step, same order; steps[] stays sealed and the author\'s original text stays in it.'
 
 def adapted_steps_violations(case: Mapping[str, Any], *, autoid: str, index: int) -> list[dict[str, str]]:
+    """改写制旁列的提交口校验：形状、整案一致、字面映射关系。
+
+    机械只守 100% 可判的关系：同一作者 IP 字面在适配里只能换成一个值（同字面
+    同值）、不同作者 IP 字面不得换成同一个值（不同字面不同值）、`load_bearing`
+    牌照的 IP 字面必须留在适配文本里。非 IP 字面（角色词、权重、主机名）不在
+    机械面上，只经披露（adapted_step_disclosure）交人看。
+    """
     raw = case.get(ADAPTED_STEPS_KEY)
     if raw is None:
         return []
@@ -560,6 +665,22 @@ def adapted_steps_violations(case: Mapping[str, Any], *, autoid: str, index: int
     return violations
 
 def _stated_value_substitution_violations(case: Mapping[str, Any], *, autoid: str, index: int, steps: Mapping[str, str], adapted: Mapping[str, str]) -> list[dict[str, str]]:
+    """适配改动 stated 条件字面，必须有引擎可重算的依据，否则拒。
+
+    机械面原先只守地址字面（同字面同值、不同字面不同值、load_bearing 必留），
+    「非 IP 字面（角色词、权重、主机名）不在机械面上，只经披露」。<case> 证明了
+    那道口太窄：作者步骤写 `method hostname wrr`、权重配 30/20/10，重组孔把命令
+    实参位上的算法词改成 `ga` 再往下走，条件的 `value` 因此签成 `ga`——引擎从此
+    把适配的取值当作者的取值带进契约卡、编写侧信封与保真比对，而作者两处表面互斥
+    这件事一个字都没被声明。
+
+    判据在 `adaptation_value_substitutions`（四条同时成立才算换值，见那里）；
+    可重算依据在 `recomputable_substitution_basis`（不可达地址 / 床事实角色）。
+    床事实取不到即抛，不在这一层折叠成放行或误拒（见 `recomputable_substitution_basis`）。
+
+    这条规则不判「哪一边是对的」：谁是笔误是权威裁决，重组孔没有这个授权，
+    拒绝文案把它指向案内互斥出口 `consistency.authored_conflict`。
+    """
     structure = case.get(STEP_STRUCTURE_KEY)
     if not isinstance(structure, list) or not structure:
         return []

@@ -6,7 +6,19 @@
     "main.case_compiler.step_structure",
     "main.ist_core.tools.device.structural_gate",
     "main.case_compiler.mechanical_case_gate",
-    "main.case_compiler.mindmap_contract_projector"
+    "main.case_compiler.mindmap_contract_projector",
+    "main.ist_core.tools.device.recompose_submission",
+    "main.ist_core.tools.device.recompose_parts",
+    "main.ist_core.tools.device.recompose_submit_tool",
+    "main.ist_core.tools.device.lang_query_tool",
+    "main.kms.spec_index",
+    "main.ist_core.compile_engine.rebind_binder",
+    "main.ist_core.compile_engine.recompose_protocol",
+    "main.ist_core.tools.device._sealed_output",
+    "main.ist_core.compile_engine._shared",
+    "main.ist_core.compile_engine.spec_references",
+    "main.sync.command_tree_sync",
+    "main.kms.manual_locator"
   ],
   "modules": [
     {
@@ -154,6 +166,12 @@
       "data_root_rewrites": []
     },
     {
+      "module": "main.common.nullable_scalar",
+      "source": "main/common/nullable_scalar.py",
+      "source_sha256": "250d3b696ab79d56e179ce299f59b857e509aceee06b21028c324694a9036adf",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.common.schema_identity",
       "source": "main/common/schema_identity.py",
       "source_sha256": "5607eee78965e59d8e2f824eb6b3ecf0c60db55a1c47c47836ce795de7304eff",
@@ -172,10 +190,128 @@
       "data_root_rewrites": []
     },
     {
+      "module": "main.ist_core.compile_engine._shared",
+      "source": "main/ist_core/compile_engine/_shared.py",
+      "source_sha256": "0527fcd83855b09142505b9ba6d116fbea2900374c0266a60c1c33c96f49ec90",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.ist_core.compile_engine.authority_delivery_policy",
+      "source": "main/ist_core/compile_engine/authority_delivery_policy.py",
+      "source_sha256": "836d38ed2927df662539c81ccb479fac686dcd31776044ecc10b55888b5d079a",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.compile_engine.authority_reconcile",
+      "source": "main/ist_core/compile_engine/authority_reconcile.py",
+      "source_sha256": "a0e257c75fb775ee0e0ea5353b2352346ad98ab65e43b456124ce0603fd2b270",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.compile_engine.conflict_chain",
+      "source": "main/ist_core/compile_engine/conflict_chain.py",
+      "source_sha256": "fe878da64fb96cdb65fca2ddedacd186d0800a1c4d62bae545f407ff47ad8e9d",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.compile_engine.engine_errors",
+      "source": "main/ist_core/compile_engine/engine_errors.py",
+      "source_sha256": "c387b97e18b17fdf8c265927b0fb9aeb7620cd00a86dfb550e7c9dbecba261a1",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.compile_engine.fact_events",
+      "source": "main/ist_core/compile_engine/fact_events.py",
+      "source_sha256": "8750e0bc39b13110a2bcdec72272de140eac2e3116cf400b5a19309c2ed01209",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "source": "main/ist_core/compile_engine/facts.py",
+      "source_sha256": "9355591cb06cfeb4faf99f9b463f6d81d53fe933b8a1c8f137c8d0caebbe1a90",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.compile_engine.rebind_binder",
+      "source": "main/ist_core/compile_engine/rebind_binder.py",
+      "source_sha256": "4a4a76da2a1d61b31ad8afa8d6121cd581e746d48447121fee49691e22b56665",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.compile_engine.recompose_protocol",
+      "source": "main/ist_core/compile_engine/recompose_protocol.py",
+      "source_sha256": "440287fdef464a5eaacb76f10649a01b7eee025c644c966054ad6f5ddee58339",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.compile_engine.spec_references",
+      "source": "main/ist_core/compile_engine/spec_references.py",
+      "source_sha256": "a0e25c456f1c9ebfb704254ac9cd2255c141113700e1dc51211d969facf5690d",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.compile_engine.views",
+      "source": "main/ist_core/compile_engine/views.py",
+      "source_sha256": "ff1a3cd4ef5fb40f929c3590604e98a0569e3ef96e8dfc8cf0f6a9ba9407bad9",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.tools.device._sealed_output",
+      "source": "main/ist_core/tools/device/_sealed_output.py",
+      "source_sha256": "2e8bbd04fd37e968f62db03de5f0d7991e9943b452659fc330a8f763698c9708",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.tools.device.lang_query_tool",
+      "source": "main/ist_core/tools/device/lang_query_tool.py",
+      "source_sha256": "d86fce975b5deb492db172f7bf74baa90c5e72f752f9858036c1440701bcab0a",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.tools.device.recompose_parts",
+      "source": "main/ist_core/tools/device/recompose_parts.py",
+      "source_sha256": "504f51a2ae2c294e27306664c1b7ca3f3e482da2f59174ba8c6890ef257c049f",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.tools.device.recompose_submission",
+      "source": "main/ist_core/tools/device/recompose_submission.py",
+      "source_sha256": "e0c4f94e2a246c29a6f40aae766306568d073e300a28644eeafd5578470828f0",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.tools.device.recompose_submit_tool",
+      "source": "main/ist_core/tools/device/recompose_submit_tool.py",
+      "source_sha256": "1978bd91b94b7645d883d774816e9b20f2f68a83c42e11e4c3a8c9a72551c262",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.ist_core.tools.device.structural_gate",
       "source": "main/ist_core/tools/device/structural_gate.py",
       "source_sha256": "8a4f86783bc25e17d198f68533b77a127110368c6dcbe49ffa02189562f7cd5b",
       "data_root_rewrites": []
+    },
+    {
+      "module": "main.kms.manual_catalog_store",
+      "source": "main/kms/manual_catalog_store.py",
+      "source_sha256": "96444bf13421dc6a5d92c00551d053e428ddca05fd40d46e08d6300edb5fe867",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.kms.manual_locator",
+      "source": "main/kms/manual_locator.py",
+      "source_sha256": "e5405f327e813db9f155a1e14ee07a916f1c8f0070de4467a126130235b9cee5",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.kms.spec_index",
+      "source": "main/kms/spec_index.py",
+      "source_sha256": "4b4b4ecc171e5a1f6e72b0e80ac8033077b66d3e1235f5e0da789abec6c9202e",
+      "data_root_rewrites": [
+        "<root>"
+      ]
     },
     {
       "module": "main.knowledge_paths",
@@ -183,6 +319,14 @@
       "source_sha256": "fb8e21f79a6434da35252fd4bafb1ab42fa63ba4b0cc655bd516c74a8dd2abe7",
       "data_root_rewrites": [
         "main"
+      ]
+    },
+    {
+      "module": "main.sync.command_tree_sync",
+      "source": "main/sync/command_tree_sync.py",
+      "source_sha256": "dd5c5fb6c6f389381cdb45f8de26531d9cc2e5919c9046667f074f4db482ae59",
+      "data_root_rewrites": [
+        "<root>"
       ]
     }
   ],
@@ -261,12 +405,6 @@
     },
     {
       "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_contract_claim_maps",
-      "target": "main.ist_core.compile_engine.authority_reconcile",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
       "function": "_declared_causal_block_command_lines",
       "target": "main.ist_core.tools.device.emit_xlsx_tool",
       "guarded": false
@@ -281,12 +419,6 @@
       "module": "main.case_compiler.mechanical_case_gate",
       "function": "_gate_author_procedure_coverage",
       "target": "main.ist_core.tools.device.emit_xlsx_tool",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_gate_expectation_bijection",
-      "target": "main.ist_core.compile_engine.authority_reconcile",
       "guarded": false
     },
     {
@@ -351,12 +483,6 @@
     },
     {
       "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_product_assertions",
-      "target": "main.ist_core.compile_engine.authority_reconcile",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
       "function": "_teardown_reversal_index",
       "target": "scripts.gen_command_teardown_atlas",
       "guarded": true
@@ -375,12 +501,6 @@
     },
     {
       "module": "main.case_compiler.mindmap_contract_projector",
-      "function": "_eligible",
-      "target": "main.ist_core.compile_engine.rebind_binder",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mindmap_contract_projector",
       "function": "_project_case",
       "target": "main.case_compiler.criterion_normalization",
       "guarded": false
@@ -394,19 +514,7 @@
     {
       "module": "main.case_compiler.mindmap_contract_projector",
       "function": "project_machine_mindmap",
-      "target": "main.ist_core.compile_engine.conflict_chain",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mindmap_contract_projector",
-      "function": "project_machine_mindmap",
       "target": "main.ist_core.display_lexicon",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mindmap_contract_projector",
-      "function": "project_machine_mindmap",
-      "target": "main.ist_core.tools.device.recompose_parts",
       "guarded": false
     },
     {
@@ -458,69 +566,531 @@
       "guarded": true
     },
     {
-      "module": "main.case_compiler.vendor_stdlib",
-      "function": "_inventory_version_from_device_build",
-      "target": "main.sync.command_tree_sync",
-      "guarded": true
-    },
-    {
-      "module": "main.case_compiler.vendor_stdlib",
-      "function": "_product_platform_from_device_build",
-      "target": "main.sync.command_tree_sync",
-      "guarded": true
-    },
-    {
-      "module": "main.case_compiler.vendor_stdlib",
-      "function": "_projection_xml_identity_valid",
-      "target": "main.sync.command_tree_sync",
-      "guarded": true
-    },
-    {
-      "module": "main.case_compiler.vendor_stdlib",
-      "function": "available_vendor_builds",
-      "target": "main.sync.command_tree_sync",
-      "guarded": true
-    },
-    {
-      "module": "main.case_compiler.vendor_stdlib",
-      "function": "diagnose_active_command_tree",
-      "target": "main.sync.command_tree_sync",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.vendor_stdlib",
-      "function": "load_vendor_stdlib",
-      "target": "main.sync.command_tree_sync",
-      "guarded": true
-    },
-    {
-      "module": "main.case_compiler.vendor_stdlib",
-      "function": "load_vendor_stdlib_generation",
-      "target": "main.sync.command_tree_sync",
-      "guarded": true
-    },
-    {
-      "module": "main.case_compiler.vendor_stdlib",
-      "function": "vendor_stdlib_path",
-      "target": "main.sync.command_tree_sync",
-      "guarded": true
-    },
-    {
       "module": "main.defect_spec_source",
       "function": "_contains_credential_material",
       "target": "main.ist_core.security_scrub",
       "guarded": false
     },
     {
-      "module": "main.ist_core.tools.device.structural_gate",
-      "function": "_check_command_allowlist",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_append_with_admission",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_append_with_admission",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_append_with_admission",
+      "target": "main.ist_core.compile_engine.engine_checkpoints",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_append_with_admission",
+      "target": "main.ist_core.compile_engine.engine_debt",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_append_with_admission",
+      "target": "main.ist_core.compile_engine.engine_incidents",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_append_with_admission",
+      "target": "main.ist_core.compile_engine.engine_quarantine",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_append_with_admission",
+      "target": "main.ist_core.compile_engine.forced_closure",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_append_with_admission",
+      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_append_with_admission",
+      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_append_with_admission",
+      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_append_with_admission",
+      "target": "main.ist_core.security_scrub",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_append_with_admission",
+      "target": "main.ist_core.worker_device_context",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_decision_resolves_needs_decision",
+      "target": "main.ist_core.compile_engine.questions",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_decision_resolves_needs_decision",
+      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_emit_engine_item",
+      "target": "main.ist_core.skills.loader",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "_network_outage_deadline_s",
+      "target": "main.ist_core.agents._llm",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "append",
+      "target": "main.ist_core.compile_engine.engine_quarantine",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "await_network_recovery",
+      "target": "main.ist_core.display_lexicon",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "await_network_recovery",
+      "target": "main.ist_core.skills.loader",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "case_rows",
+      "target": "main.ist_core.tools.device.package_registry_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "counts_update",
+      "target": "main.ist_core.compile_engine.backstops",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "counts_update",
+      "target": "main.ist_core.compile_engine.engine_quarantine",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "emit",
+      "target": "main.ist_core.events",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "emit_dispatch_progress",
+      "target": "main.ist_core.skills.loader",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "emit_preflight_progress",
+      "target": "main.ist_core.display_lexicon",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "emit_preflight_progress",
+      "target": "main.ist_core.skills.loader",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "emit_reauthor_aids",
+      "target": "main.ist_core.compile_engine.emit_failure_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "emit_recompose_progress",
+      "target": "main.ist_core.skills.loader",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "emit_summary",
+      "target": "main.ist_core.skills.loader",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "emit_tick",
+      "target": "main.ist_core.skills.loader",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "escalation_budget_kind",
+      "target": "main.ist_core.resilience",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "fork_executor",
+      "target": "main.ist_core.resilience",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "fork_turn_budget",
+      "target": "main.ist_core.skills.loader",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "granted_rounds",
+      "target": "main.ist_core.compile_engine.questions",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "lint_credential_snapshot",
+      "target": "main.ist_core.tools.device.run_case",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "mechanical_findings_rows",
+      "target": "main.case_compiler.device_characteristics",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "mechanical_findings_rows",
+      "target": "main.ist_core.tools.device.run_case",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "observe_engine_items",
+      "target": "main.ist_core.compile_engine.engine_quarantine",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "panel_waiting",
+      "target": "main.ist_core.compile_engine.questions",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "probe",
+      "target": "main.ist_core.display_lexicon",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "recompile_comparison_fact",
+      "target": "main.case_compiler.recompile_comparison",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "record_first_seen",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "require_current_compile_context",
+      "target": "main.ist_core.compile_engine.engine_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "signal",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "subtype_first_seen_report",
+      "target": "main.ist_core.memory.footprint",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "subtype_first_seen_report",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "thinking_degraded_models",
+      "target": "main.ist_core.agents._llm",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "verdict_unrecognized_batch_spread",
+      "target": "main.ist_core.memory.footprint",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine._shared",
+      "function": "verdict_unrecognized_batch_spread",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine.authority_delivery_policy",
+      "function": "_is_volume_failure_event",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.authority_delivery_policy",
+      "function": "authority_decision_confirmed",
+      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.authority_delivery_policy",
+      "function": "authority_decision_pending",
+      "target": "main.ist_core.compile_engine.authority_decision_reentry",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.authority_delivery_policy",
+      "function": "effective_authority_facts",
+      "target": "main.ist_core.compile_engine.engine_quarantine",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.authority_delivery_policy",
+      "function": "is_authority_unverified_block",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.authority_delivery_policy",
+      "function": "is_volume_authority_unverified",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.authority_delivery_policy",
+      "function": "is_volume_identity_failure",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.authority_delivery_policy",
+      "function": "verified_ready_gate",
+      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.conflict_chain",
+      "function": "batch_conflict_decision_is_current",
+      "target": "main.ist_core.tools.ask_user",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.engine_errors",
+      "function": "_interpret_error",
+      "target": "main.ist_core.compile_engine.engine_checkpoints",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.engine_errors",
+      "function": "_interpret_error",
+      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.engine_errors",
+      "function": "_interpret_error",
+      "target": "main.ist_core.security_scrub",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.engine_errors",
+      "function": "condition_from_legacy_code",
+      "target": "main.ist_core.compile_engine.engine_checkpoints",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "function": "_facts_of",
+      "target": "main.ist_core.compile_engine.engine_quarantine",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "function": "_norm_sigs",
+      "target": "main.ist_core.tools.device.batch_tools",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "function": "append_facts",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "function": "author_definition_gap_landing_facts",
+      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "function": "authoring_round_causes",
+      "target": "main.ist_core.compile_engine.authoring_stops",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "function": "authoring_round_causes",
+      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "function": "current_execution_prescription",
+      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "function": "deesc_auto_resolution",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "function": "deesc_auto_resolution",
+      "target": "main.ist_core.worker_device_context",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "function": "effective_rounds_used",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "function": "engine_budget_terminal_facts",
+      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.facts",
+      "function": "next_authoring_attempt",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.views",
+      "function": "_author_side_conflict_abandon",
+      "target": "main.ist_core.compile_engine.blocking_taxonomy",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.views",
+      "function": "_reentrant_terminal_active",
+      "target": "main.ist_core.compile_engine.authority_decision_reentry",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.views",
+      "function": "active_execution_terminal",
+      "target": "main.ist_core.compile_engine.authority_decision_reentry",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.views",
+      "function": "active_execution_terminal",
+      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.views",
+      "function": "case_status",
+      "target": "main.ist_core.compile_engine.engine_quarantine",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device._sealed_output",
+      "function": "write_json",
+      "target": "main.ist_core.compile_engine.engine_quarantine",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device._sealed_output",
+      "function": "write_json",
+      "target": "main.ist_core.worker_device_context",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.lang_query_tool",
+      "function": "_render_complete",
+      "target": "main.ist_core.worker_device_context",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.lang_query_tool",
+      "function": "command_heads_result",
+      "target": "main.ist_core.worker_device_context",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.lang_query_tool",
+      "function": "command_heads_result",
+      "target": "main.ist_core.worker_device_context",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.recompose_parts",
+      "function": "append_machine_mindmap_cases",
+      "target": "main.ist_core.skills.loader",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.recompose_submission",
+      "function": "_projection_head_stamp",
+      "target": "main.ist_core.worker_device_context",
       "guarded": false
     },
     {
       "module": "main.ist_core.tools.device.structural_gate",
-      "function": "_check_command_existence_same_source",
-      "target": "main.ist_core.compile_engine.engine_errors",
+      "function": "_check_command_allowlist",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
       "guarded": false
     },
     {
@@ -564,11 +1134,36 @@
       "function": "_workbook_model",
       "target": "main.common.file_identity",
       "guarded": false
+    },
+    {
+      "module": "main.kms.spec_index",
+      "function": "_jev_rerank_semantic",
+      "target": "main.common.jev_spec_rerank",
+      "guarded": false
+    },
+    {
+      "module": "main.sync.command_tree_sync",
+      "function": "_xml_default_literal_closure",
+      "target": "main.case_compiler.credential_literals",
+      "guarded": false
+    },
+    {
+      "module": "main.sync.command_tree_sync",
+      "function": "rebuild_active_command_tree_projection",
+      "target": "scripts.maintenance.build_vendor_stdlib",
+      "guarded": false
+    },
+    {
+      "module": "main.sync.command_tree_sync",
+      "function": "sync_vendor_command_tree_from_config",
+      "target": "scripts.maintenance.build_vendor_stdlib",
+      "guarded": false
     }
   ],
   "boundary_targets": [
     "main.case_compiler.behaviour_classes",
     "main.case_compiler.card_lint",
+    "main.case_compiler.credential_literals",
     "main.case_compiler.criterion_author_rules",
     "main.case_compiler.criterion_normalization",
     "main.case_compiler.device_characteristics",
@@ -576,25 +1171,48 @@
     "main.case_compiler.membership_assertion",
     "main.case_compiler.mutation_testing",
     "main.case_compiler.package_advisories",
+    "main.case_compiler.recompile_comparison",
     "main.case_compiler.regex_anchor_proof",
     "main.case_compiler.rule_registry",
     "main.case_compiler.ssl_lifecycle_contract",
     "main.case_compiler.tau_coverage",
     "main.case_compiler.vk_derivation",
     "main.common.file_identity",
-    "main.ist_core.compile_engine.authority_reconcile",
-    "main.ist_core.compile_engine.conflict_chain",
-    "main.ist_core.compile_engine.engine_errors",
-    "main.ist_core.compile_engine.rebind_binder",
+    "main.common.jev_spec_rerank",
+    "main.ist_core.agents._llm",
+    "main.ist_core.compile_engine.authoring_evidence",
+    "main.ist_core.compile_engine.authoring_stops",
+    "main.ist_core.compile_engine.authority_decision_reentry",
+    "main.ist_core.compile_engine.backstops",
+    "main.ist_core.compile_engine.blocking_taxonomy",
+    "main.ist_core.compile_engine.emit_failure_evidence",
+    "main.ist_core.compile_engine.engine_checkpoints",
+    "main.ist_core.compile_engine.engine_debt",
+    "main.ist_core.compile_engine.engine_incidents",
+    "main.ist_core.compile_engine.engine_quarantine",
+    "main.ist_core.compile_engine.engine_tool",
+    "main.ist_core.compile_engine.forced_closure",
+    "main.ist_core.compile_engine.questions",
+    "main.ist_core.compile_engine.routing_closed_sets",
+    "main.ist_core.compile_engine.terminal_credentials",
+    "main.ist_core.compile_engine.terminal_outcomes",
     "main.ist_core.display_lexicon",
+    "main.ist_core.events",
     "main.ist_core.memory.footprint",
+    "main.ist_core.memory.footprint.signals",
+    "main.ist_core.resilience",
     "main.ist_core.run_governance",
     "main.ist_core.security_scrub",
+    "main.ist_core.skills.loader",
     "main.ist_core.tools._shared.env_facts",
+    "main.ist_core.tools.ask_user",
+    "main.ist_core.tools.device.batch_tools",
     "main.ist_core.tools.device.emit_xlsx_tool",
-    "main.ist_core.tools.device.recompose_parts",
+    "main.ist_core.tools.device.package_registry_tool",
+    "main.ist_core.tools.device.run_case",
     "main.ist_core.tools.knowledge.kb_bug_search",
-    "main.sync.command_tree_sync",
-    "scripts.gen_command_teardown_atlas"
+    "main.ist_core.worker_device_context",
+    "scripts.gen_command_teardown_atlas",
+    "scripts.maintenance.build_vendor_stdlib"
   ]
 }

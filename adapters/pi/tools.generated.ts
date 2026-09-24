@@ -103,7 +103,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_cmd_check",
 		label: "CEX cmd check",
-		description: "Check device commands against the synced command-tree projection: whether each command exists on this build and whether its parameters fit the recorded contract. This is the same judgment the engine uses; a miss means the command will not run on the device.",
+		description: "Check device commands against the synced command-tree projection: whether each command exists on this build and whether its parameters fit the recorded contract. This is the same judgment the engine uses; a miss means the command will not run on the device. Each result carries the resolved head and its command-tree path (src).",
 		snippet: "Check device commands against the synced command-tree projection: whether each command exists on this build and whether its parameters fit the recorded contract.",
 		readOnly: true,
 		parameters: Type.Object({
@@ -244,6 +244,58 @@ export const CEX_TOOLS: CexToolSpec[] = [
 			"workspace": Type.Optional(Type.String()),
 			"backend": StringEnum(["bugzilla", "zentao", "zentao_story"] as const),
 			"ticket": Type.String({"description": "Ticket id, e.g. 12345, BUG-12345 or STORY-7."}),
+		}, { additionalProperties: false }),
+	},
+	{
+		name: "cex_recompose_prepare",
+		label: "CEX recompose prepare",
+		description: "Start recomposing a human mindmap (XMind JSON export inside the workspace) into a machine mindmap. Seals a snapshot, locates the governing spec in the synced spec generation, and opens a submission. Returns the case autoids, the governing spec (bound: a file path you can read; ambiguous: reference slices with zero signing power; no_governing_spec), the defect-spec status, and consistency_source_atoms. Pass spec=<file> when the user names the governing spec, or spec='none' when the user says no spec governs it. Calling it again for the same mindmap and the same spec outcome resumes: already recorded cases are listed.",
+		snippet: "Start recomposing a human mindmap (XMind JSON export inside the workspace) into a machine mindmap.",
+		readOnly: false,
+		parameters: Type.Object({
+			"workspace": Type.Optional(Type.String()),
+			"mindmap": Type.String({"description": "Path of the XMind JSON export, relative to the workspace."}),
+			"out_name": Type.Optional(Type.String({"description": "Batch name for the outputs; defaults to the file name."})),
+			"spec": Type.Optional(Type.String({"description": "Governing spec file name the user named, or 'none' when the user says no spec governs it."})),
+		}, { additionalProperties: false }),
+	},
+	{
+		name: "cex_recompose_submit_cases",
+		label: "CEX recompose submit cases",
+		description: "Record finished machine-mindmap cases for a prepared batch. The engine's checks run here (verbatim sourcing, anchors, consistency citations); a rejection lists the violations and records nothing, so fix those cases and submit again. Record cases as you finish them; resubmitting an autoid replaces it. Returns outstanding_autoids.",
+		snippet: "Record finished machine-mindmap cases for a prepared batch.",
+		readOnly: false,
+		parameters: Type.Object({
+			"workspace": Type.Optional(Type.String()),
+			"out_name": Type.String(),
+			"cases": Type.Array(Type.Record(Type.String(), Type.Unknown()), {"description": "Machine-mindmap case objects (autoid, contract, origin, …)."}),
+		}, { additionalProperties: false }),
+	},
+	{
+		name: "cex_recompose_seal",
+		label: "CEX recompose seal",
+		description: "Seal the recorded cases of a batch into machine_mindmap.json. Cases never recorded fall back to the author's original text and are listed in missing_autoids. Call it once all cases are recorded (or when you have to stop).",
+		snippet: "Seal the recorded cases of a batch into machine_mindmap.json.",
+		readOnly: false,
+		parameters: Type.Object({
+			"workspace": Type.Optional(Type.String()),
+			"out_name": Type.String(),
+		}, { additionalProperties: false }),
+	},
+	{
+		name: "cex_lang_query",
+		label: "CEX lang query",
+		description: "Look up the compile language before writing it: E/F contract, method signatures, dispatch, precedent usage, confirmation prompts, near-miss names, the language-document catalog, parameter contracts. kind is one of contract / signature / dispatch / usage / host / nearest / prompt_pattern / docs / param / complete / heads. Pass out_name while recomposing so command lookups are recorded for that batch.",
+		snippet: "Look up the compile language before writing it: E/F contract, method signatures, dispatch, precedent usage, confirmation prompts, near-miss names, the language-document catalog, parameter contracts.",
+		readOnly: true,
+		parameters: Type.Object({
+			"workspace": Type.Optional(Type.String()),
+			"kind": Type.String(),
+			"name": Type.Optional(Type.String()),
+			"domain": Type.Optional(Type.String()),
+			"query": Type.Optional(Type.String()),
+			"position": Type.Optional(Type.Integer({"minimum": 0})),
+			"out_name": Type.Optional(Type.String()),
 		}, { additionalProperties: false }),
 	},
 ];

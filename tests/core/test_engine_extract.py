@@ -60,7 +60,8 @@ def test_manifest_lists_every_generated_module_and_boundary():
 
 
 def test_generated_code_carries_no_internal_run_records():
-    pattern = re.compile(r"internala|internalb|RUN_20\d{2}|/Users/|\b(?!999999999999999\b)\d{12,20}\b",
+    # /U[s]ers/：字符类写法，免得本文件自己被可移植性守门当成写死的个人路径
+    pattern = re.compile(r"internala|internalb|RUN_20\d{2}|/U[s]ers/|\b(?!999999999999999\b)\d{12,20}\b",
                          re.IGNORECASE)
     hits = []
     for path in ENGINE.rglob("*.py"):
@@ -105,10 +106,11 @@ import builtins, importlib, json, os, sys
 sys.path.insert(0, {str(REPO_ROOT)!r})
 os.environ["CEX_ENGINE_DATA_ROOT"] = {str(data)!r}
 _real = builtins.__import__
-def _guard(name, *a, **k):
-    if name.split(".")[0] in ("main", "scripts"):
+def _guard(name, globals=None, locals=None, fromlist=(), level=0):
+    # 只拦绝对导入：pydantic 里的 `from .main import BaseModel` 是它自己的子模块
+    if level == 0 and name.split(".")[0] in ("main", "scripts"):
         raise ImportError("InfoTest imported: " + name)
-    return _real(name, *a, **k)
+    return _real(name, globals, locals, fromlist, level)
 builtins.__import__ = _guard
 manifest = json.load(open({str(ENGINE / "MANIFEST.json")!r}, encoding="utf-8"))
 for entry in manifest["modules"]:

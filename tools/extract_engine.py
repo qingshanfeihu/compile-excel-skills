@@ -10,7 +10,10 @@
 - ``Path(__file__)…parents[k]`` / ``.parent`` 这类"按源码位置找仓根"的表达式，改成
   ``_cex_data_path("<相对仓根的目录>")``：数据根由环境变量 CEX_ENGINE_DATA_ROOT 指定，
   布局与 InfoTest 仓根相同（knowledge/…、runtime/…）；
-- 去掉注释与 docstring（其中有批次名、用例号等内部实证记录；设计理由回 InfoTest 源看）。
+- 去掉注释（其中有批次名、用例号等内部实证记录；设计理由回 InfoTest 源看）。docstring
+  保留——工具函数的 docstring 就是给模型的工具说明，langchain 还会解析它；docstring 里的
+  批次名与六位用例号换成占位（_sanitize_docstrings），换到会被当工具说明的 docstring 上就
+  报错，不许静默改提示词。
 
 指向闭包外模块的延迟 import 原样保留（运行到那里会 ModuleNotFoundError），全部记进
 cex_core/engine/MANIFEST.json 的 boundary，并标出被 try/except 包住、可能静默走另一
@@ -23,6 +26,7 @@ import argparse
 import ast
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -33,6 +37,23 @@ SEEDS = (
     "main.ist_core.tools.device.structural_gate",
     "main.case_compiler.mechanical_case_gate",
     "main.case_compiler.mindmap_contract_projector",
+    # E5c：脑图重组的提交、零件台账、语言查询与 SPEC 索引
+    "main.ist_core.tools.device.recompose_submission",
+    "main.ist_core.tools.device.recompose_parts",
+    "main.ist_core.tools.device.recompose_submit_tool",
+    "main.ist_core.tools.device.lang_query_tool",
+    "main.kms.spec_index",
+    # 提交主路径上的依赖：回绑、重组协议、密封输出、引擎共享层（project_root 等）
+    "main.ist_core.compile_engine.rebind_binder",
+    "main.ist_core.compile_engine.recompose_protocol",
+    "main.ist_core.tools.device._sealed_output",
+    "main.ist_core.compile_engine._shared",
+    # 多个候选规格书时引擎给的参考切片（零签发权）
+    "main.ist_core.compile_engine.spec_references",
+    # 命令树代际与手册定位：load_vendor_stdlib / lang_query 的延迟 import，缺了它们
+    # 命令树在客户端恒为"不可用"（try/except 吞掉 ModuleNotFoundError）
+    "main.sync.command_tree_sync",
+    "main.kms.manual_locator",
 )
 PREFIX = "cex_core.engine"
 # InfoTest 仓根下的顶层包 → 抽取后的包名。scripts.* 只会以延迟 import 出现（生成器），
@@ -178,14 +199,49 @@ def _is_doc(stmt: ast.stmt) -> bool:
             and isinstance(stmt.value.value, str))
 
 
-class _Strip(ast.NodeTransformer):
-    def _body(self, node):
-        self.generic_visit(node)
-        if node.body and _is_doc(node.body[0]):
-            node.body = node.body[1:] or [ast.Pass()]
-        return node
+_BATCH = re.compile(r"\b(?:internala|internalb)[A-Za-z0-9_]*", re.IGNORECASE)
+_SIX = re.compile(r"(?<![\d.])\d{6}(?![\d.])")
 
-    visit_FunctionDef = visit_AsyncFunctionDef = visit_ClassDef = _body
+
+def _scrub_doc(text: str) -> str:
+    def case(match: re.Match) -> str:
+        n = int(match.group(0))
+        # 整数常量（整万、2 的幂）不是用例号
+        return match.group(0) if n % 1000 == 0 or n & (n - 1) == 0 else "<case>"
+    return _SIX.sub(case, _BATCH.sub("<batch>", text))
+
+
+def _makes_tools(tree: ast.Module) -> bool:
+    """``@tool`` / ``@tool(...)`` 装饰器或 ``X.from_function(...)``：docstring 会成为工具说明。"""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr == "from_function":
+            return True
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for deco in node.decorator_list:
+                target = deco.func if isinstance(deco, ast.Call) else deco
+                if isinstance(target, ast.Name) and target.id == "tool":
+                    return True
+    return False
+
+
+def _sanitize_docstrings(tree: ast.Module, rel_file: str) -> int:
+    changed = 0
+    tools = _makes_tools(tree)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not node.body or not _is_doc(node.body[0]):
+            continue
+        const = node.body[0].value
+        scrubbed = _scrub_doc(const.value)
+        if scrubbed != const.value:
+            if tools:
+                raise ExtractError(f"{rel_file}: a docstring needs scrubbing in a module that "
+                                   "builds tools from docstrings; fix it in InfoTest")
+            const.value = scrubbed
+            changed += 1
+    return changed
 
 
 def _file_anchor(node: ast.AST) -> bool:
@@ -241,9 +297,7 @@ class _Rewrite(ast.NodeTransformer):
 
 def transform(source: str, rel_file: str) -> tuple[str, list[str]]:
     tree = ast.parse(source)
-    body = tree.body[1:] if tree.body and _is_doc(tree.body[0]) else tree.body
-    tree.body = body
-    tree = _Strip().visit(tree)
+    _sanitize_docstrings(tree, rel_file)
     rewriter = _Rewrite(rel_file)
     tree = rewriter.visit(tree)
     leftovers = [n for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id == "__file__"]
@@ -251,7 +305,7 @@ def transform(source: str, rel_file: str) -> tuple[str, list[str]]:
         raise ExtractError(f"{rel_file}: unhandled __file__ use at line {leftovers[0].lineno}")
     if rewriter.rewrites:
         helper = ast.parse(f"from {PREFIX}._root import {ROOT_HELPER}").body[0]
-        at = 0
+        at = 1 if tree.body and _is_doc(tree.body[0]) else 0
         while at < len(tree.body) and isinstance(tree.body[at], ast.ImportFrom) \
                 and tree.body[at].module == "__future__":
             at += 1
@@ -288,6 +342,10 @@ def generate(root: Path) -> tuple[dict[Path, str], dict]:
         header = (f"# 生成：tools/extract_engine.py ← InfoTest {rel}"
                   f"（sha256 {_sha(source)[:16]}）。不在这里手改。\n")
         out = OUT_DIR.joinpath(*parts).with_suffix(".py")
+        try:
+            compile(header + body, str(out), "exec")
+        except SyntaxError as exc:
+            raise ExtractError(f"{rel}: generated code does not compile: {exc}") from exc
         files[out] = header + body
         entries.append({"module": mod, "source": rel, "source_sha256": _sha(source),
                         "data_root_rewrites": sorted(set(rewrites))})
@@ -295,7 +353,9 @@ def generate(root: Path) -> tuple[dict[Path, str], dict]:
         files[OUT_DIR.joinpath(*pkg, "__init__.py")] = PACKAGE_INIT
     files[OUT_DIR / "__init__.py"] = ENGINE_INIT
     files[OUT_DIR / "_root.py"] = ROOT_MODULE
-    boundary = [site for site in lazy_sites if site["target"] not in extracted]
+    generated = {".".join(["main", *pkg]) for pkg in packages} | {"main"}
+    boundary = [site for site in lazy_sites
+                if site["target"] not in extracted and site["target"] not in generated]
     manifest = {
         "schema": "cex.engine-extract/v1",
         "seeds": list(SEEDS),

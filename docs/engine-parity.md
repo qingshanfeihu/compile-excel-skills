@@ -107,14 +107,19 @@
 
 **抽了什么**：`tools/extract_engine.py` 从六个种子模块出发——`apv_lang`、`vendor_stdlib`、
 `step_structure`、`structural_gate`、`mechanical_case_gate`、`mindmap_contract_projector`——
-沿顶层 import 走出闭包，共 27 个模块，生成到 `cex_core/engine/`。模块树与 InfoTest 的
+沿顶层 import 走出闭包，共 27 个模块，生成到 `cex_core/engine/`（E5c 又加了 12 个种子，
+现在是 48 个模块，见 §8）。模块树与 InfoTest 的
 `main` 包一一对应。每个文件按 AST 做了三处机械改动，逻辑一字不改：
 
 - `main.*` 改成 `cex_core.engine.*`，`scripts.*` 改成 `cex_core.engine.scripts.*`；
 - `Path(__file__)…parents[k]` 改成数据根下的同一相对目录。数据根由 `CEX_ENGINE_DATA_ROOT`
   指定，布局与 InfoTest 仓根相同；没设时指向一个不存在的目录，读数据的地方按引擎自己的
   "不可达"路径失败关闭；
-- 去掉注释与 docstring。里面有批次名、用例号等内部实证记录；设计理由回 InfoTest 源看。
+- 去掉注释（里面有批次名、用例号等内部实证记录；设计理由回 InfoTest 源看）。docstring
+  保留，其中的批次名与六位用例号换成占位：langchain 工具的 docstring 就是给模型的工具说明，
+  `parse_docstring=True` 还会解析它。E10 那一版连 docstring 一起删了，E5c 接入提交工具时
+  langchain 当场报 docstring 格式错误才暴露，已改；替换落到会被当工具说明的 docstring 上时
+  抽取直接报错，不静默改提示词。
 
 `MANIFEST.json` 记录每个文件的源 sha256，以及闭包边界。`--check` 比对漂移，默认测试会跑。
 
@@ -152,3 +157,84 @@
 **InfoTest 改为转发**：按计划，只有对拍全绿且 InfoTest 测试全绿时才做。本机两个条件都不满足
 （环境数据缺失），而且 InfoTest 怎样依赖 cex_core（拷贝进仓，还是 `pip install -e`）
 还没定，所以没有改 InfoTest。
+
+## 8. 脑图重组移到客户端（E5c）
+
+**做了什么**：InfoTest 编译引擎的 recompose 节点（`nodes.recompose`）按原顺序移植成客户端的
+一层薄胶水 `cex_client/recompose.py`，判据一律调 `cex_core/engine` 里抽取的同一批函数。
+四个工具：
+
+| 工具 | 对应引擎 |
+|---|---|
+| `cex_recompose_prepare` | 封存脑图快照、定位管辖规格书、判缺陷单通道、写两份状态文件、`initialize_machine_mindmap_submission` |
+| `cex_recompose_submit_cases` | 在派发作用域里调 `submit_machine_mindmap_cases.func`（逐字闭集、锚定、step_structure、一致性引文都在这里判） |
+| `cex_recompose_seal` | `_engine_seal_from_parts`：读台账 → `fill_mechanical_fields` → `submit_machine_mindmap_payload` → 核对提交 |
+| `cex_lang_query` | 同一个 `lang_query` 工具函数；带 `out_name` 时进该批的派发作用域 |
+
+技能 `skills/mindmap-recompose/` 从 InfoTest 的重组 skill 与 agent 定义合并移植，规则原文
+与 `[Rn]` 编号保留，工具与派发相关的句子改成上面四个工具；分片、直连预览这两种派发形态
+客户端没有，相关规则删去。
+
+为此抽取种子加了 12 个：提交与台账（`recompose_submission`、`recompose_parts`、
+`recompose_submit_tool`）、`lang_query_tool`、`kms.spec_index`、`rebind_binder`、
+`recompose_protocol`、`_sealed_output`、`compile_engine._shared`、`spec_references`，以及
+`sync.command_tree_sync` 与 `kms.manual_locator`。后两个原是 `load_vendor_stdlib` 与
+`lang_query` 的延迟 import，被 try/except 包着：不抽的话命令树在客户端恒为"不可用"，而且
+没有任何报错。现在闭包 48 个模块，延迟 import 138 处，指向 53 个模块，其中 31 处 guarded。
+
+**引擎数据根**（`cex_client/engine_env.py`）：按 InfoTest 仓根的布局，从已同步的数据包摆出
+`compile_ref/`（包里的 projections 加 cmdtree 投影）、`manual/<版本>/`、
+`auto_env/env_capabilities.json`（设备 OS build，取自 `cmdtree/source.json`）、规格书代际
+（要数据包带 `state.tsv`，导入器已补发）和框架镜像。一律复制，不链接。
+
+**与引擎的差别**（只在胶水层）：
+- 只收 XMind JSON 导出，只能有一个根标题；
+- 规格书定位不开 Jev 精排（调外部 LLM）：只影响语义候选的先后与截取，命中 / 多候选 / 没有
+  的判定不变；
+- 多个候选时与引擎一样继续（状态 `ambiguous`，给零签发权的参考切片），不问人；引擎的
+  "查不到再问一次"面板不移植，`spec='none'` 对应用户在那个面板上拒绝重查，
+  `spec=<文件名>` 对应入口点名；
+- 缺陷单规格（DefectSpec）不签发：客户端没有查单 → 安全投影 → 密封收据那条通道。规格书绑定
+  时状态是 `not_queried`，根标题不带单号时是 `no_ticket_reference`，带单号时结果与引擎两次
+  查单都不可用相同（`resolved_absent`，原因写 `client_has_no_defect_spec_channel`）；
+  `cex_bug_get` 读到的单子只作线索，`defect:` 出处在提交时被引擎拒收；
+- 全部案落盘后由客户端从台账密封。引擎在台账盖满时也是自己密封、不再派 fork；
+  `self_check` / `orphan_notes` 两个可选字段引擎本来就不消费；
+- 契约投影（contract cards、判词裁定 fork）不在这一步：compile-excel 直接按机械脑图编写。
+
+**测试**（`tests/client/test_recompose.py`、`test_engine_env.py`、`test_cmd_check_projection.py`）：
+- 客户端胶水与直接调 InfoTest 原模块逐项一致：同一份脑图、绑定与案，拒收回执、接收回执、
+  密封产物字节都相同；
+- 缺陷单通道状态逐字段对拍 InfoTest `nodes.py` 的构造函数（含单号识别，覆盖版本号排除）。
+  反向对照：去掉"版本号不算单号"那条，测试变红；
+- 多候选规格书、带单号的根标题、同结论重来续跑 / 换结论重来、`defect:` 出处被拒、技能文档
+  给的 Scenario 2 形状被引擎提交检查接受；
+- 数据根摆放：投影加 XML 时 `cex_lang_query` 能补全；只有投影时如实报不可用。
+
+**对拍**（2026-09-24，48 个模块，InfoTest 里所有提到这些模块名的测试文件，共 769 个）：
+faithful 模式 15,887 例，初跑 14 例结果不同，逐条查清：
+- 6 例在 `test_command_tree_sync`：对拍插件把包名 `cex_core.engine.scripts` 本身错映射成
+  `main.scripts`（只处理了带点的子模块）。E10 时没有抽取模块会延迟导入 `scripts.*`，所以没暴露。
+  修掉后这个文件两边都是 128 例全过；
+- 8 例是读源码文本的测试：抽取副本是 `ast.unparse` 的输出（字符串字面改用单引号）、去了注释、
+  文件也不在 InfoTest 仓里。按"两边结果 + 异常类型"逐条登记进 `EXPECTED_DIFFS`，理由写明，
+  结果一变就照常算差异。
+修完后对这 7 个测试文件整套重跑：240 例，0 例意外差异，8 例已登记。基线 13,419 过、1,436 失败、
+283 报错、749 跳过，失败主要是缺环境派生数据，证据边界同 §7。
+
+**顺带发现并修掉的**：
+- E3 的 `load_projection` 只认文件里就有 `heads`，而 InfoTest 生成器写的是 `headers` 加
+  `manual_declarations`（`heads` 是引擎加载时合出来的）。E3 的测试夹具都是手写的 `heads`，
+  所以没抓到：真实投影上 `cex_cmd_check` 与 `scripts/cmdtree_check.py` 会直接报错。已按引擎
+  同一规则合成（同名条目拒绝），并补了真实文件形状的测试，旧版在新测试上两例都红；
+- `cex_cmd_check` 结果补上命令树路径 `src`（`step_structure` 的对象类型要从它推）；
+- 安装器的依赖自检漏了 E10 加的 `pydantic`，也没有 `langchain-core`，已补，并有测试钉住
+  requirements 与检查表一致。
+
+**未决**：数据包按决定只发命令树投影、不发原始 XML，而引擎读投影前要按投影里记的文件名与
+哈希核对那份 XML。结果是客户端里 `cex_lang_query` 的 param / complete 不可用，
+`step_structure` 的对象类型闭集（同样经 `load_vendor_stdlib`）也取不到，引擎于是对对象类型
+放行不核。实测：同一份合成投影加上它的 XML，`cex_lang_query` 就能补全；对象类型闭集在带
+XML 时能否取到还依赖别的数据，本机没有真实投影，未核。命令存在性与参数个数仍由
+`cex_cmd_check` 按同一判定函数给出。怎么补由产品决定，选项见最终报告。
+

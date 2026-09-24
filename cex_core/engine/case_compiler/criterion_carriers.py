@@ -28,6 +28,21 @@ CRITERION_CARRIERS: tuple[CriterionCarriers, ...] = (CriterionCarriers('reachabi
 CRITERION_TYPE_ALLOWED_SLOTS: dict[str, frozenset[tuple[str, str]]] = {item.criterion_type: frozenset(((carrier.block_kind, carrier.operator) for carrier in item.carriers)) for item in CRITERION_CARRIERS}
 
 def criterion_type_blueprints() -> list[dict[str, Any]]:
+    """判据类型蓝图：一个返回结构里两份列表，各有各的用途。
+
+    ``allowed_slots`` 是精确许可配对（block_kind × operator），映射用；
+    ``implementation_blocks`` 是非断言实现块（observation_only），展示用。
+    两份**不是**"兼容既有消费面"的新旧两版——早先的措辞把它写成兼容点，
+    害得它被当成可清理的老版本残留登记了一次。全仓只有两个调用方
+    （scripts/gen_criterion_rules.py 与本模块 _digest），消费的是同一个
+    返回结构，不存在只认其中一份的旧消费面。
+
+    ⚠ 别改这个返回结构：`carrier_contract_sha256()` 就是它的摘要，进了
+    `criterion_rules.json` 的 identity（`criterion_carrier_contract_sha256`），
+    并由 `criterion_normalization.load_projection` 在加载期核对——动一下就换 sha，
+    投影要整份重生。改本文件的注释、空行或别的函数不换它：整文件字节 sha 已不在
+    identity 里（零读点，且会把无关字节变成判据目录的身份漂移）。
+    """
     out = []
     for item in CRITERION_CARRIERS:
         implementations: dict[str, list[str]] = {}

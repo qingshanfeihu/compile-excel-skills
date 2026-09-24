@@ -33,6 +33,36 @@ EXPECTED_DIFFS = {
         "the test reads emit_xlsx_tool.py next to structural_gate.__file__ to scan its gate "
         "codes; the extracted tree has no emit_xlsx_tool (it is outside the closure)"),
 }
+# 下面这些测试读的是模块源码文本，不是行为：抽取副本是 ast.unparse 的输出（字符串字面改用
+# 单引号）、去了注释、文件也不在 InfoTest 仓里。行为由同一批模块的其余测试对拍。
+_UNPARSED = ("reads the module source text and matches a double-quoted literal; the extracted "
+             "source is ast.unparse output, which writes string literals with single quotes")
+_SOURCE_TEXT = {
+    "tests.ist_core.compile_engine.test_state_channel_closure"
+    "::test_counts_update_keys_are_all_declared_state_channels": ("AssertionError", _UNPARSED),
+    "tests.ist_core.compile_engine.test_state_channel_closure"
+    "::test_gather_or_close_reads_the_dedicated_channel_counter": ("AssertionError", _UNPARSED),
+    "tests.ist_core.compile_engine.test_disposition_axis_coverage"
+    "::test_coverage_axis_names_are_real_counter_keys": ("AssertionError", _UNPARSED),
+    "tests.ist_core.compile_engine.test_authored_conflict_followup"
+    "::test_idem_key_strips_every_underscore_key_so_pid_cannot_split_a_replay":
+        ("AssertionError", _UNPARSED),
+    "tests.case_compiler.test_prerequisite_findings"
+    "::test_the_emit_side_always_rewrites_the_sidecar_even_with_no_findings": ("", _UNPARSED),
+    "tests.case_compiler.test_prerequisite_findings"
+    "::test_the_read_back_cap_is_this_files_own_constant":
+        ("ValueError", "resolves the module file relative to the InfoTest root and git-greps "
+                       "main/; the extracted module lives in the skills repo"),
+    "tests.ist_core.compile_engine.test_writeback_failure_accounting"
+    "::test_writeback_failed_has_only_the_disclosure_reader":
+        ("", "greps main/ under the root derived from _shared.__file__; the extracted _shared "
+             "lives in the skills repo, which has no main/"),
+    "tests.ist_core.compile_engine.test_mechanical_case_unproducible"
+    "::test_the_code_comment_writes_down_the_boundary_against_the_device_outlet":
+        ("ValueError", "reads a code comment next to the constant; the extraction strips comments"),
+}
+EXPECTED_DIFFS.update({test: (("passed", ""), ("failed", exc), reason)
+                       for test, (exc, reason) in _SOURCE_TEXT.items()})
 _EXC = re.compile(r"^\s*([A-Za-z_][\w.]*(?:Error|Exception|Exit|Interrupt|Warning|Failed|Skipped))\b")
 
 

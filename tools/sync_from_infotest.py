@@ -39,10 +39,23 @@ from pathlib import Path
 VENDOR_FOOTER = '''
 
 def load_projection(path: str | Path) -> dict:
-    """读投影 JSON；形态不对（没有 heads 映射）就报错，不把“读不到”当成“命令不存在”。"""
+    """读投影 JSON；形态不对就报错，不把“读不到”当成“命令不存在”。
+
+    生成器写的文件只有 headers（厂商 XML）与 manual_declarations（手册声明）两张表，
+    heads 是 InfoTest 加载时合出来的（vendor_stdlib._load_vendor_stdlib_asset）：两张表
+    有同名条目就拒绝，与那里同一判定。已经带 heads 的内存形态原样收下。
+    """
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or not isinstance(data.get("heads"), dict):
-        raise ValueError(f"{path} 不是命令树投影（缺 heads 映射）")
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} 不是命令树投影")
+    headers, manual = data.get("headers"), data.get("manual_declarations")
+    if isinstance(headers, dict) and isinstance(manual, dict):
+        overlap = sorted(set(headers) & set(manual))
+        if overlap:
+            raise ValueError(f"{path} 的 headers 与 manual_declarations 有同名条目：{overlap[:5]}")
+        data = {**data, "heads": {**headers, **manual}}
+    if not isinstance(data.get("heads"), dict):
+        raise ValueError(f"{path} 不是命令树投影（缺 headers / manual_declarations）")
     return data
 '''
 

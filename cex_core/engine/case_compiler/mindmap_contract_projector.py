@@ -68,6 +68,16 @@ _STAMP_FAILURE_PATTERNS = tuple(((collection, re.compile(pattern)) for collectio
 STAMP_FAILURE_CODE_SEARCH = re.compile('(consistency_premise_\\d+_[a-z0-9_]+|consistency_authored_conflict_[a-z0-9_]+)')
 
 class ConsistencyStampFailure(str):
+    """盖章失败码，**连同它编进码名里的那两个字段一起传**。
+
+    `consistency_premise_{i}_{problem}` 与
+    `consistency_authored_conflict_surface_{i}_{problem}` 此前只有码名一个载体，
+    (序号, 问题) 被四处各自写一份正则或前缀切片解回去——同一份文法四份实现，
+    改一处码名就得记得改另外四处。
+
+    码本身还是同一个字符串：比较、`in`、JSON 落盘、拼进文案全部逐字不变；
+    序号与问题直接读 `.index` / `.problem`，生产路径一次都不再解码。
+    """
     collection: str
     index: int
     problem: str
@@ -81,6 +91,11 @@ class ConsistencyStampFailure(str):
 
     @classmethod
     def of(cls, value: object) -> 'ConsistencyStampFailure':
+        """已带字段的原样返回；裸串按文法解一次——全仓唯一的解码点。
+
+        裸串只从外部进来（直调本函数的测试、经 JSON 落盘再读回的码）。生产路径上
+        产码点直接给带字段的对象，走不到解析这一支。
+        """
         if isinstance(value, cls):
             return value
         text = str(value or '')
@@ -91,9 +106,11 @@ class ConsistencyStampFailure(str):
         return cls(text)
 
 def premise_stamp_failure(index: int, problem: str) -> ConsistencyStampFailure:
+    """`premises[index]` 的盖章失败码。"""
     return ConsistencyStampFailure(f'consistency_premise_{index}_{problem}', collection='premises', index=index, problem=problem)
 
 def conflict_surface_stamp_failure(index: int, problem: str) -> ConsistencyStampFailure:
+    """`authored_conflict.surfaces[index]` 的盖章失败码。"""
     return ConsistencyStampFailure(f'consistency_authored_conflict_surface_{index}_{problem}', collection='authored_conflict.surfaces', index=index, problem=problem)
 
 def _invalid_contract_user_text(why: str) -> tuple[str, str]:
@@ -179,6 +196,7 @@ def _clause_gap_failure(spec_quote: str, clauses: list) -> str:
     return _clause_gap_locus(spec_quote, clauses)[0]
 
 def clause_coverage_locus(spec_quote: str, clauses: object) -> tuple[str, int, tuple[int, int] | None]:
+    """生产判据与工具反馈共用的切片复核，位置为标准化引文的 1 起始闭区间。"""
     if not isinstance(clauses, list) or not clauses or any((not isinstance(item, dict) for item in clauses)):
         return ('scenario1_clauses_invalid', 0, None)
     for index, clause in enumerate(clauses):
@@ -191,6 +209,19 @@ def clause_coverage_failure(spec_quote: str, clauses: object) -> str:
     return clause_coverage_locus(spec_quote, clauses)[0]
 
 def _authored_conflict_shape_report(value: object) -> tuple[str, str]:
+    """案内互斥声明的形状走查：返回（失败码, 指到具体字段的原因）。
+
+    这一格答的是**案自己跟自己**的问题：作者的两处表面（标题/分组、某一步、某条
+    预期）能不能同时是本案要验的东西。`verdict` 答的是案跟规格的问题，两个问题正交，
+    所以这是 `consistency` 上一个可选子结构，不是 `verdict` 闭集里的第四个值。
+
+    引用的是**作者两处表面**的逐字引文而不是 spec ——`mutually_exclusive` 那条路要求
+    `spec_clauses` 平铺 `spec_quote`，案内互斥在那个表面上结构性写不出来，这正是它
+    此前只能写成散文 `proposal` 的原因。
+
+    码前缀统一 `consistency_authored_conflict_`，八条形态各自一句原因（只回码等于
+    「只否定不指路」，模型读不出自己差哪一个字段）。
+    """
     if value is None:
         return ('', '')
     if not isinstance(value, dict):
@@ -224,6 +255,13 @@ def _authored_conflict_shape_report(value: object) -> tuple[str, str]:
     return ('', '')
 
 def recompose_consistency_shape_report(value: object) -> tuple[str, str]:
+    """返回（失败码, 指到具体字段的原因）。
+
+    码是既有闭集，八条形态违例共用 `consistency_conclusion_invalid` 一个码；只把码
+    回给模型等于「只否定不指路」——它读不出自己差哪一个字段，只能整卡重发。所以原因
+    在同一趟走查里一并算出，供拒绝文案用；判定仍由这一趟负责，没有第二份走查可漂移。
+    原因串面向模型，用英文。
+    """
     if value is None:
         return ('', '')
     if not isinstance(value, dict):
@@ -599,6 +637,7 @@ def _engine_sampling_records(card: Mapping[str, Any]) -> list[dict[str, Any]]:
     return engine_sampling_records({ENGINE_SLOTS_KEY: card.get(ENGINE_SLOTS_KEY) or []})
 
 def _algorithm_family_token_map() -> dict[str, tuple[str, ...]]:
+    """词表令牌 → 全部登记分类；分类可重叠，不选一个覆盖另一个。"""
     from cex_core.engine.case_compiler.domain_grammar import load_grammar
     tokens: dict[str, set[str]] = {}
     for family, entry in (load_grammar().get('algorithm_classes') or {}).items():
@@ -607,6 +646,11 @@ def _algorithm_family_token_map() -> dict[str, tuple[str, ...]]:
     return {token: tuple(sorted(families)) for token, families in tokens.items()}
 
 def _author_algorithm_mentions_disclosures(autoid: str, raw: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """披露标题/分组与步骤出现的词表字符串，语义作用域保持未核。
+
+    词边界匹配也会命中域名、不同对象层次和迁移过程，不能据此认定算法声明或
+    来源冲突。只保留原文与词面命中，不改变一致性处置、采样、预期或受理结论。
+    """
     tokens = _algorithm_family_token_map()
     if not tokens:
         return []
@@ -679,6 +723,11 @@ def _card_device_disclosure(case: Mapping[str, Any], entries: Sequence[Mapping[s
     return flatten_tiers(tiers)
 
 def ground_condition_author_text(author_text: str, step_text: str) -> dict | None:
+    """条件 author_text 的接地：在两侧转义形态的笛卡尔积上找 span。
+
+    与条件 text 的子串检查同一份形态集（verbatim_candidates），转义形态与
+    空白归一都容——判定侧只收「接得到/接不到」这一个关系。
+    """
     for form in verbatim_candidates(str(author_text or '')):
         for step_form in verbatim_candidates(str(step_text or '')):
             span = ground_source_span(form, step_form)
@@ -687,6 +736,11 @@ def ground_condition_author_text(author_text: str, step_text: str) -> dict | Non
     return None
 
 def _condition_grounding(case: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """条件 author_text 的接地收据：只记非逐字命中的矫正（空白归一后接上）。
+
+    逐字接地零记录；这里披露的是「模型写的 author_text 与密封原文有空白差
+    异、引擎按区间矫正放行」的痕迹，停批不发生（09-11 改写制条款）。
+    """
     from cex_core.engine.case_compiler.step_structure import STEP_STRUCTURE_KEY
     out: list[dict[str, Any]] = []
     structure = case.get(STEP_STRUCTURE_KEY)
@@ -803,12 +857,19 @@ def _enhancement_disclosures_for_case(case: Mapping[str, Any]) -> list[dict[str,
 PROPOSAL_SHAPE_ERROR_CN = 'proposal 必须是非空字符串组成的数组（无缺口时为空数组）'
 
 def proposal_shape_error(case: Mapping[str, Any] | dict[str, Any]) -> str | None:
+    """`proposal` 形态判据的唯一一份：非空纯字符串数组，无缺口时为空数组；缺键同样不合规。
+    分片提交口（recompose_parts）用它教回重交，投影器（_eligible）用它 fail-closed。"""
     proposal = case.get('proposal')
     if not isinstance(proposal, list) or any((not isinstance(item, str) or not item.strip() for item in proposal)):
         return PROPOSAL_SHAPE_ERROR_CN
     return None
 
 def primary_expectation_membership_error(case: Mapping[str, Any]) -> str | None:
+    """完整来源的主期望必须以同一出处和既有文本形式出现在分步闭集。
+
+    不比较两个声明的语义，也不选择权威来源。缺口或其他形态不完整的材料仍交给
+    原有完整性/形状路由；分片入口与投影器只在本规则原有前提成立时消费同一判据。
+    """
     material = dict(case)
     if _derived_source_status(material) != 'complete' or _derived_typed_assertion_status(material) not in _TYPED_ASSERTION_STATUSES:
         return None
@@ -1151,11 +1212,22 @@ AUTHORED_STEP_ANCHOR_CN = '作者步骤'
 _AUTHORED_STEP_ANCHOR_TAIL_RE = re.compile(f'；{AUTHORED_STEP_ANCHOR_CN}[0-9]+$')
 
 def authored_step_anchor_suffix(authored_step: Any) -> str:
+    """``text_anchor`` 上的作者步号段；步号不知道就是空串。
+
+    卡面与判据谓词说的是同一件事，所以两边取同一个值：谓词读
+    ``normalized_claim.authored_step``，卡面读同一个字段生成这一段。取不到时这一段
+    不写——写一个猜的步号比不写更坏（`expectations_by_step.n` 对 origin=
+    ``expectation:N`` 的行大多恒为 1，卡面照它写就是把多步案一律说成第 1 步）。
+    """
     if isinstance(authored_step, bool) or not isinstance(authored_step, int):
         return ''
     return f'；{AUTHORED_STEP_ANCHOR_CN}{authored_step}' if authored_step >= 1 else ''
 
 def with_authored_step_anchor(text_anchor: Any, authored_step: Any) -> str:
+    """把 ``text_anchor`` 末尾的作者步号段换成 ``authored_step`` 那一段。
+
+    幂等：已经带着步号段时先摘掉再贴，二次归一不会把同一段贴两遍。
+    """
     base = _AUTHORED_STEP_ANCHOR_TAIL_RE.sub('', str(text_anchor or ''))
     return base + authored_step_anchor_suffix(authored_step)
 AUTHORED_STEP_CAUSE_ORIGIN = 'origin_not_a_step_locator'
@@ -1164,6 +1236,22 @@ AUTHORED_STEP_CAUSE_TEXT = 'claim_text_not_uniquely_bound'
 AUTHORED_STEP_UNKNOWN_CAUSES = frozenset({AUTHORED_STEP_CAUSE_ORIGIN, AUTHORED_STEP_CAUSE_ANCHORS, AUTHORED_STEP_CAUSE_TEXT})
 
 def authored_expectation_step_binding(mindmap_text: str, *, autoid: str, origin: str, source_text: str) -> tuple[int | None, str | None]:
+    """作者把这条期望挂在了哪一步，以及绑不到时是哪一种绑不到。
+
+    返回 ``(步号, 成因码)``：绑到了就是 ``(N, None)``，绑不到就是 ``(None, 成因码)``，
+    成因码取自 :data:`AUTHORED_STEP_UNKNOWN_CAUSES` 三值闭集。三种成因的修法完全不同
+    ——第一种要改行的 ``origin``（或它根本不是脑图内部来源），第二种要改脑图结构，
+    第三种是两条期望原文在同一标签下互相盖住。折成同一个「不知道」时，下游看不出该动哪里。
+
+    事实源是 :func:`_mindmap_anchor_map` 已经算好的 ``__expectation_step__`` 锚——
+    期望节点所在的那个步骤节点，或步骤原文里带 ``[<标签>]`` 定位符的那一步。同一标签
+    下期望原文与步锚逐条并列（一条期望一条锚），靠原文把这一条认回它自己那条锚；
+    条数对不上、或原文同时落在指向不同步的几条锚上，都按「不知道」返回，不挑一条凑数。
+    分句提交的主张是整条期望原文的子串，所以按包含关系认。
+
+    **``semantic_key`` / ``expectation_id`` 的步号段不是步指针**：那两个是身份字段，
+    ``origin=expectation:<数字>`` 的行里数字是期望自己的序号，不是它说的那一步。
+    """
     text = str(origin or '').strip()
     step_match = _ORIGIN_STEP_RE.fullmatch(text)
     if step_match is not None:
@@ -1189,6 +1277,11 @@ def authored_expectation_step_binding(mindmap_text: str, *, autoid: str, origin:
     return (None, AUTHORED_STEP_CAUSE_TEXT)
 
 def authored_expectation_step(mindmap_text: str, *, autoid: str, origin: str, source_text: str) -> int | None:
+    """作者把这条期望挂在了哪一步；密封脑图没绑到唯一一步就返回 ``None``。
+
+    只要步号、不要成因码时用这个；成因码见
+    :func:`authored_expectation_step_binding`。
+    """
     return authored_expectation_step_binding(mindmap_text, autoid=autoid, origin=origin, source_text=source_text)[0]
 
 def _mindmap_anchor_map(mindmap_text: str) -> dict[str, dict[str, list[str]]]:

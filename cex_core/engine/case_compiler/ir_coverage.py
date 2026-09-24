@@ -13,6 +13,11 @@ def load_atlas() -> dict:
     return json.loads(_ATLAS_PATH.read_text(encoding='utf-8'))
 
 def _contract(contract: 'object | None'=None) -> dict:
+    """取当前 Excel 契约。
+
+    只接受 ValidatedExcelContract 或 None;旧的 capability_atlas.json 裸 dict
+    实参已不再被静默忽略——传错类型当场炸,别让调用方以为自己传的 atlas 生效了。
+    """
     from cex_core.engine.case_compiler.excel_contract import ValidatedExcelContract, load_excel_contract
     if contract is None:
         return load_excel_contract()

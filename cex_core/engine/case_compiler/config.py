@@ -28,6 +28,12 @@ def _pick(env_key: str, file_cfg: dict, file_key: str, default: Any) -> Any:
     return default
 
 def _pick_port(env_key: str, file_cfg: dict, file_key: str, default: int) -> int:
+    """端口取值：env > 配置文件 > 默认。
+
+    与 `env_preflight._jumphost_port` / `env_identity._resolve_jumphost` /
+    `device_mcp_server.deploy._jumphost_port` 是同一套顺序。取不成整数按默认值、
+    不抛——那三处都这么兜；在这里抛会让预检按 `[host]:2222` 给绿灯而实连另一个口。
+    """
     env_raw = os.environ.get(env_key)
     from_env = env_raw is not None and str(env_raw).strip() != ''
     source = env_key if from_env else f'配置文件 {file_key}'

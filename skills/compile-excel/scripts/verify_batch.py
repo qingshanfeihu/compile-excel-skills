@@ -32,7 +32,6 @@ from cex_core.ist_emit.excel_contract import (  # noqa: E402
     CONTRACT_MARKER,
     EXECUTION_HEADERS,
     PINNED_CONTRACT_SHA256,
-    TEMPLATE_SHA256,
     ExcelContractError,
     resolve_execution_sheet,
 )

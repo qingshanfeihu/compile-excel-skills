@@ -13,7 +13,7 @@
    - claude：`claude plugin marketplace add <发行根>`（目录型 marketplace，插件就地加载）+
      `claude plugin install compile-excel@compile-excel`；
    - pi：`pi install <发行根>`（本地路径包，不复制）；
-   - circle：技能拷到 $CIRCLE_HOME/skills/compile-excel（写 .cex_home 指回发行根），
+   - circle：skills/ 下每个技能拷到 $CIRCLE_HOME/skills/<名字>（写 .cex_home 指回发行根），
      扩展入口写到 $CIRCLE_HOME/extensions/compile-excel/extension.py（转到发行根里的实现）。
 4. 自检后打印一段 JSON 报告。不读、不写任何口令；登录在首次使用时由 skill 引导。
 
@@ -39,8 +39,13 @@ PLUGIN = "compile-excel@compile-excel"
 INSTALL_RECORD = ".cex_install.json"
 SHIM_MARKER = "# compile-excel install.py"
 _SKIP = {".git", "tests", "__pycache__", ".pytest_cache", ".ruff_cache", "node_modules"}
+SKILLS = ("compile-excel", "mindmap-recompose")
+# requirements.txt 的包名 → import 名；依赖自检按这张表探（测试钉住两边一致）
+DEP_MODULES = {"openpyxl": "openpyxl", "beautifulsoup4": "bs4", "PyYAML": "yaml",
+               "pydantic": "pydantic", "langchain-core": "langchain_core"}
 _REQUIRED = ("cex_core/__init__.py", "cex_client/tools.py", "bin/cex_tool", "bin/cex_mcp_proxy.py",
-             "skills/compile-excel/SKILL.md", "adapters/circle/extension.py", "adapters/pi/index.ts",
+             *(f"skills/{name}/SKILL.md" for name in SKILLS),
+             "adapters/circle/extension.py", "adapters/pi/index.ts",
              ".claude-plugin/plugin.json", "package.json", "requirements.txt")
 
 
@@ -112,7 +117,7 @@ class Installer:
 
     # ── 2. 依赖 ───────────────────────────────────────────
     def check_deps(self, install: bool) -> dict[str, Any]:
-        modules = {"openpyxl": "openpyxl", "beautifulsoup4": "bs4", "PyYAML": "yaml"}
+        modules = DEP_MODULES
         probe = "import importlib.util,sys; print(','.join(m for m in sys.argv[1:] " \
                 "if importlib.util.find_spec(m) is None))"
         report: dict[str, Any] = {"python": self.python, "actions": []}
@@ -170,21 +175,22 @@ class Installer:
     def circle(self) -> dict[str, Any]:
         actions: list[str] = []
         home = Path(os.environ.get("CIRCLE_HOME") or Path.home() / ".circle").expanduser()
-        skill = home / "skills" / "compile-excel"
+        skills = [home / "skills" / name for name in SKILLS]
         ext_dir = home / "extensions" / "compile-excel"
-        for target in (skill, ext_dir):
+        for target in (*skills, ext_dir):
             if target.exists() and not self._ours(target):
                 raise InstallError(f"{target} exists and was not written by this installer; "
                                    "move it away first")
-        actions.append(f"copy skill -> {skill}")
+        actions.extend(f"copy skill -> {skill}" for skill in skills)
         actions.append(f"write extension entry -> {ext_dir / 'extension.py'}")
         if self.dry_run:
             return {"ok": True, "actions": actions}
-        if skill.exists():
-            shutil.rmtree(skill)
-        shutil.copytree(self.prefix / "skills" / "compile-excel", skill,
-                        ignore=lambda _d, names: [n for n in names if n in _SKIP])
-        (skill / ".cex_home").write_text(str(self.prefix) + "\n", encoding="utf-8")
+        for skill in skills:
+            if skill.exists():
+                shutil.rmtree(skill)
+            shutil.copytree(self.prefix / "skills" / skill.name, skill,
+                            ignore=lambda _d, names: [n for n in names if n in _SKIP])
+            (skill / ".cex_home").write_text(str(self.prefix) + "\n", encoding="utf-8")
         ext_dir.mkdir(parents=True, exist_ok=True)
         impl = self.prefix / "adapters" / "circle" / "extension.py"
         (ext_dir / "extension.py").write_text(

@@ -3,4 +3,5 @@ openpyxl>=3.1          # 出件、读执行页（cex_core.ist_emit / scan_destru
 beautifulsoup4>=4.12   # 缺陷页解析（cex_core.defects）
 PyYAML>=6.0            # 缺陷页选择器配置
 pydantic>=2.6          # cex_core.engine 的机械用例模型（mechanical_case）
+langchain-core>=1.5    # 脑图重组：引擎的提交工具与 lang_query 是 langchain 工具（按原样调 .func）
 # lxml 可选：装了缺陷页解析更快，没装回退到标准库 html.parser

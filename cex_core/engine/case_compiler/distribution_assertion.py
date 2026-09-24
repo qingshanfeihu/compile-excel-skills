@@ -4,12 +4,28 @@ import re
 DISTRIBUTION_DECLARATION_CONTRACT = {'default_layout': 'anchor[^\\n]*field{range}', 'field': "A regex prefix immediately before the count in the same line as anchor. It is not a complete row pattern. A bucket's complete pattern ignores this field, so an empty string is valid only when every bucket provides its own template containing {range}; with neither, nothing says where the count is read and the block is rejected.", 'bucket_pattern': "Optional complete regex template containing {range}. Only {range} is replaced by the bounded integer regex; anchor and field are not prepended. Use this form when the documented identifier and count span lines or require a different order. Bind the count to this bucket's record and preserve record boundaries; a broad cross-record wildcard can read another bucket's count. Layout evidence never signs the expected count.", 'sampling': "total is the author's compiled sample-count declaration used to derive count intervals. OBSERVE_DIST executes cmd once and checks that output; it does not repeat requests, reset counters, or count executed requests. Arrange the required traffic and observation in executable blocks and retain evidence connecting executed samples to the measured counters. A valid interval or a declared total does not prove that execution link."}
 
 def _bucket_binds_its_own_count(bucket: object) -> bool:
+    """这一桶自带完整版式吗——`pattern` 含 `{range}` 占位就是。
+
+    与 `expand_distribution_step` 挑版式那一步同判据：桶带 `pattern` 就用桶的，
+    `anchor` 与 `field` 都不再前置。
+    """
     if not isinstance(bucket, dict):
         return False
     template = bucket.get('pattern')
     return isinstance(template, str) and '{range}' in template
 
 def distribution_count_binding_error(field: object, buckets: object) -> str | None:
+    """分布声明有没有说清「计数从哪一格读」——唯一判据，两个消费方共用。
+
+    `expand_distribution_step` 造断言正则只有两条路：桶自带的完整 `pattern`
+    （含 `{range}`），或默认版式 `anchor[^
+]*field{range}`。两条都缺（`field` 空、
+    桶也不给 `pattern`），生成的就是 `anchor` + 同行任意字符 + 一个裸数字——它咬住
+    锚点那一行里最先出现的**任何**数字，读到的不一定是命中计数，断言因此判不出分布
+    对错。这不是风格问题，是这条断言没有被绑到要测的那个量上。
+
+    返回 None 表示绑定成立；否则返回给编写侧看的拒绝原文。
+    """
     if not isinstance(buckets, list) or not buckets:
         return None
     if str(field or '').strip():
@@ -23,9 +39,15 @@ def _fill_by_nines(num: int, nines: int) -> int:
     return num - num % 10 ** nines + (10 ** nines - 1)
 
 def _fill_by_zeros(num: int, zeros: int) -> int:
+    """把 num 的低 zeros 位填成 0 再减 1。fill_by_zeros(12,1)=9；fill_by_zeros(105,1)=99。"""
     return num - num % 10 ** zeros - 1
 
 def _split_to_ranges(lo: int, hi: int) -> list[tuple[int, int]]:
+    """把 [lo,hi] 拆成若干子区间，每个子区间内的数同位数、且逐位可用 [a-b] 表达。
+
+    切点取在「低位全 9」（lo 侧上推）与「低位全 0 减 1」（hi 侧下推）边界——这些正是数字位数/
+    十进制进位的天然分界，保证每个子区间 start/stop 位数一致（_range_to_pattern 的前提）。
+    """
     stops = {hi}
     nines = 1
     stop = _fill_by_nines(lo, nines)

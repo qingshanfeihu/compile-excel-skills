@@ -60,6 +60,7 @@ def _carried_identity(container: Any, label: str) -> dict[str, str]:
     return ids
 
 class _Sealed(BaseModel):
+    """全字段无默认值 + 拒未知键 + 严格类型：缺键、多键、类型漂移都当场拒。"""
     model_config = ConfigDict(extra='forbid', strict=True, populate_by_name=False)
 
 class MechanicalCaseDescription(_Sealed):

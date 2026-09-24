@@ -59,6 +59,10 @@ def _typebox(schema: dict[str, Any]) -> str:
     if kind == "array":
         opts = _options(schema, ("description", "maxItems"))
         return f"Type.Array({_typebox(schema['items'])}{', ' + opts if opts else ''})"
+    if kind == "object" and "properties" not in schema:
+        # 不定形对象（如机械脑图的案）：字段由工具那头的判据核，不在 schema 里重复一份
+        opts = _options(schema, ("description",))
+        return f"Type.Record(Type.String(), Type.Unknown(){', ' + opts if opts else ''})"
     raise SystemExit(f"tool_specs 用了生成器不认识的类型 {kind!r}，先扩展本脚本")
 
 

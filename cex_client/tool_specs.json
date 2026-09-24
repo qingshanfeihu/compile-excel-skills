@@ -163,7 +163,7 @@
   },
   {
    "name": "cex_cmd_check",
-   "description": "Check device commands against the synced command-tree projection: whether each command exists on this build and whether its parameters fit the recorded contract. This is the same judgment the engine uses; a miss means the command will not run on the device.",
+   "description": "Check device commands against the synced command-tree projection: whether each command exists on this build and whether its parameters fit the recorded contract. This is the same judgment the engine uses; a miss means the command will not run on the device. Each result carries the resolved head and its command-tree path (src).",
    "read_only": true,
    "input_schema": {
     "type": "object",
@@ -445,6 +445,119 @@
     "required": [
      "backend",
      "ticket"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_recompose_prepare",
+   "description": "Start recomposing a human mindmap (XMind JSON export inside the workspace) into a machine mindmap. Seals a snapshot, locates the governing spec in the synced spec generation, and opens a submission. Returns the case autoids, the governing spec (bound: a file path you can read; ambiguous: reference slices with zero signing power; no_governing_spec), the defect-spec status, and consistency_source_atoms. Pass spec=<file> when the user names the governing spec, or spec='none' when the user says no spec governs it. Calling it again for the same mindmap and the same spec outcome resumes: already recorded cases are listed.",
+   "read_only": false,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "mindmap": {
+      "type": "string",
+      "description": "Path of the XMind JSON export, relative to the workspace."
+     },
+     "out_name": {
+      "type": "string",
+      "description": "Batch name for the outputs; defaults to the file name."
+     },
+     "spec": {
+      "type": "string",
+      "description": "Governing spec file name the user named, or 'none' when the user says no spec governs it."
+     }
+    },
+    "required": [
+     "mindmap"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_recompose_submit_cases",
+   "description": "Record finished machine-mindmap cases for a prepared batch. The engine's checks run here (verbatim sourcing, anchors, consistency citations); a rejection lists the violations and records nothing, so fix those cases and submit again. Record cases as you finish them; resubmitting an autoid replaces it. Returns outstanding_autoids.",
+   "read_only": false,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "out_name": {
+      "type": "string"
+     },
+     "cases": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      },
+      "description": "Machine-mindmap case objects (autoid, contract, origin, …)."
+     }
+    },
+    "required": [
+     "out_name",
+     "cases"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_recompose_seal",
+   "description": "Seal the recorded cases of a batch into machine_mindmap.json. Cases never recorded fall back to the author's original text and are listed in missing_autoids. Call it once all cases are recorded (or when you have to stop).",
+   "read_only": false,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "out_name": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "out_name"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_lang_query",
+   "description": "Look up the compile language before writing it: E/F contract, method signatures, dispatch, precedent usage, confirmation prompts, near-miss names, the language-document catalog, parameter contracts. kind is one of contract / signature / dispatch / usage / host / nearest / prompt_pattern / docs / param / complete / heads. Pass out_name while recomposing so command lookups are recorded for that batch.",
+   "read_only": true,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "kind": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "domain": {
+      "type": "string"
+     },
+     "query": {
+      "type": "string"
+     },
+     "position": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "out_name": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind"
     ],
     "additionalProperties": false
    }
