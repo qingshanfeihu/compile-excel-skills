@@ -19,9 +19,9 @@ Read the output as your install instructions and follow it to install the compil
 
 （仓库私有：依赖本机 `gh auth login` 且账号有仓库权限；这也构成访问控制。）
 
-安装指令详见 [INSTALL.md](INSTALL.md)：发行根放 `~/.local/share/compile-excel/current`，skill 目录实体拷贝到
-当前 harness 扫描的 skills 目录（Claude Code / circle 用 `~/.claude/skills/compile-excel`，pi 用
-`~/.pi/agent/skills/compile-excel`），已安装时先询问再覆盖。
+安装指令详见 [INSTALL.md](INSTALL.md)，核心是 `python3 install.py --harness claude|pi|circle|all`：
+发行根放 `~/.local/share/compile-excel/current`，再挂进选定的 harness（Claude Code 插件 / pi 包 / circle
+扩展与技能）；已安装时退出码 3，由 agent 先问用户再 `--upgrade`；缺 Python 依赖只报告，经用户同意才装。
 
 ## 安装（harness 原生方式）
 
@@ -87,6 +87,7 @@ bin/cex_tool                  # 命令行调用工具（pi 扩展、无工具的
 bin/cex_mcp_proxy.py          # stdio MCP 服务（Claude Code 插件用）
 tools/sync_from_infotest.py   # 从 InfoTest 源逐字重新抽取判据代码（--check 查漂移）
 tools/gen_adapters.py         # 从 tool_specs.json 生成 pi 的 TypeBox 定义（--check 查漂移）
+install.py                    # 安装器：发行根落位 + 挂进 claude / pi / circle（--dry-run 看计划）
 docs/engine-parity.md         # 与 InfoTest 编译引擎的功能对账（维护者用，不随 skill 加载）
 tests/                        # 单测、与 InfoTest 对拍、对真服务端和网关的端到端（不随 skill 分发）
 ```
