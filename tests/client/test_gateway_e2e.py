@@ -1,3 +1,4 @@
+# ruff: noqa: F811 — 从 test_server_e2e 引入的 server 夹具按 pytest 惯例作参数名
 """cex_client 经真网关上机的端到端测试。
 
 真 compile-excel-server（uvicorn 子进程，账号、令牌、数据包、客户端常量）+ 真网关服务（同级 server 仓的

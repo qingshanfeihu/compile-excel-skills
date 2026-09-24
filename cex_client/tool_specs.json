@@ -370,6 +370,84 @@
     ],
     "additionalProperties": false
    }
+  },
+  {
+   "name": "cex_portal_login_start",
+   "read_only": false,
+   "description": "Start a QR-code login to the company portal (needed before cex_bug_get). Saves the QR image to a private file and returns its path; ask the user to open it and scan it with the company app, then call cex_portal_login_wait. No password is ever asked for or stored.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_portal_login_wait",
+   "read_only": false,
+   "description": "Wait for the user to finish scanning the portal QR code. Returns pending if not yet scanned; call again in that case.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "timeout_s": {
+      "type": "number"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_portal_logout",
+   "read_only": false,
+   "description": "Forget the portal session stored on this machine.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_bug_get",
+   "read_only": false,
+   "description": "Fetch one defect ticket through the portal session with the user's own permissions, parse it and save the scrubbed result under defects/ in the workspace. Only ticket detail pages of the configured trackers are fetched. If the session expired, run the portal QR login again.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "backend": {
+      "type": "string",
+      "enum": [
+       "bugzilla",
+       "zentao",
+       "zentao_story"
+      ]
+     },
+     "ticket": {
+      "type": "string",
+      "description": "Ticket id, e.g. 12345, BUG-12345 or STORY-7."
+     }
+    },
+    "required": [
+     "backend",
+     "ticket"
+    ],
+    "additionalProperties": false
+   }
   }
  ]
 }

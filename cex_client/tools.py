@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from . import auth, bundle, device, gateway
+from . import auth, bugs, bundle, device, gateway, portal
 from . import workspace as wsmod
 from .errors import ClientError
 
@@ -165,6 +165,24 @@ def cex_init_device(args: dict[str, Any]) -> dict[str, Any]:
     return gateway.call_tool(ws, "init_device", {**gateway.lease_args(ws), **forwarded})
 
 
+def cex_portal_login_start(args: dict[str, Any]) -> dict[str, Any]:
+    return {"ok": True, **portal.start_qr_login(bugs.login_url(_ws(args)))}
+
+
+def cex_portal_login_wait(args: dict[str, Any]) -> dict[str, Any]:
+    timeout = min(max(float(args.get("timeout_s") or 60), 1.0), 300.0)
+    return portal.wait_qr_login(bugs.probe_url(_ws(args)), timeout_s=timeout)
+
+
+def cex_portal_logout(args: dict[str, Any]) -> dict[str, Any]:
+    return portal.logout()
+
+
+def cex_bug_get(args: dict[str, Any]) -> dict[str, Any]:
+    return {"ok": True, **bugs.get_ticket(_ws(args), str(args.get("backend") or ""),
+                                          str(args.get("ticket") or ""))}
+
+
 TOOLS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "cex_init": cex_init,
     "cex_status": cex_status,
@@ -183,6 +201,10 @@ TOOLS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "cex_case_results": cex_case_results,
     "cex_probe_show": cex_probe_show,
     "cex_init_device": cex_init_device,
+    "cex_portal_login_start": cex_portal_login_start,
+    "cex_portal_login_wait": cex_portal_login_wait,
+    "cex_portal_logout": cex_portal_logout,
+    "cex_bug_get": cex_bug_get,
 }
 
 
