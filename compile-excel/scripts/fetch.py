@@ -23,7 +23,8 @@ import ist_client  # noqa: E402
 
 def _fetch_from_server(device_build: str, only: list[str]) -> dict:
     manifest = ist_client.fetch_manifest(device_build)
-    build = manifest.get("device_build") or device_build
+    build = ist_client.safe_path_component(
+        manifest.get("device_build") or device_build, "device_build")
     dest_dir = ist_client.CACHE_DIR / build
     entries = [a for a in manifest["artifacts"] if not only or a["name"] in only]
     missing = set(only) - {a["name"] for a in entries}

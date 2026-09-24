@@ -1,6 +1,6 @@
 ---
 name: compile-excel
-description: "Compile test-case content (mindmap / case list / step text) into a structurally correct, device-ready case.xlsx execution workbook. Use when the user asks to 编译用例 / 脑图转 excel / 生成 case.xlsx / 出测试卷 / 用例编译, or hands you case steps and wants the batch workbook. The script owns workbook structure (execution sheet, header row, E/F/G/H/I column semantics, contract markers, atomic write); you own case content. Do NOT trigger for: reviewing or auditing existing cases without producing a workbook, executing cases on a device (that is the InfoTest engine's job), hand-editing an existing case.xlsx cell by cell, or deploying/configuring the distribution server itself. IMPORTANT: This skill is installed at /Users/jiangyongze/.circle/skills/compile-excel (or /compile-excel-skills/compile-excel in some envs); use absolute paths, NOT tilde paths like ~/.circle/..., when reading files from this skill directory."
+description: "Compile test-case content (mindmap / case list / step text) into a structurally correct, device-ready case.xlsx execution workbook. Use when the user asks to 编译用例 / 脑图转 excel / 生成 case.xlsx / 出测试卷 / 用例编译, or hands you case steps and wants the batch workbook. The script owns workbook structure (execution sheet, header row, E/F/G/H/I column semantics, contract markers, atomic write); you own case content. Do NOT trigger for: reviewing or auditing existing cases without producing a workbook, executing cases on a device (that is the InfoTest engine's job), hand-editing an existing case.xlsx cell by cell, or deploying/configuring the distribution server itself. Script and reference paths in this skill are relative to the skill's own directory."
 license: Proprietary
 ---
 
@@ -42,9 +42,11 @@ Script paths below are relative to this skill's directory.
    way the following `found` is dangling and crashes the whole file on device.
    See `references/gotchas.md` before choosing methods.
 5. **Static acceptance is `scripts/verify_batch.py`; the on-device verdict is
-   `scripts/run_device.py`.** Do not call InfoTest_Engine, `deep_check_infotest.py`, or set
-   `IST_ENGINE_ROOT`. A product ships only when verify_batch fails 0 AND the on-device run
-   has fail 0 and underdetermined 0.
+   `scripts/run_device.py`.** Do not call InfoTest_Engine or `deep_check_infotest.py`
+   yourself. `run_device.py` currently borrows the InfoTest framework client and reads
+   `IST_ENGINE_ROOT` from the env binding, which the user sets once; do not set it ad hoc.
+   A product ships only when verify_batch fails 0 AND the on-device run has fail 0 and
+   underdetermined 0.
 6. **Rework goes through `scripts/rework_gate.py`** — redispatch ⊆ prior fail set;
    prior-pass cases are locked. Never recompile a passing case away silently.
 7. **Report to the user exactly**: batch name, case count, step/check_point counts, product
@@ -65,9 +67,8 @@ install silently. If the user declines, stop: compiling is impossible without it
 ### 2. Link (every session, before compile)
 
 Loading this skill runs `scripts/link_status.py`. That script owns the wording:
-re-login text, the device username prompt, and the device password prompt.
-The harness only displays what the script prints and collects the `ask` items.
-Do not skip them and do not ask for the password in chat.
+re-login text and which credentials are still missing. Relay what it prints; never ask
+for a password or other secret in chat.
 
 ```bash
 python3 scripts/link_status.py
@@ -78,11 +79,11 @@ Read the JSON. Do not continue while `ok` is false.
 - `oauth.ok` is false: run `python3 scripts/login.py --no-browser`. Show the user the
   `verification_uri` and wait until they authorize. Then run `python3 scripts/fetch.py`.
   Do not invent a token.
-- `ask` is not empty: the device username/password were never collected. For each item
-  call the `question` tool with `secret: true`, that item's `key`, `question`, and
-  `target_file`. The harness writes the value into the env file. The value must not
-  appear in the conversation. If secret collection fails, stop and tell the user to
-  fill that key themselves. Do not paste a password into chat.
+- `ask` is not empty: some credentials were never collected. Tell the user which keys
+  are missing and the `target_file` path, and ask them to fill those keys themselves —
+  in an editor, or by running `scripts/collect_credentials.sh --target <target_file>` in
+  their own terminal (masked input, writes a 600 file). Values never pass through the
+  conversation. Wait for the user to say it is done.
 - After both succeed, run `link_status.py` again. Only `ok: true` may proceed.
 
 ### 3. Environment binding
@@ -90,7 +91,7 @@ Read the JSON. Do not continue while `ok` is false.
 Lookup order: `$COMPILE_EXCEL_ENV` → `<workspace>/.circle/compile-excel.env` →
 `~/.config/compile-excel/env`.
 
-- **Found** → run preflight (step 3).
+- **Found** → run preflight (step 4).
 - **Not found** → run the Setup interview in `references/env-setup.md` (one question at
   a time, defaults offered). Never guess KMS/jumphost values yourself.
 
@@ -243,16 +244,18 @@ open for the rework loop. The workbook and `cases.json` are never edited by back
   `show version` matches the command line, not the output. `verify_batch.py`
   rejects this. Fix: make G more specific so it matches a data line, not the command.
 
-## Optional: artifact sync from the distribution server
+## Artifact sync from the distribution server
 
-`login.py` once (browser authorization), then `fetch.py` (per-file SHA256, mismatch
-rejected, offline falls back to cache with an explicit version notice), `docs_query.py`
-for manual retrieval. Details and env vars: `references/server-sync.md`. No server
-configured? Skip this section entirely — local compiling does not depend on it.
+The link gate in step 2 requires a logged-in server session; compiling does not start
+without it. `login.py` once (browser authorization), then `fetch.py` (per-file SHA256,
+mismatch rejected, offline falls back to cache with an explicit version notice),
+`docs_query.py` for manual retrieval. Details and env vars: `references/server-sync.md`.
 
 ## Dependencies
 
 python3 (3.9+) · openpyxl (probe first, install only with user consent) · paramiko + py≥3.10
 (same consent rule — needed only for the on-device stage; `run_device.py` auto re-execs on a
 suitable interpreter). Static verification is `scripts/verify_batch.py`; on-device runs are
-`scripts/run_device.py` (framework client). Do not depend on an InfoTest install.
+`scripts/run_device.py` (framework client). The on-device stage is the only part that
+still needs an InfoTest checkout (`IST_ENGINE_ROOT` in the env binding); it moves to the
+jumphost gateway next.

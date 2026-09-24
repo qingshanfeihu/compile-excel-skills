@@ -9,7 +9,7 @@
 | `COMPILE_EXCEL_SERVER` | `http://127.0.0.1:8900` | 服务器地址 |
 | `COMPILE_EXCEL_CONFIG_DIR` | `~/.config/compile-excel` | token 目录（透传给子进程时保持一致） |
 | `COMPILE_EXCEL_CACHE_DIR` | `~/.cache/compile-excel` | 工件缓存 |
-| `IST_ENGINE_ROOT` | 自动探测同级 | InfoTest 引擎根（verify Layer 2 用；**记得透传给 execute 子进程**） |
+| `IST_ENGINE_ROOT` | 无（在 env 绑定里设） | InfoTest 引擎根：上机阶段与 verify Layer 2 用；**记得透传给 execute 子进程** |
 
 ## 三条命令
 

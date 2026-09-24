@@ -69,10 +69,11 @@ def _find_tree(explicit: str, workspace: Path) -> tuple[Path | None, str]:
     if kd:
         candidates.extend(sorted(glob.glob(os.path.join(kd, "cmdtree*.xml"))))
     candidates.extend(sorted((workspace / "knowledge").glob("cmdtree*.xml")))
-    engine = Path("/Users/jiangyongze/Public/InfoTest_Engine"
-                  "/knowledge/data/compile_ref")
-    if engine.is_dir():
-        candidates.extend(sorted(engine.glob("cmdtree*.xml")))
+    engine_root = (os.environ.get("IST_ENGINE_ROOT") or env.get("IST_ENGINE_ROOT") or "").strip()
+    if engine_root:
+        engine = Path(engine_root).expanduser() / "knowledge" / "data" / "compile_ref"
+        if engine.is_dir():
+            candidates.extend(sorted(engine.glob("cmdtree*.xml")))
     for p in candidates:
         if p.is_file():
             m = _BUILD_RE.search(p.name)

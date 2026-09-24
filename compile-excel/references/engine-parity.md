@@ -68,7 +68,7 @@ fetch.py 的协议（manifest+sha256+receipt）已经能承载真投影。
 | Excel 契约（表头 29 行/marker/defined-name/钉死模板 SHA） | ✅ 同源（ist_emit 冻结快照） |
 | E/F/G/H/I 语义主径 + found_times 硬契约 | ✅ verify_batch 与引擎 structural_gate 对拍过 |
 | 断言不命中命令原文（假通过防线第一条） | ✅ skill 先落地（引擎靠 emit 必崩规则覆盖） |
-| 凭据安全（不进对话/不落日志） | ✅ 双方同纪律（env 绑定 600 + question 机密通道） |
+| 凭据安全（不进对话/不落日志） | ✅ 双方同纪律（env 绑定 600，由用户自行写入） |
 | 真值回写 | ✅ 各自口径（引擎→knowledge footprint；skill→footprint.jsonl 台账） |
 | 速度/透明度 | skill 领先（3 案 42s，全链可对账） |
 

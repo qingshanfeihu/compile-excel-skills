@@ -22,13 +22,13 @@
 
 ## 凭据通道
 
-密码类值不进对话、不进日志；两条通道按 harness 能力选：
+密码类值不进对话、不进日志。各家 harness 的保密输入能力不同（Claude Code 没有），
+所以统一由用户自己写入，agent 只告诉用户缺哪些键、写到哪个文件：
 
-- **circle（有 secret UI）**：question 工具机密提问（`secret: true` + `key` +
-  `target_file`）——掩码输入、harness 直写 env 文件、对话只见"已收集"
-- **其他 harness / 兜底**：
+- 用户在编辑器里直接填 env 文件；或
+- 用户在**自己的终端**里运行：
   ```bash
-  printf 问题答案由用户在终端输入 | scripts/collect_credentials.sh --target ~/.config/compile-excel/env
+  scripts/collect_credentials.sh --target ~/.config/compile-excel/env
   ```
   `read -s` 不回显，直写 600 文件；目标已存在拒绝覆盖（`--force` 显式覆盖）
 
@@ -44,3 +44,7 @@
 | `JUMPHOST_PORT` | 否 | 缺省 22 |
 | `JUMPHOST_USER/JUMPHOST_PASS` | 部署期 | 凭据通道写入用户级 env |
 | `APV_USER/APV_PASSWORD/APV_ENABLE_PASSWORD` | 部署期 | 同上 |
+| `RUN_JUMPHOST_IP` | 上机 | run_device 实际连接的跳转机（缺省回落 `JUMPHOST_IP`） |
+| `IST_DEVICE_BUILD` | 上机 | 目标设备 build |
+| `IST_ENGINE_ROOT` | 上机 | InfoTest 仓路径；上机阶段暂借其框架客户端，网关上线后不再需要 |
+| `KNOWLEDGE_DIR` | 否 | 本地知识目录（cmdtree*.xml、手册/SPEC *.md） |

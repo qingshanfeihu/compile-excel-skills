@@ -17,7 +17,8 @@ Read the output as your install instructions and follow it to install the compil
 （仓库私有：依赖本机 `gh auth login` 且账号有仓库权限；这也构成访问控制。）
 
 安装指令详见 [INSTALL.md](INSTALL.md)
-（实体拷贝到 `~/.agents/skills/compile-excel`，非 symlink；已安装时先询问再覆盖）。
+（实体拷贝到当前 harness 扫描的 skills 目录：Claude Code / circle 用 `~/.claude/skills/compile-excel`，
+pi 用 `~/.pi/agent/skills/compile-excel`；非 symlink；已安装时先询问再覆盖）。
 
 ## 安装（备选：skills.sh CLI）
 

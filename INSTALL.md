@@ -15,9 +15,13 @@
 
 ## 安装步骤（执行者：agent）
 
-1. **确定目标位置**（按优先级，装第一个可写的）：
-   - 用户级：`~/.agents/skills/compile-excel`（推荐；circle / pi / opencode / claude 都读这个路径）
-   - 若用户明确要求只给当前项目用：`<当前工作区>/.agents/skills/compile-excel`
+1. **确定目标位置**（按当前 harness 选；各 harness 扫描的目录不同）：
+   - Claude Code 或 circle：`~/.claude/skills/compile-excel`（推荐。Claude Code 只扫
+     `~/.claude/skills` 与项目 `.claude/skills`，不读 `~/.agents/skills`；circle 两处都读）
+   - pi：`~/.pi/agent/skills/compile-excel`（circle 也读这个位置）
+   - 只读 `.agents/skills` 的 harness（Codex、opencode 等）：`~/.agents/skills/compile-excel`
+   - 若用户明确要求只给当前项目用：`<当前工作区>/.claude/skills/compile-excel`
+     （pi 用 `<当前工作区>/.pi/skills/compile-excel`）
 2. **若目标已存在**：停止安装，告知用户已安装及版本（看 `reference/excel-contract.md` 的模板版本），询问是否覆盖或升级；**不要静默覆盖**。
 3. **获取文件**（二选一，优先 git）：
    ```bash

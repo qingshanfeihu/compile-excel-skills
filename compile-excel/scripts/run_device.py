@@ -36,9 +36,17 @@ import sys
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
-ENGINE_ROOT = Path(os.environ.get(
-    "IST_ENGINE_ROOT", "/Users/jiangyongze/Public/InfoTest_Engine"
-))
+# 上机阶段暂借 InfoTest 的框架客户端（Phase 1 起改走跳板机网关）。引擎根只从
+# 进程环境或 env 绑定里的 IST_ENGINE_ROOT 读，不再写死任何个人机器路径。
+_ENGINE_CLIENT = Path("main") / "case_compiler" / "device_mcp_client.py"
+
+
+def resolve_engine_root(env: dict) -> Path | None:
+    raw = (os.environ.get("IST_ENGINE_ROOT") or env.get("IST_ENGINE_ROOT") or "").strip()
+    if not raw:
+        return None
+    root = Path(raw).expanduser()
+    return root if (root / _ENGINE_CLIENT).is_file() else None
 
 RESULT_SCHEMA = "ist.excel.device-run-result"
 SENTINEL_AUTOID = "999999999999999"
@@ -165,8 +173,8 @@ def _bootstrap_interpreter() -> None:
         return
     candidates = [
         os.environ.get("RUN_DEVICE_PYTHON", ""),
-        "/Users/jiangyongze/Public/circle/.venv311/bin/python",
-        "/Users/jiangyongze/Public/circle/.venv/bin/python",
+        # InfoTest 约定的仓外 venv（引擎依赖齐全）
+        str(Path.home() / ".venvs" / "infotest-engine" / "bin" / "python"),
     ]
     for py in filter(None, candidates):
         if not os.path.exists(py):
@@ -203,8 +211,17 @@ def main() -> int:
         return 2
     apply_engine_env(env)
 
+    engine_root = resolve_engine_root(env)
+    if engine_root is None:
+        print(json.dumps({
+            "ok": False,
+            "error": ("上机阶段暂时依赖 InfoTest 的框架客户端：请在 env 绑定里加一行 "
+                      "IST_ENGINE_ROOT=<InfoTest 仓路径>（该路径下需有 "
+                      f"{_ENGINE_CLIENT.as_posix()}）。跳板机网关上线后不再需要。"),
+        }, ensure_ascii=False))
+        return 2
     # 引擎代码以源码树方式导入（不要求 pip install）
-    sys.path.insert(0, str(ENGINE_ROOT))
+    sys.path.insert(0, str(engine_root))
     if str(SKILL_DIR / "scripts") not in sys.path:
         sys.path.insert(0, str(SKILL_DIR / "scripts"))
 

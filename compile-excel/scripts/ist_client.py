@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 import time
 import urllib.error
@@ -271,6 +272,20 @@ def authed_request(
 
 # ── artifacts / docs ──────────────────────────────────────────────────
 
+_SAFE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def safe_path_component(value: Any, what: str) -> str:
+    """服务端给的名字要拼进本地路径（工件名、device_build），只接受单段安全文件名。
+
+    拒绝 `/`、`..`、绝对路径、空串和控制字符，防止恶意或出错的 manifest 把文件写到缓存目录之外。
+    """
+    text = str(value or "")
+    if not _SAFE_COMPONENT_RE.fullmatch(text) or ".." in text:
+        raise ClientError(f"{what} 非法（只允许字母、数字、. _ -，且不含 ..）: {text!r}")
+    return text
+
+
 def fetch_manifest(device_build: str = "") -> dict[str, Any]:
     query = f"?device_build={urllib.parse.quote(device_build)}" if device_build else ""
     payload, _refreshed = authed_request("GET", "/v1/artifacts/manifest" + query)
@@ -303,6 +318,7 @@ def download_artifact_verified(
     timeout: float = 120.0,
 ) -> Path:
     """鉴权下载 + 边下边算 SHA；不符即拒（temp 清理，绝不污染缓存）。"""
+    name = safe_path_component(name, "工件名")
     token = load_token()
     if not token:
         raise ClientError("未登录（token 不存在），先运行 login.py")
@@ -345,7 +361,8 @@ def download_artifact_verified(
 def cached_manifest(device_build: str) -> dict[str, Any] | None:
     candidates: list[Path]
     if device_build:
-        candidates = [CACHE_DIR / device_build / "manifest.json"]
+        candidates = [CACHE_DIR / safe_path_component(device_build, "device_build")
+                      / "manifest.json"]
     else:
         # 未指定 build：取缓存里最新的 manifest（按 mtime）
         candidates = sorted(
@@ -365,7 +382,8 @@ def cached_manifest(device_build: str) -> dict[str, Any] | None:
 
 def verify_cached_artifact(entry: dict[str, Any], device_build: str) -> Path:
     """缓存回退前的完整性核验：文件存在且 SHA 与缓存 manifest 一致。"""
-    path = CACHE_DIR / device_build / entry["name"]
+    path = (CACHE_DIR / safe_path_component(device_build, "device_build")
+            / safe_path_component(entry["name"], "工件名"))
     if not path.is_file():
         raise ClientError(f"缓存缺失工件 {entry['name']}（缓存不完整，拒绝静默降级）")
     actual = _sha256_file(path)
