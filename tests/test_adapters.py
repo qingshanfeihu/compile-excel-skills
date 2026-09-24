@@ -4,7 +4,8 @@
   typescript 的 node_modules）时，用真 pi 的类型做 tsc 严格检查，并用 pi SDK + faux 脚本模型
   真跑一遍包（tests/adapters/pi_e2e.mjs）。
 - Claude Code：插件与 marketplace 清单自洽；本机有 claude CLI 时跑 `claude plugin validate --strict`。
-- circle：按扩展 API 契约用假 api 注册并调用（circle 侧的 C1 实现另有测试）。
+- circle：按扩展 API 契约用假 api 注册并调用；有同级 circle 检出（或 CIRCLE_ROOT）时
+  再用 circle 真实的扩展宿主加载一遍。
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from conftest import REPO_ROOT
 
 SPECS = json.loads((REPO_ROOT / "cex_client" / "tool_specs.json").read_text(encoding="utf-8"))["tools"]
 PI_NODE_MODULES = os.environ.get("PI_NODE_MODULES", "")
+CIRCLE_ROOT = Path(os.environ.get("CIRCLE_ROOT") or REPO_ROOT.parent / "circle")
 
 
 def _env_without_workspace() -> dict[str, str]:
@@ -170,3 +172,28 @@ def test_circle_extension_registers_the_spec_tools_and_reports_failures(tmp_path
     assert status["logged_in"] is False and status["device_build"] == "B_1"
     with pytest.raises(api.ToolError, match="not logged in"):
         api.tools["cex_sync"]["execute"]({"workspace": str(project)})
+
+
+def test_circle_extension_through_the_real_circle_host(tmp_path, monkeypatch):
+    """有同级 circle 检出时，用 circle 真实的扩展宿主加载本仓扩展（不再只靠假 api）。"""
+    if not (CIRCLE_ROOT / "circle" / "extensions.py").is_file():
+        pytest.skip(f"no circle checkout with the extension API at {CIRCLE_ROOT} (set CIRCLE_ROOT)")
+    monkeypatch.delenv("CEX_WORKSPACE", raising=False)
+    monkeypatch.delenv("CEX_HOME", raising=False)
+    monkeypatch.syspath_prepend(str(CIRCLE_ROOT))
+    extensions = pytest.importorskip("circle.extensions")
+    home = tmp_path / "circle-home"
+    entry = home / "extensions" / "compile-excel" / "extension.py"
+    entry.parent.mkdir(parents=True)
+    # 与 install.py 写的入口同形：转到本仓里的实现
+    entry.write_text("import runpy\n\nregister = runpy.run_path("
+                     f"{str(REPO_ROOT / 'adapters' / 'circle' / 'extension.py')!r})['register']\n",
+                     encoding="utf-8")
+    host = extensions.ExtensionHost(home=home, workspace=tmp_path, trusted=False).load()
+    assert [e.error for e in host.extensions] == [""]
+    assert [t.name for t in host.tool_specs()] == [s["name"] for s in SPECS]
+    assert set(host.interrupt_on()) == {s["name"] for s in SPECS if not s.get("read_only")}
+    status = next(t for t in host.tools() if t.name == "cex_status")
+    message = status.invoke({"type": "tool_call", "name": "cex_status", "id": "c1",
+                             "args": {"workspace": str(tmp_path)}})
+    assert message.status == "error" and "No workspace here" in message.content
