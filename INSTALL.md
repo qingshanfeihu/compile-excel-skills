@@ -31,11 +31,18 @@
    # curl -fsSL https://github.com/qingshanfeihu/compile-excel-skills/archive/refs/heads/main.tar.gz \
    #   | tar xz -C "$TMPDIR" --strip-components=1
    ```
-4. **落位**：把 `compile-excel/` 子目录**实体拷贝**到目标位置（拷贝，不用 symlink——用户不该感知仓库位置）：
+4. **落位**：skill 的脚本要用到仓库里的 `cex_core/`、`cex_client/`，所以分两处放：
+   发行根整份放到 `~/.local/share/compile-excel/current`，skill 目录**实体拷贝**到目标位置，
+   再在 skill 目录里写一行 `.cex_home` 指回发行根（拷贝，不用 symlink——用户不该感知仓库位置）：
    ```bash
-   mkdir -p "$(dirname "$TARGET")"
-   cp -R "$TMPDIR/repo/compile-excel" "$TARGET"
-   chmod +x "$TARGET/scripts/"*
+   DIST="$HOME/.local/share/compile-excel/current"
+   mkdir -p "$(dirname "$DIST")" "$(dirname "$TARGET")"
+   rm -rf "$DIST.new" && cp -R "$TMPDIR/repo" "$DIST.new" && rm -rf "$DIST.new/.git" "$DIST.new/tests"
+   [ -d "$DIST" ] && mv "$DIST" "$DIST.old"; mv "$DIST.new" "$DIST"; rm -rf "$DIST.old"
+   cp -R "$DIST/skills/compile-excel" "$TARGET"
+   printf '%s\n' "$DIST" > "$TARGET/.cex_home"
+   chmod +x "$TARGET/scripts/"* "$DIST/bin/"*
+   python3 -m pip install --user -r "$DIST/requirements.txt"   # openpyxl / beautifulsoup4 / PyYAML
    ```
 5. **清理与验证**：
    ```bash

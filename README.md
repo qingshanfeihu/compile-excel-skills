@@ -36,18 +36,17 @@ skill 被 agent 加载后按 SKILL.md 的 Setup 段引导：三级查找
 ## 目录
 
 ```
-compile-excel/
+skills/compile-excel/         # skill 本体（安装时整份拷进 harness 的 skills 目录）
 ├── SKILL.md                  # 加载入口：任务表 + 硬性 invariant + 工作流（渐进式披露）
 ├── scripts/
+│   ├── _cex_path.py          # 找发行根（CEX_HOME / .cex_home / 上溯 / ~/.local/share/compile-excel）
 │   ├── compile_excel.py      # 用例 JSON → FileIR → emit_xlsx（唯一出盘通道，薄 CLI）
-│   ├── ist_emit/             # InfoTest emit_xlsx 最小剪切包（见 references/excel-contract.md）
+│   ├── cmdtree_check.py      # 编译期命令判定：读数据包里的命令树投影，与引擎同一判定函数
 │   ├── verify_batch.py       # 产物验收报告（pass/fail/totals）
 │   ├── login.py / fetch.py / docs_query.py / ist_client.py   # 工件同步客户端
 │   ├── bind_env.sh           # 非交互写环境绑定
 │   ├── collect_credentials.sh# 掩码凭据收集（无 secret-UI 的 harness 兜底）
 │   └── preflight.py          # 绑定检查 + TCP 探活（结构化 JSON）
-├── templates/
-│   └── case_template.xlsx    # 冻结快照真模板（585 晋升版，SHA 钉死）
 ├── references/               # 按需加载：SKILL.md 里有明确指针
 │   ├── column-semantics.md   # E/F/G/H/I 列语义与 cases JSON 契约
 │   ├── excel-contract.md     # 契约 + 模板身份 + 与 InfoTest 的三处行为差异
@@ -55,6 +54,26 @@ compile-excel/
 │   ├── env-setup.md          # 首次使用 Setup 访谈 + 凭据通道
 │   └── server-sync.md        # 分发服务器对接（可选）
 ├── examples/slb_cases.json   # 样例：2 条 SLB 用例
-├── tests/                    # 结构自检 + InfoTest 对拍/深验脚本（随 skill 分发）
 └── .env.example
+cex_core/                     # 判据与出件共享库（harness 无关）
+├── ist_emit/                 # InfoTest emit_xlsx 最小剪切包（见 references/excel-contract.md）
+├── templates/case_template.xlsx   # 冻结快照真模板（SHA 钉死）
+├── vendor_cmd.py             # 命令存在性/参数契约判定（逐字抽自 InfoTest vendor_stdlib）
+├── scan_destructive.py       # 自毁命令扫描（规则来自数据包 domain_grammar.json，读不到即拒）
+├── security_scrub.py         # 凭据脱敏（逐字抽自 InfoTest）
+└── defects/                  # 缺陷页解析 + 脱敏（逐字抽自 InfoTest main/ingest）
+cex_client/                   # 客户端（只用标准库）：工作区、设备流登录、数据包同步、工具注册表
+├── workspace.py              # 唯一路径解析器：<文件夹>/.compile-excel/
+├── auth.py / bundle.py / tools.py
+└── tool_specs.json           # 工具 schema 单一来源（circle / Claude Code / pi 适配器都从这里生成）
+bin/cex_tool                  # 命令行调用工具（pi 扩展与调试用）
+bin/cex_mcp_proxy.py          # stdio MCP 服务（Claude Code 插件用）
+tools/sync_from_infotest.py   # 从 InfoTest 源逐字重新抽取判据代码（--check 查漂移）
+tests/                        # 单测、与 InfoTest 对拍、对真服务端的端到端（不随 skill 分发）
 ```
+
+工作区（用户的项目文件夹）布局见 `cex_client/workspace.py` 顶部说明：令牌、配置、同步下来的
+数据包都在 `<文件夹>/.compile-excel/`（0700，自带 `.gitignore`），产物在 `compile_outputs/`。
+
+测试：`python -m pytest tests -q`（对拍与端到端需要同级的 `InfoTest_Engine` 与
+`compile-excel-server` 检出，缺就跳过；可用 `INFOTEST_ROOT` / `CES_SERVER_ROOT` 指定）。

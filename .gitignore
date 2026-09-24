@@ -9,3 +9,7 @@ __pycache__/
 .agents/
 compile_outputs/
 compile_outputs/
+
+# 安装器写入的发行根指针与工作区状态
+.cex_home
+.compile-excel/
