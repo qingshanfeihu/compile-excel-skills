@@ -13,3 +13,6 @@ compile_outputs/
 # 安装器写入的发行根指针与工作区状态
 .cex_home
 .compile-excel/
+
+# 抽取时外置的生产身份字面（真实用例号等）：由 tools/extract_engine.py 从 InfoTest 源现生成，不入库
+cex_core/engine/_identities.json

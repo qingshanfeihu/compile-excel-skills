@@ -93,6 +93,8 @@ def test_all_harnesses_then_rerun_and_upgrade(box):
     assert (dist / "cex_core" / "__init__.py").is_file() and (dist / ".cex_install.json").is_file()
     assert not (dist / "tests").exists() and not (dist / ".git").exists()
     assert os.access(dist / "bin" / "cex_tool", os.X_OK)
+    # 抽取时外置的生产身份字面只给服务端生成链用，不发给客户端
+    assert not (dist / "cex_core" / "engine" / "_identities.json").exists()
     assert report["verify"] == {"ok": True, "tools": len(SPEC_NAMES)}
     assert _calls(box) == [
         ["claude", "plugin", "marketplace", "list", "--json"],

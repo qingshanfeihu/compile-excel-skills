@@ -53,7 +53,7 @@ def test_manifest_lists_every_generated_module_and_boundary():
     modules = {entry["module"] for entry in manifest["modules"]}
     assert "main.case_compiler.apv_lang" in modules and len(modules) >= 20
     for entry in manifest["modules"]:
-        rel = entry["module"].split(".")[1:]
+        rel = entry["engine_module"].split(".")[2:]
         assert ENGINE.joinpath(*rel).with_suffix(".py").is_file(), entry["module"]
     assert not modules & set(manifest["boundary_targets"])
     assert all(site["target"] in manifest["boundary_targets"] for site in manifest["boundary"])
@@ -61,7 +61,9 @@ def test_manifest_lists_every_generated_module_and_boundary():
 
 def test_generated_code_carries_no_internal_run_records():
     # /U[s]ers/：字符类写法，免得本文件自己被可移植性守门当成写死的个人路径
-    pattern = re.compile(r"internala|internalb|RUN_20\d{2}|/U[s]ers/|\b(?!999999999999999\b)\d{12,20}\b",
+    # 990000000000000001：环境收敛生成能力样例卷时用的合成案号，不是生产数据
+    pattern = re.compile(r"internala|internalb|RUN_20\d{2}|/U[s]ers/"
+                         r"|\b(?!999999999999999\b|990000000000000001\b)\d{12,20}\b",
                          re.IGNORECASE)
     hits = []
     for path in ENGINE.rglob("*.py"):
@@ -114,7 +116,7 @@ def _guard(name, globals=None, locals=None, fromlist=(), level=0):
 builtins.__import__ = _guard
 manifest = json.load(open({str(ENGINE / "MANIFEST.json")!r}, encoding="utf-8"))
 for entry in manifest["modules"]:
-    importlib.import_module("cex_core.engine." + entry["module"].split(".", 1)[1])
+    importlib.import_module(entry["engine_module"])
 print(len(manifest["modules"]))
 '''
     proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120)
@@ -144,3 +146,35 @@ def test_infotest_tests_give_the_same_results_on_the_extracted_engine(tmp_path):
     assert report["not_aliased"] == [] and report["aliased_modules"] == len(_manifest()["modules"])
     assert report["tests"] > 100
     assert report["diffs"] == [], proc.stdout
+
+
+def test_externalized_identities_are_out_of_the_code_and_fail_closed_without_the_file():
+    """生产身份字面不进生成代码：值在不入库的 _identities.json，缺它时一读就报错（不当成空集）。"""
+    manifest = _manifest()
+    tracked = subprocess.run(["git", "ls-files", "cex_core/engine"], cwd=REPO_ROOT,
+                             capture_output=True, text=True, check=True).stdout.split()
+    assert "cex_core/engine/_identities.json" not in tracked
+    script = f'''
+import sys
+sys.path.insert(0, {str(REPO_ROOT)!r})
+from cex_core.engine._root import IdentityListUnavailable, _Unavailable
+gone = _Unavailable("x")
+for probe in (lambda: "a" in gone, lambda: sorted(gone), lambda: gone.intersection({{"a"}}),
+              lambda: bool(gone), lambda: len(gone)):
+    try:
+        probe()
+    except IdentityListUnavailable:
+        continue
+    raise SystemExit("an unavailable identity list answered instead of failing")
+print("closed")
+'''
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0 and proc.stdout.strip() == "closed", proc.stderr[-1500:]
+    if HAS_INFOTEST and (ENGINE / "_identities.json").is_file():
+        table = json.loads((ENGINE / "_identities.json").read_text(encoding="utf-8"))
+        assert sorted(table) == manifest["externalized"]
+        for key, values in table.items():
+            rel, name = key.rsplit(":", 1)
+            source = (INFOTEST_ROOT / rel).read_text(encoding="utf-8")
+            assert all(value in source for value in values), key
+            assert name in source

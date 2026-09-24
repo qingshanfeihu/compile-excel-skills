@@ -238,3 +238,34 @@ faithful 模式 15,887 例，初跑 14 例结果不同，逐条查清：
 XML 时能否取到还依赖别的数据，本机没有真实投影，未核。命令存在性与参数个数仍由
 `cex_cmd_check` 按同一判定函数给出。怎么补由产品决定，选项见最终报告。
 
+## 9. 生成器抽进来，给服务端生成链用（E11a）
+
+**抽了什么**：InfoTest 批入口里两段纯本地的编排（`environment_prepare` 的
+`_converge_framework_projections` 与 `refresh_compile_projections`、`framework_projections`），
+加上 12 个 `scripts/gen_*.py` 与 `build_vendor_stdlib` / `build_package_advisories` /
+`build_language_docs_index`。闭包现在 73 个模块，延迟 import 194 处，指向 62 个模块，
+其中 28 处 guarded。`environment_prepare` 顶层只依赖两个已抽取模块；它连上游的函数
+（框架同步、部署、设备探测）都在函数体里，留在边界外，服务端生成链不调。
+生成器在 `cex_core/engine/scripts/` 下，客户端不用它们；compile-excel-server 的
+`generators/` 与 `ces generate` 调它们。
+
+**抽取工具的两处改动**：
+- `scripts.*` 的顶层依赖现在也进闭包，输出路径按改名后的模块名推导，`MANIFEST.json` 每条多记
+  `engine_module`（此前两处测试照 `main` 的假设自己算，对 `scripts.*` 会算错）；
+- 第四条机械变换"身份字面外置"：`package_advisories.DENIED_668_AUTOIDS` 是一组真实生产用例号
+  （先例库的毒卷封禁表），既做成员判断也会被遍历写进投影，不能换成哈希。抽取时原样搬进抽取树
+  旁的 `_identities.json`：不入库，安装器也不拷给客户端；服务端 vendor 同步从同级检出复制，所以
+  服务端生成链照常能用。代码改成按名字取，文件在时是同一个 frozenset，不在时一读就报
+  `IdentityListUnavailable`，不当成空集。
+
+**对拍**：InfoTest 里提到这 25 个新模块的测试文件共 93 个，2,336 例。初跑 2 例不同，都是模块名
+本身：修复提示里按模块名拼出的命令，以及按 InfoTest 模块名开级别的 logger。按精确结果登记后，
+这两个文件重跑 16 例 0 意外差异。已对拍的 48 个模块这次没有改动（只多了 `_root.py` 里的身份表
+读取函数）。基线 1,465 过、380 失败、102 报错、389 跳过，失败多是缺镜像、命令树、手册这些环境
+数据，证据边界同 §7。
+
+**守门顺带收紧**：边界守门只扫已跟踪文件，新模块暂存后抓到三处同名字面（枚举值、回执字段名、
+属性名），按"文件 + 原文"精确放行；`environment_prepare` 里延迟导入 InfoTest 的环境加载模块
+`langchain_env`，那是真引用，改为结构性判定——只有 MANIFEST 确认它在闭包外（调到就
+ModuleNotFoundError）才放行，哪天被抽进来守门就红。
+

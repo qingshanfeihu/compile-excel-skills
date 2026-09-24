@@ -77,8 +77,9 @@ cex_core/                     # 判据与出件共享库（harness 无关）
 ├── scan_destructive.py       # 自毁命令扫描（规则来自数据包 domain_grammar.json，读不到即拒）
 ├── security_scrub.py         # 凭据脱敏（逐字抽自 InfoTest）
 ├── defects/                  # 缺陷页解析 + 脱敏（逐字抽自 InfoTest main/ingest）
-└── engine/                   # 判据引擎：InfoTest 48 个模块的生成副本（数据根 CEX_ENGINE_DATA_ROOT；
-                              #   范围、边界、对拍结果见 MANIFEST.json 与 docs/engine-parity.md §7–§8）
+└── engine/                   # 判据引擎：InfoTest 73 个模块的生成副本（数据根 CEX_ENGINE_DATA_ROOT；
+                              #   scripts/ 下是服务端生成链用的生成器；_identities.json 外置的生产身份字面，
+                              #   不入库、不发客户端；范围、边界、对拍见 MANIFEST.json 与 docs/engine-parity.md §7–§9）
 cex_client/                   # 客户端（标准库；脑图重组另需 pydantic、langchain-core）
 ├── workspace.py              # 唯一路径解析器：<文件夹>/.compile-excel/
 ├── auth.py / bundle.py       # 设备流登录与令牌轮换；数据包同步

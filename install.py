@@ -38,7 +38,9 @@ MARKETPLACE = "compile-excel"
 PLUGIN = "compile-excel@compile-excel"
 INSTALL_RECORD = ".cex_install.json"
 SHIM_MARKER = "# compile-excel install.py"
-_SKIP = {".git", "tests", "__pycache__", ".pytest_cache", ".ruff_cache", "node_modules"}
+# _identities.json：抽取时外置的生产身份字面，只给服务端生成链用，不发给客户端
+_SKIP = {".git", "tests", "__pycache__", ".pytest_cache", ".ruff_cache", "node_modules",
+         "_identities.json"}
 SKILLS = ("compile-excel", "mindmap-recompose")
 # requirements.txt 的包名 → import 名；依赖自检按这张表探（测试钉住两边一致）
 DEP_MODULES = {"openpyxl": "openpyxl", "beautifulsoup4": "bs4", "PyYAML": "yaml",

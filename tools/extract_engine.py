@@ -4,9 +4,10 @@
   python3 tools/extract_engine.py --infotest-root ../InfoTest_Engine [--out .] [--check]
 
 抽取对象是 SEEDS 的顶层 import 闭包（函数内的延迟 import 不跟：它们多数指向编排层，
-跟进去就是整个引擎）。每个模块按 AST 机械变换后重新生成，逻辑一字不改：
+跟进去就是整个引擎）。SEEDS 里有 InfoTest 的 scripts/ 生成器（服务端生成链用），它们顶层
+import 的 scripts.* 也一并进闭包。每个模块按 AST 机械变换后重新生成，逻辑一字不改：
 
-- ``main.*`` 导入改成 ``cex_core.engine.*``；
+- ``main.*`` 导入改成 ``cex_core.engine.*``，``scripts.*`` 改成 ``cex_core.engine.scripts.*``；
 - ``Path(__file__)…parents[k]`` / ``.parent`` 这类"按源码位置找仓根"的表达式，改成
   ``_cex_data_path("<相对仓根的目录>")``：数据根由环境变量 CEX_ENGINE_DATA_ROOT 指定，
   布局与 InfoTest 仓根相同（knowledge/…、runtime/…）；
@@ -14,6 +15,10 @@
   保留——工具函数的 docstring 就是给模型的工具说明，langchain 还会解析它；docstring 里的
   批次名与六位用例号换成占位（_sanitize_docstrings），换到会被当工具说明的 docstring 上就
   报错，不许静默改提示词。
+
+- 生产身份字面（真实用例号这类）不进生成代码：EXTERNALIZED 里点名的模块级常量原样搬进抽取树
+  旁的 _identities.json（不入库，安装器也不拷给客户端），代码改成按名字取。文件在时取到的是
+  同一个 frozenset；不在时一读就报错（失败关闭），不当成空集。
 
 指向闭包外模块的延迟 import 原样保留（运行到那里会 ModuleNotFoundError），全部记进
 cex_core/engine/MANIFEST.json 的 boundary，并标出被 try/except 包住、可能静默走另一
@@ -54,10 +59,29 @@ SEEDS = (
     # 命令树在客户端恒为"不可用"（try/except 吞掉 ModuleNotFoundError）
     "main.sync.command_tree_sync",
     "main.kms.manual_locator",
+    # E11：服务端生成链。批入口里的两段本地编排（环境收敛模块顶层只依赖两个已抽取模块，
+    # 连上游的函数都在函数体里，留在边界外不调）与各投影生成器
+    "main.ist_core.compile_engine.environment_prepare",
+    "main.ist_core.compile_engine.framework_projections",
+    "scripts.gen_blocks_schema",
+    "scripts.gen_capability_atlas",
+    "scripts.gen_capability_usage_index",
+    "scripts.gen_command_teardown_atlas",
+    "scripts.gen_confirmation_prompt_projection",
+    "scripts.gen_criterion_rules",
+    "scripts.gen_device_behavior_examples",
+    "scripts.gen_device_characteristics",
+    "scripts.gen_method_reference",
+    "scripts.gen_package_advisories",
+    "scripts.gen_rule_registry",
+    "scripts.gen_vendor_pacing_usage",
+    "scripts.maintenance.build_vendor_stdlib",
+    "scripts.maintenance.build_package_advisories",
+    "scripts.maintenance.build_language_docs_index",
 )
 PREFIX = "cex_core.engine"
-# InfoTest 仓根下的顶层包 → 抽取后的包名。scripts.* 只会以延迟 import 出现（生成器），
-# 改名后在客户端里明确地找不到，而不是碰巧解析到别的名叫 scripts 的包
+# InfoTest 仓根下的顶层包 → 抽取后的包名。scripts.* 挪到 cex_core.engine.scripts 下：不在闭包里的
+# 那些在客户端里明确地找不到，而不是碰巧解析到别的名叫 scripts 的包
 PACKAGES = {"main": PREFIX, "scripts": PREFIX + ".scripts"}
 
 
@@ -68,6 +92,10 @@ def _renamed(name: str) -> str | None:
     return None
 OUT_DIR = Path("cex_core") / "engine"
 ROOT_HELPER = "_cex_data_path"
+IDENTITY_HELPER = "_cex_identity_set"
+IDENTITY_FILE = "_identities.json"
+# 源文件 → 要外置的模块级常量（值必须是 frozenset({字面}) 形状）
+EXTERNALIZED = {"main/case_compiler/package_advisories.py": ("DENIED_668_AUTOIDS",)}
 
 ROOT_MODULE = '''"""数据根：抽取来的引擎按 InfoTest 仓根的布局读数据（knowledge/…、runtime/…）。
 
@@ -77,6 +105,7 @@ InfoTest 自己的"数据不可达"路径失败关闭，而不是悄悄读到别
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -97,6 +126,37 @@ def _cex_data_path(rel: str = "") -> Path:
     """原来 ``Path(__file__)`` 往上数到的那个目录，换算到数据根下。"""
     root = data_root()
     return root / rel if rel else root
+
+
+class IdentityListUnavailable(RuntimeError):
+    pass
+
+
+class _Unavailable:
+    """外置的身份表不在：任何读取都报错，不当成空集。"""
+
+    def __init__(self, key: str) -> None:
+        self._key = key
+
+    def _fail(self, *_args, **_kwargs):
+        raise IdentityListUnavailable(
+            f"{self._key} is kept out of the generated code; its values live in _identities.json "
+            "next to cex_core/engine, which is missing (tools/extract_engine.py writes it)")
+
+    __contains__ = __iter__ = __len__ = __bool__ = _fail
+
+    def __getattr__(self, _name):
+        return self._fail
+
+
+def _cex_identity_set(key: str):
+    """抽取时外置的模块级身份常量（tools/extract_engine.py 的 EXTERNALIZED）。"""
+    path = Path(__file__).resolve().parent / "_identities.json"
+    try:
+        table = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return _Unavailable(key)
+    return frozenset(table[key])
 '''
 
 PACKAGE_INIT = '"""生成的包（tools/extract_engine.py）；不在这里手改。"""\n'
@@ -149,8 +209,6 @@ def _imports(tree: ast.Module, module: str, root: Path) -> tuple[set[str], list[
                     if _renamed(name) is None or not _module_path(root, name):
                         continue
                     if func is None:
-                        if not name.startswith("main"):
-                            raise ExtractError(f"{module}: top-level import of {name}")
                         top.add(name)
                     else:
                         lazy.append({"module": module, "function": func, "target": name,
@@ -295,23 +353,50 @@ class _Rewrite(ast.NodeTransformer):
         return node
 
 
-def transform(source: str, rel_file: str) -> tuple[str, list[str]]:
+def _externalize(tree: ast.Module, rel_file: str) -> dict[str, list[str]]:
+    """EXTERNALIZED 点名的 `NAME = frozenset({字面})` 改成按名字取，值交给调用方另存。"""
+    wanted = EXTERNALIZED.get(rel_file, ())
+    found: dict[str, list[str]] = {}
+    for node in tree.body:
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name) and node.targets[0].id in wanted):
+            continue
+        name = node.targets[0].id
+        value = node.value
+        if not (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)
+                and value.func.id == "frozenset" and len(value.args) == 1 and not value.keywords):
+            raise ExtractError(f"{rel_file}: {name} is not frozenset(<literal>)")
+        items = ast.literal_eval(value.args[0])
+        if not all(isinstance(item, str) for item in items):
+            raise ExtractError(f"{rel_file}: {name} holds non-string items")
+        key = f"{rel_file}:{name}"
+        found[key] = sorted(items)
+        node.value = ast.parse(f"{IDENTITY_HELPER}({key!r})").body[0].value  # type: ignore[attr-defined]
+    missing = sorted(set(wanted) - {key.rsplit(":", 1)[1] for key in found})
+    if missing:
+        raise ExtractError(f"{rel_file}: externalized constants not found: {missing}")
+    return found
+
+
+def transform(source: str, rel_file: str) -> tuple[str, list[str], dict[str, list[str]]]:
     tree = ast.parse(source)
     _sanitize_docstrings(tree, rel_file)
+    identities = _externalize(tree, rel_file)
     rewriter = _Rewrite(rel_file)
     tree = rewriter.visit(tree)
     leftovers = [n for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id == "__file__"]
     if leftovers:
         raise ExtractError(f"{rel_file}: unhandled __file__ use at line {leftovers[0].lineno}")
-    if rewriter.rewrites:
-        helper = ast.parse(f"from {PREFIX}._root import {ROOT_HELPER}").body[0]
+    helpers = ([ROOT_HELPER] if rewriter.rewrites else []) + ([IDENTITY_HELPER] if identities else [])
+    if helpers:
+        helper = ast.parse(f"from {PREFIX}._root import {', '.join(helpers)}").body[0]
         at = 1 if tree.body and _is_doc(tree.body[0]) else 0
         while at < len(tree.body) and isinstance(tree.body[at], ast.ImportFrom) \
                 and tree.body[at].module == "__future__":
             at += 1
         tree.body.insert(at, helper)
     ast.fix_missing_locations(tree)
-    return ast.unparse(tree) + "\n", rewriter.rewrites
+    return ast.unparse(tree) + "\n", rewriter.rewrites, identities
 
 
 # ── generation ────────────────────────────────────────────────────────────
@@ -327,10 +412,13 @@ def generate(root: Path) -> tuple[dict[Path, str], dict]:
     files: dict[Path, str] = {}
     entries = []
     packages: set[tuple[str, ...]] = set()
+    identities: dict[str, list[str]] = {}
     for mod in modules:
         src_path = _module_path(root, mod)
         rel = src_path.relative_to(root).as_posix()
-        parts = mod.split(".")[1:]
+        engine_module = _renamed(mod)
+        assert engine_module is not None
+        parts = engine_module.split(".")[len(PREFIX.split(".")):]
         if src_path.name == "__init__.py":
             if parts:
                 packages.add(tuple(parts))
@@ -338,7 +426,8 @@ def generate(root: Path) -> tuple[dict[Path, str], dict]:
         for i in range(1, len(parts)):
             packages.add(tuple(parts[:i]))
         source = src_path.read_text(encoding="utf-8")
-        body, rewrites = transform(source, rel)
+        body, rewrites, found = transform(source, rel)
+        identities.update(found)
         header = (f"# 生成：tools/extract_engine.py ← InfoTest {rel}"
                   f"（sha256 {_sha(source)[:16]}）。不在这里手改。\n")
         out = OUT_DIR.joinpath(*parts).with_suffix(".py")
@@ -347,13 +436,16 @@ def generate(root: Path) -> tuple[dict[Path, str], dict]:
         except SyntaxError as exc:
             raise ExtractError(f"{rel}: generated code does not compile: {exc}") from exc
         files[out] = header + body
-        entries.append({"module": mod, "source": rel, "source_sha256": _sha(source),
+        entries.append({"module": mod, "engine_module": engine_module, "source": rel,
+                        "source_sha256": _sha(source),
                         "data_root_rewrites": sorted(set(rewrites))})
     for pkg in sorted(packages):
         files[OUT_DIR.joinpath(*pkg, "__init__.py")] = PACKAGE_INIT
     files[OUT_DIR / "__init__.py"] = ENGINE_INIT
     files[OUT_DIR / "_root.py"] = ROOT_MODULE
-    generated = {".".join(["main", *pkg]) for pkg in packages} | {"main"}
+    # 生成出来的包（含只有 __init__ 的中间包）按 InfoTest 原名记，边界不把它们算作闭包外
+    generated = {".".join(mod.split(".")[:i]) for mod in modules
+                 for i in range(1, len(mod.split(".")))}
     boundary = [site for site in lazy_sites
                 if site["target"] not in extracted and site["target"] not in generated]
     manifest = {
@@ -362,7 +454,11 @@ def generate(root: Path) -> tuple[dict[Path, str], dict]:
         "modules": entries,
         "boundary": sorted(boundary, key=lambda s: (s["module"], s["function"], s["target"])),
         "boundary_targets": sorted({s["target"] for s in boundary}),
+        "externalized": sorted(identities),
     }
+    if identities:
+        files[OUT_DIR / IDENTITY_FILE] = json.dumps(identities, ensure_ascii=False,
+                                                    indent=1, sort_keys=True) + "\n"
     files[OUT_DIR / "MANIFEST.json"] = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
     return files, manifest
 
@@ -382,8 +478,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     existing = {p.relative_to(out) for p in (out / OUT_DIR).rglob("*")
                 if p.is_file() and "__pycache__" not in p.parts} if (out / OUT_DIR).exists() else set()
-    drift = sorted(str(p) for p in files if not (out / p).is_file()
-                   or (out / p).read_text(encoding="utf-8") != files[p])
+    identity_file = OUT_DIR / IDENTITY_FILE
+    drift = sorted(str(p) for p in files
+                   if not (p == identity_file and not (out / p).is_file())
+                   and (not (out / p).is_file()
+                        or (out / p).read_text(encoding="utf-8") != files[p]))
     stale = sorted(str(p) for p in existing - set(files))
     if args.check:
         for item in drift:
@@ -397,6 +496,9 @@ def main(argv: list[str] | None = None) -> int:
         target.write_text(text, encoding="utf-8")
     for rel in stale:
         (out / rel).unlink()
+    for directory in sorted((p for p in (out / OUT_DIR).rglob("*") if p.is_dir()), reverse=True):
+        if directory.name != "__pycache__" and not any(directory.iterdir()):
+            directory.rmdir()
     print(f"extracted {len(manifest['modules'])} modules; boundary targets "
           f"{len(manifest['boundary_targets'])}; wrote {len(files)} files")
     return 0

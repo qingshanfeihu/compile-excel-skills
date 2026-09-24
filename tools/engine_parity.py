@@ -60,6 +60,15 @@ _SOURCE_TEXT = {
     "tests.ist_core.compile_engine.test_mechanical_case_unproducible"
     "::test_the_code_comment_writes_down_the_boundary_against_the_device_outlet":
         ("ValueError", "reads a code comment next to the constant; the extraction strips comments"),
+    # 以下两条是模块名本身：抽取副本的 __name__ 是 cex_core.engine.*
+    "tests.case_compiler.test_framework_projection_identity"
+    "::test_preflight_keeps_the_method_reference_producer_in_source_drift_guidance":
+        ("AssertionError", "the repair hint names the generator by its module name, which in the "
+                           "extracted tree is cex_core.engine.scripts.gen_capability_atlas"),
+    "tests.ist_core.compile_engine.test_entry_projection_rebuild_is_freshness_gated"
+    "::test_current_policy_and_catalog_keep_the_active_generation":
+        ("", "raises the level of the logger named after the InfoTest module; the extracted module "
+             "logs under its own name, so the INFO record is not captured"),
 }
 EXPECTED_DIFFS.update({test: (("passed", ""), ("failed", exc), reason)
                        for test, (exc, reason) in _SOURCE_TEXT.items()})

@@ -18,17 +18,36 @@
     "main.ist_core.compile_engine._shared",
     "main.ist_core.compile_engine.spec_references",
     "main.sync.command_tree_sync",
-    "main.kms.manual_locator"
+    "main.kms.manual_locator",
+    "main.ist_core.compile_engine.environment_prepare",
+    "main.ist_core.compile_engine.framework_projections",
+    "scripts.gen_blocks_schema",
+    "scripts.gen_capability_atlas",
+    "scripts.gen_capability_usage_index",
+    "scripts.gen_command_teardown_atlas",
+    "scripts.gen_confirmation_prompt_projection",
+    "scripts.gen_criterion_rules",
+    "scripts.gen_device_behavior_examples",
+    "scripts.gen_device_characteristics",
+    "scripts.gen_method_reference",
+    "scripts.gen_package_advisories",
+    "scripts.gen_rule_registry",
+    "scripts.gen_vendor_pacing_usage",
+    "scripts.maintenance.build_vendor_stdlib",
+    "scripts.maintenance.build_package_advisories",
+    "scripts.maintenance.build_language_docs_index"
   ],
   "modules": [
     {
       "module": "main.case_compiler._sealed_io",
+      "engine_module": "cex_core.engine.case_compiler._sealed_io",
       "source": "main/case_compiler/_sealed_io.py",
       "source_sha256": "b5c68376590d761201efe9e82253177a376ad4269cf180da44d91f399c61e787",
       "data_root_rewrites": []
     },
     {
       "module": "main.case_compiler.apv_lang",
+      "engine_module": "cex_core.engine.case_compiler.apv_lang",
       "source": "main/case_compiler/apv_lang.py",
       "source_sha256": "cae4536b6bf4dca2336365d67bfcad5e9584048c1f653c508f565de5dac3fbbf",
       "data_root_rewrites": [
@@ -37,18 +56,21 @@
     },
     {
       "module": "main.case_compiler.blocks",
+      "engine_module": "cex_core.engine.case_compiler.blocks",
       "source": "main/case_compiler/blocks.py",
       "source_sha256": "fd9c31d8c99845f7bd0455e3849fa1ce9a959fc52ff355a13cba64d035e1d946",
       "data_root_rewrites": []
     },
     {
       "module": "main.case_compiler.case_ir",
+      "engine_module": "cex_core.engine.case_compiler.case_ir",
       "source": "main/case_compiler/case_ir.py",
       "source_sha256": "3f5ab045668d66322cf972bec5f67394b6862338c680e609221770e084a09151",
       "data_root_rewrites": []
     },
     {
       "module": "main.case_compiler.config",
+      "engine_module": "cex_core.engine.case_compiler.config",
       "source": "main/case_compiler/config.py",
       "source_sha256": "b107cb3530dd6ba402b1c32e5392d6394a25bd46fca63c8cff85c65cefea937b",
       "data_root_rewrites": [
@@ -57,36 +79,65 @@
     },
     {
       "module": "main.case_compiler.consistency_contract",
+      "engine_module": "cex_core.engine.case_compiler.consistency_contract",
       "source": "main/case_compiler/consistency_contract.py",
       "source_sha256": "d5b179f4a989901c7d5e0516bf51010ad58b3143dd42d1c88715e375a2a8c49c",
       "data_root_rewrites": []
     },
     {
       "module": "main.case_compiler.contract_entry",
+      "engine_module": "cex_core.engine.case_compiler.contract_entry",
       "source": "main/case_compiler/contract_entry.py",
       "source_sha256": "7f79aa50c9f1a0c759937f4882938bfcba1680073f0a324b59322f0af7752708",
       "data_root_rewrites": []
     },
     {
+      "module": "main.case_compiler.credential_literals",
+      "engine_module": "cex_core.engine.case_compiler.credential_literals",
+      "source": "main/case_compiler/credential_literals.py",
+      "source_sha256": "50e4779e2bd72587f15d5c9e7acfbc84fe36e93bcf84909ddaeb10a18592df0a",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.case_compiler.criterion_carriers",
+      "engine_module": "cex_core.engine.case_compiler.criterion_carriers",
       "source": "main/case_compiler/criterion_carriers.py",
       "source_sha256": "f9a48aab688e917f1ed4aecb6365d8d6b241977dda93b2eafb1674fc4a8ab22b",
       "data_root_rewrites": []
     },
     {
+      "module": "main.case_compiler.device_characteristics",
+      "engine_module": "cex_core.engine.case_compiler.device_characteristics",
+      "source": "main/case_compiler/device_characteristics.py",
+      "source_sha256": "b39a9377fccac182c45fd6db89606fda9fbba12cd6c0fe472ec4c896631b4b62",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.case_compiler.distribution_assertion",
+      "engine_module": "cex_core.engine.case_compiler.distribution_assertion",
       "source": "main/case_compiler/distribution_assertion.py",
       "source_sha256": "7eb5aaa9ab6ac427f7efb775e030a42e4299fe7e927d2c09cdf48fb02ca4bc35",
       "data_root_rewrites": []
     },
     {
       "module": "main.case_compiler.domain_grammar",
+      "engine_module": "cex_core.engine.case_compiler.domain_grammar",
       "source": "main/case_compiler/domain_grammar.py",
       "source_sha256": "24511cf4fb9489abe0103d920c13dfd39c0f412748a624fe6d1a654611046a64",
       "data_root_rewrites": []
     },
     {
+      "module": "main.case_compiler.excel_capability_receipts",
+      "engine_module": "cex_core.engine.case_compiler.excel_capability_receipts",
+      "source": "main/case_compiler/excel_capability_receipts.py",
+      "source_sha256": "5ed8806dce20ec4dcd0ab87f3e68df12f6de43b87e6655ac54539b378f75d7aa",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
       "module": "main.case_compiler.excel_contract",
+      "engine_module": "cex_core.engine.case_compiler.excel_contract",
       "source": "main/case_compiler/excel_contract.py",
       "source_sha256": "ee81243ff0546430b0b9deaed2c8f05507510046b403e429d9bcf1c54130a100",
       "data_root_rewrites": [
@@ -94,13 +145,24 @@
       ]
     },
     {
+      "module": "main.case_compiler.framework_projection_identity",
+      "engine_module": "cex_core.engine.case_compiler.framework_projection_identity",
+      "source": "main/case_compiler/framework_projection_identity.py",
+      "source_sha256": "13f67c6252e90cd7922c5bdfba4f55c24fcdee100ca6d754ed22bb83e51bff90",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
       "module": "main.case_compiler.gate_advisories",
+      "engine_module": "cex_core.engine.case_compiler.gate_advisories",
       "source": "main/case_compiler/gate_advisories.py",
       "source_sha256": "6a5e7e8a43d884952e5f4834e7f23e4117f16221caf148a50e14af1fe54da837",
       "data_root_rewrites": []
     },
     {
       "module": "main.case_compiler.ir_coverage",
+      "engine_module": "cex_core.engine.case_compiler.ir_coverage",
       "source": "main/case_compiler/ir_coverage.py",
       "source_sha256": "04b0f521b93f110b1467ca4cbd36a0bd2fe3f94c91de23ed8633db8c26190161",
       "data_root_rewrites": [
@@ -109,30 +171,44 @@
     },
     {
       "module": "main.case_compiler.mechanical_case",
+      "engine_module": "cex_core.engine.case_compiler.mechanical_case",
       "source": "main/case_compiler/mechanical_case.py",
       "source_sha256": "100fd6c46788d53158f56a93f19aa2acb9d46656806d99ff928e8c88d508f9b9",
       "data_root_rewrites": []
     },
     {
       "module": "main.case_compiler.mechanical_case_gate",
+      "engine_module": "cex_core.engine.case_compiler.mechanical_case_gate",
       "source": "main/case_compiler/mechanical_case_gate.py",
       "source_sha256": "67c35edc10da202a51195c14f092d77e35ecfb3e90875b7b1865dc9c562073c2",
       "data_root_rewrites": []
     },
     {
       "module": "main.case_compiler.mindmap_contract_projector",
+      "engine_module": "cex_core.engine.case_compiler.mindmap_contract_projector",
       "source": "main/case_compiler/mindmap_contract_projector.py",
       "source_sha256": "e53fef3f7b8434157f51a04b2a74a7a0a776f747d15084e18e8aabc85b624f29",
       "data_root_rewrites": []
     },
     {
       "module": "main.case_compiler.observe_ops",
+      "engine_module": "cex_core.engine.case_compiler.observe_ops",
       "source": "main/case_compiler/observe_ops.py",
       "source_sha256": "564cee8606a51ed9cf75bb002627c6c34698e1340a7e306e7426f30fd48aec2d",
       "data_root_rewrites": []
     },
     {
+      "module": "main.case_compiler.package_advisories",
+      "engine_module": "cex_core.engine.case_compiler.package_advisories",
+      "source": "main/case_compiler/package_advisories.py",
+      "source_sha256": "16f162e8ff82d11c23dc6cd46144a9083497b6f62d6bd4a35692cbc91814cb10",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
       "module": "main.case_compiler.provenance_ir",
+      "engine_module": "cex_core.engine.case_compiler.provenance_ir",
       "source": "main/case_compiler/provenance_ir.py",
       "source_sha256": "c7d4bd2c9535b6d6711bcf84a31bb070e231aba7d15779ae44f4631571a465c2",
       "data_root_rewrites": [
@@ -141,18 +217,21 @@
     },
     {
       "module": "main.case_compiler.step_graph",
+      "engine_module": "cex_core.engine.case_compiler.step_graph",
       "source": "main/case_compiler/step_graph.py",
       "source_sha256": "74a5dec9a24deb028fde95e3f1132060151e6a0844fc5f85df1adfa03c5edb1e",
       "data_root_rewrites": []
     },
     {
       "module": "main.case_compiler.step_structure",
+      "engine_module": "cex_core.engine.case_compiler.step_structure",
       "source": "main/case_compiler/step_structure.py",
       "source_sha256": "c3b6fc9549b1cc6db4bd820febb6115accc291b145d217938e595d82e1893479",
       "data_root_rewrites": []
     },
     {
       "module": "main.case_compiler.vendor_stdlib",
+      "engine_module": "cex_core.engine.case_compiler.vendor_stdlib",
       "source": "main/case_compiler/vendor_stdlib.py",
       "source_sha256": "424b676b61e7d7e371832e3a52572c7d88caca186cc1b0080d78cfd292259c33",
       "data_root_rewrites": [
@@ -161,36 +240,49 @@
     },
     {
       "module": "main.common.engine_track_schema",
+      "engine_module": "cex_core.engine.common.engine_track_schema",
       "source": "main/common/engine_track_schema.py",
       "source_sha256": "2661096ae361d229144345b3628fbb8df7292f64e4d519307486da64f90b2190",
       "data_root_rewrites": []
     },
     {
+      "module": "main.common.file_identity",
+      "engine_module": "cex_core.engine.common.file_identity",
+      "source": "main/common/file_identity.py",
+      "source_sha256": "69cf4eed18a6502d86d66a53e14783c6f11909579242155490c4e8c6923f7b37",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.common.nullable_scalar",
+      "engine_module": "cex_core.engine.common.nullable_scalar",
       "source": "main/common/nullable_scalar.py",
       "source_sha256": "250d3b696ab79d56e179ce299f59b857e509aceee06b21028c324694a9036adf",
       "data_root_rewrites": []
     },
     {
       "module": "main.common.schema_identity",
+      "engine_module": "cex_core.engine.common.schema_identity",
       "source": "main/common/schema_identity.py",
       "source_sha256": "5607eee78965e59d8e2f824eb6b3ecf0c60db55a1c47c47836ce795de7304eff",
       "data_root_rewrites": []
     },
     {
       "module": "main.defect_spec_source",
+      "engine_module": "cex_core.engine.defect_spec_source",
       "source": "main/defect_spec_source.py",
       "source_sha256": "e3d8b4e15b5573a1c36f7bbe9f441f38b6eb36b2e8f347ac15d69eb6f7a75bbb",
       "data_root_rewrites": []
     },
     {
       "module": "main.engine_managed_outputs",
+      "engine_module": "cex_core.engine.engine_managed_outputs",
       "source": "main/engine_managed_outputs.py",
       "source_sha256": "5a1bb196e1c70d8540b39513a3ff4a3994bb9b6048645d08f48aa80441fcb3e5",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.compile_engine._shared",
+      "engine_module": "cex_core.engine.ist_core.compile_engine._shared",
       "source": "main/ist_core/compile_engine/_shared.py",
       "source_sha256": "0527fcd83855b09142505b9ba6d116fbea2900374c0266a60c1c33c96f49ec90",
       "data_root_rewrites": [
@@ -199,114 +291,158 @@
     },
     {
       "module": "main.ist_core.compile_engine.authority_delivery_policy",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.authority_delivery_policy",
       "source": "main/ist_core/compile_engine/authority_delivery_policy.py",
       "source_sha256": "836d38ed2927df662539c81ccb479fac686dcd31776044ecc10b55888b5d079a",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.compile_engine.authority_reconcile",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.authority_reconcile",
       "source": "main/ist_core/compile_engine/authority_reconcile.py",
       "source_sha256": "a0e257c75fb775ee0e0ea5353b2352346ad98ab65e43b456124ce0603fd2b270",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.compile_engine.conflict_chain",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.conflict_chain",
       "source": "main/ist_core/compile_engine/conflict_chain.py",
       "source_sha256": "fe878da64fb96cdb65fca2ddedacd186d0800a1c4d62bae545f407ff47ad8e9d",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.compile_engine.engine_errors",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.engine_errors",
       "source": "main/ist_core/compile_engine/engine_errors.py",
       "source_sha256": "c387b97e18b17fdf8c265927b0fb9aeb7620cd00a86dfb550e7c9dbecba261a1",
       "data_root_rewrites": []
     },
     {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.environment_prepare",
+      "source": "main/ist_core/compile_engine/environment_prepare.py",
+      "source_sha256": "1dd6000da6f7d32ccfd95921bf959da3e947947d3072c4d0c399e594b7957250",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
       "module": "main.ist_core.compile_engine.fact_events",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.fact_events",
       "source": "main/ist_core/compile_engine/fact_events.py",
       "source_sha256": "8750e0bc39b13110a2bcdec72272de140eac2e3116cf400b5a19309c2ed01209",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.compile_engine.facts",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.facts",
       "source": "main/ist_core/compile_engine/facts.py",
       "source_sha256": "9355591cb06cfeb4faf99f9b463f6d81d53fe933b8a1c8f137c8d0caebbe1a90",
       "data_root_rewrites": []
     },
     {
+      "module": "main.ist_core.compile_engine.framework_projections",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.framework_projections",
+      "source": "main/ist_core/compile_engine/framework_projections.py",
+      "source_sha256": "0de753d910df3a60000aa83802f0c9210b361e23185c224af85a1298e32f7c87",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
       "module": "main.ist_core.compile_engine.rebind_binder",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.rebind_binder",
       "source": "main/ist_core/compile_engine/rebind_binder.py",
       "source_sha256": "4a4a76da2a1d61b31ad8afa8d6121cd581e746d48447121fee49691e22b56665",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.compile_engine.recompose_protocol",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.recompose_protocol",
       "source": "main/ist_core/compile_engine/recompose_protocol.py",
       "source_sha256": "440287fdef464a5eaacb76f10649a01b7eee025c644c966054ad6f5ddee58339",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.compile_engine.spec_references",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.spec_references",
       "source": "main/ist_core/compile_engine/spec_references.py",
       "source_sha256": "a0e25c456f1c9ebfb704254ac9cd2255c141113700e1dc51211d969facf5690d",
       "data_root_rewrites": []
     },
     {
+      "module": "main.ist_core.compile_engine.verified_corpus",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.verified_corpus",
+      "source": "main/ist_core/compile_engine/verified_corpus.py",
+      "source_sha256": "6a3fe406d3c2709acf1d36ba39012953c5aac71445f6bbd77f2848da57489944",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.ist_core.compile_engine.views",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.views",
       "source": "main/ist_core/compile_engine/views.py",
       "source_sha256": "ff1a3cd4ef5fb40f929c3590604e98a0569e3ef96e8dfc8cf0f6a9ba9407bad9",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.tools.device._sealed_output",
+      "engine_module": "cex_core.engine.ist_core.tools.device._sealed_output",
       "source": "main/ist_core/tools/device/_sealed_output.py",
       "source_sha256": "2e8bbd04fd37e968f62db03de5f0d7991e9943b452659fc330a8f763698c9708",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.tools.device.lang_query_tool",
+      "engine_module": "cex_core.engine.ist_core.tools.device.lang_query_tool",
       "source": "main/ist_core/tools/device/lang_query_tool.py",
       "source_sha256": "d86fce975b5deb492db172f7bf74baa90c5e72f752f9858036c1440701bcab0a",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.tools.device.recompose_parts",
+      "engine_module": "cex_core.engine.ist_core.tools.device.recompose_parts",
       "source": "main/ist_core/tools/device/recompose_parts.py",
       "source_sha256": "504f51a2ae2c294e27306664c1b7ca3f3e482da2f59174ba8c6890ef257c049f",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.tools.device.recompose_submission",
+      "engine_module": "cex_core.engine.ist_core.tools.device.recompose_submission",
       "source": "main/ist_core/tools/device/recompose_submission.py",
       "source_sha256": "e0c4f94e2a246c29a6f40aae766306568d073e300a28644eeafd5578470828f0",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.tools.device.recompose_submit_tool",
+      "engine_module": "cex_core.engine.ist_core.tools.device.recompose_submit_tool",
       "source": "main/ist_core/tools/device/recompose_submit_tool.py",
       "source_sha256": "1978bd91b94b7645d883d774816e9b20f2f68a83c42e11e4c3a8c9a72551c262",
       "data_root_rewrites": []
     },
     {
       "module": "main.ist_core.tools.device.structural_gate",
+      "engine_module": "cex_core.engine.ist_core.tools.device.structural_gate",
       "source": "main/ist_core/tools/device/structural_gate.py",
       "source_sha256": "8a4f86783bc25e17d198f68533b77a127110368c6dcbe49ffa02189562f7cd5b",
       "data_root_rewrites": []
     },
     {
       "module": "main.kms.manual_catalog_store",
+      "engine_module": "cex_core.engine.kms.manual_catalog_store",
       "source": "main/kms/manual_catalog_store.py",
       "source_sha256": "96444bf13421dc6a5d92c00551d053e428ddca05fd40d46e08d6300edb5fe867",
       "data_root_rewrites": []
     },
     {
       "module": "main.kms.manual_locator",
+      "engine_module": "cex_core.engine.kms.manual_locator",
       "source": "main/kms/manual_locator.py",
       "source_sha256": "e5405f327e813db9f155a1e14ee07a916f1c8f0070de4467a126130235b9cee5",
       "data_root_rewrites": []
     },
     {
       "module": "main.kms.spec_index",
+      "engine_module": "cex_core.engine.kms.spec_index",
       "source": "main/kms/spec_index.py",
       "source_sha256": "4b4b4ecc171e5a1f6e72b0e80ac8033077b66d3e1235f5e0da789abec6c9202e",
       "data_root_rewrites": [
@@ -315,6 +451,7 @@
     },
     {
       "module": "main.knowledge_paths",
+      "engine_module": "cex_core.engine.knowledge_paths",
       "source": "main/knowledge_paths.py",
       "source_sha256": "fb8e21f79a6434da35252fd4bafb1ab42fa63ba4b0cc655bd516c74a8dd2abe7",
       "data_root_rewrites": [
@@ -323,8 +460,151 @@
     },
     {
       "module": "main.sync.command_tree_sync",
+      "engine_module": "cex_core.engine.sync.command_tree_sync",
       "source": "main/sync/command_tree_sync.py",
       "source_sha256": "dd5c5fb6c6f389381cdb45f8de26531d9cc2e5919c9046667f074f4db482ae59",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.compile_ref_windowed",
+      "engine_module": "cex_core.engine.scripts.compile_ref_windowed",
+      "source": "scripts/compile_ref_windowed.py",
+      "source_sha256": "2d4579acb916fe9c5895e603e95dd471a10b380e58395ab32cce17d2396b3d22",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.gen_blocks_schema",
+      "engine_module": "cex_core.engine.scripts.gen_blocks_schema",
+      "source": "scripts/gen_blocks_schema.py",
+      "source_sha256": "84e26648d0438e91df9cb5128e3744bf966b0b284ecd34af0e28e3a6e38c1a1a",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.gen_capability_atlas",
+      "engine_module": "cex_core.engine.scripts.gen_capability_atlas",
+      "source": "scripts/gen_capability_atlas.py",
+      "source_sha256": "fadfa8bfe9c93f1f66e20cc248c8ef48db753ecb0de0e112400dad462f3fb4c1",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.gen_capability_usage_index",
+      "engine_module": "cex_core.engine.scripts.gen_capability_usage_index",
+      "source": "scripts/gen_capability_usage_index.py",
+      "source_sha256": "21ed7a23c7bf7a03d12c563bad9215fede0ffa7be3188bdc79c4e38b26fad495",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.gen_command_teardown_atlas",
+      "engine_module": "cex_core.engine.scripts.gen_command_teardown_atlas",
+      "source": "scripts/gen_command_teardown_atlas.py",
+      "source_sha256": "e8ccb7977d045ebcc7b881dd206f262f543fef1b4531226cccc858f368474519",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.gen_confirmation_prompt_projection",
+      "engine_module": "cex_core.engine.scripts.gen_confirmation_prompt_projection",
+      "source": "scripts/gen_confirmation_prompt_projection.py",
+      "source_sha256": "db38b798f0b23cec3b51ce43451bb9539c31c0f0993831ac673493772e1674d2",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.gen_criterion_rules",
+      "engine_module": "cex_core.engine.scripts.gen_criterion_rules",
+      "source": "scripts/gen_criterion_rules.py",
+      "source_sha256": "f7915346876f138995d754d5c83e34c643c37d16719093aa674930be5fe5eb88",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.gen_device_behavior_examples",
+      "engine_module": "cex_core.engine.scripts.gen_device_behavior_examples",
+      "source": "scripts/gen_device_behavior_examples.py",
+      "source_sha256": "1a0335a11bd8e642abfef48e7bba8619c5b2c046887d80e12be2428d4ba44159",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.gen_device_characteristics",
+      "engine_module": "cex_core.engine.scripts.gen_device_characteristics",
+      "source": "scripts/gen_device_characteristics.py",
+      "source_sha256": "6a03bb492c0dcfba5c94f3890c600f5d06dc77eb9bb92601439f3dca5c8c79d2",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.gen_method_reference",
+      "engine_module": "cex_core.engine.scripts.gen_method_reference",
+      "source": "scripts/gen_method_reference.py",
+      "source_sha256": "8f0c88b1ec821864aaa6079e30a4fe16e1a94dabe1d7b682a716171610818945",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.gen_package_advisories",
+      "engine_module": "cex_core.engine.scripts.gen_package_advisories",
+      "source": "scripts/gen_package_advisories.py",
+      "source_sha256": "629f71d83701254f0affff77ad5575ed07145d7c7c68f4f20bc79704073d304a",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.gen_rule_registry",
+      "engine_module": "cex_core.engine.scripts.gen_rule_registry",
+      "source": "scripts/gen_rule_registry.py",
+      "source_sha256": "b2efe0c8ab25d76515df4ebc156fae17125fc20c70757c8250a9173c36c881e2",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "scripts.gen_vendor_pacing_usage",
+      "engine_module": "cex_core.engine.scripts.gen_vendor_pacing_usage",
+      "source": "scripts/gen_vendor_pacing_usage.py",
+      "source_sha256": "e9c6edcfb9aa0a85e1cb42c20ce3cc43e882edd96cb0a9a6018d612cd59fee26",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.maintenance.build_language_docs_index",
+      "engine_module": "cex_core.engine.scripts.maintenance.build_language_docs_index",
+      "source": "scripts/maintenance/build_language_docs_index.py",
+      "source_sha256": "5ce2e6b852d1960a310d8e0e674aff51f8d01f7c4b3c1529198841a3d2737eb3",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.maintenance.build_package_advisories",
+      "engine_module": "cex_core.engine.scripts.maintenance.build_package_advisories",
+      "source": "scripts/maintenance/build_package_advisories.py",
+      "source_sha256": "feba41498e6e6f19b6c60aff1f4475add36195063c2c3d4d1c2a5d47fd972667",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "scripts.maintenance.build_vendor_stdlib",
+      "engine_module": "cex_core.engine.scripts.maintenance.build_vendor_stdlib",
+      "source": "scripts/maintenance/build_vendor_stdlib.py",
+      "source_sha256": "6509ba73200bdb95cf3226ed414ba5117319f74bf927a550cbb948b770463d58",
       "data_root_rewrites": [
         "<root>"
       ]
@@ -389,6 +669,18 @@
       "module": "main.case_compiler.contract_entry",
       "function": "sign_card",
       "target": "main.case_compiler.card_lint",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.device_characteristics",
+      "function": "mechanical_findings",
+      "target": "main.case_compiler.scenario_fidelity",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.device_characteristics",
+      "function": "prerequisite_finding_fact",
+      "target": "main.ist_core.display_lexicon",
       "guarded": false
     },
     {
@@ -482,21 +774,9 @@
       "guarded": false
     },
     {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_teardown_reversal_index",
-      "target": "scripts.gen_command_teardown_atlas",
-      "guarded": true
-    },
-    {
       "module": "main.case_compiler.mindmap_contract_projector",
       "function": "_card_device_disclosure",
       "target": "main.case_compiler.behaviour_classes",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mindmap_contract_projector",
-      "function": "_card_device_disclosure",
-      "target": "main.case_compiler.device_characteristics",
       "guarded": false
     },
     {
@@ -515,6 +795,12 @@
       "module": "main.case_compiler.mindmap_contract_projector",
       "function": "project_machine_mindmap",
       "target": "main.ist_core.display_lexicon",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.package_advisories",
+      "function": "classify_package",
+      "target": "main.case_compiler.claim_coverage",
       "guarded": false
     },
     {
@@ -542,22 +828,10 @@
       "guarded": false
     },
     {
-      "module": "main.case_compiler.provenance_ir",
-      "function": "compile_expect_authority",
-      "target": "main.case_compiler.package_advisories",
-      "guarded": true
-    },
-    {
       "module": "main.case_compiler.step_structure",
       "function": "_bed_facts",
       "target": "main.ist_core.tools._shared.env_facts",
       "guarded": false
-    },
-    {
-      "module": "main.case_compiler.step_structure",
-      "function": "command_role_atlas",
-      "target": "scripts.gen_command_teardown_atlas",
-      "guarded": true
     },
     {
       "module": "main.case_compiler.step_structure",
@@ -784,12 +1058,6 @@
     {
       "module": "main.ist_core.compile_engine._shared",
       "function": "mechanical_findings_rows",
-      "target": "main.case_compiler.device_characteristics",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine._shared",
-      "function": "mechanical_findings_rows",
       "target": "main.ist_core.tools.device.run_case",
       "guarded": false
     },
@@ -941,6 +1209,216 @@
       "module": "main.ist_core.compile_engine.engine_errors",
       "function": "condition_from_legacy_code",
       "target": "main.ist_core.compile_engine.engine_checkpoints",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_activate_canonical_promotion_receipt",
+      "target": "main.case_compiler.excel_release",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_activate_canonical_promotion_receipt",
+      "target": "main.case_compiler.excel_release",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_attest_current_remote_deployment",
+      "target": "main.case_compiler.excel_release",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_attest_current_remote_deployment",
+      "target": "scripts.maintenance.backup_jumphost_framework",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_attest_current_remote_deployment",
+      "target": "scripts.maintenance.patch_jumphost_excel_runtime",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_backup_current_contract",
+      "target": "scripts.maintenance.backup_jumphost_framework",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_converge_device_baseline",
+      "target": "main.ist_core.compile_engine.bed",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_converge_device_baseline",
+      "target": "main.ist_core.tools.device.run_case",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_converge_excel_candidate_artifacts",
+      "target": "main.case_compiler.excel_release",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_converge_excel_candidate_artifacts",
+      "target": "scripts.maintenance.build_excel_contract_workbooks",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_converge_network_topology",
+      "target": "main.ist_core.tools._shared",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_converge_network_topology",
+      "target": "main.ist_core.tools._shared",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_converge_network_topology",
+      "target": "main.ist_core.tools._shared.env_facts",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_converge_network_topology",
+      "target": "main.ist_core.tools._shared.env_facts",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_converge_network_topology",
+      "target": "scripts.gen_network_topology",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_deploy_candidate",
+      "target": "scripts.maintenance.backup_jumphost_framework",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_deploy_candidate",
+      "target": "scripts.maintenance.patch_jumphost_excel_runtime",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_ensure_compile_environment_locked",
+      "target": "main.case_compiler.excel_release",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_jumphost_runtime_drifted",
+      "target": "scripts.maintenance.patch_jumphost_excel_runtime",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_load_local_configuration",
+      "target": "main.langchain_env",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_new_release_id",
+      "target": "main.case_compiler.excel_release_bundle",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_probe_release_identity",
+      "target": "main.ist_core.compile_engine.bed",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_probe_release_identity",
+      "target": "main.ist_core.tools.device.run_case",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_publish_bundle",
+      "target": "main.case_compiler.excel_release_bundle",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_run_release_and_promote",
+      "target": "main.case_compiler.excel_capability_samples",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_run_release_and_promote",
+      "target": "main.case_compiler.excel_release",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_run_release_and_promote",
+      "target": "scripts.maintenance.emit_excel_release_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_serial_baseline_reset",
+      "target": "main.case_compiler.device_mcp_client",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_sidecar_contract_for",
+      "target": "scripts.maintenance.patch_jumphost_excel_runtime",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_sync_framework",
+      "target": "main.sync.framework_sync",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_sync_markdown_knowledge_buckets",
+      "target": "main.kms.webdav_sync",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_try_restore_bundle",
+      "target": "main.case_compiler.excel_release",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "_try_restore_bundle",
+      "target": "main.case_compiler.excel_release_bundle",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "ensure_compile_environment",
+      "target": "scripts.maintenance.backup_jumphost_framework",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.environment_prepare",
+      "function": "ensure_compile_environment",
+      "target": "scripts.maintenance.patch_jumphost_excel_runtime",
       "guarded": false
     },
     {
@@ -1130,60 +1608,50 @@
       "guarded": true
     },
     {
-      "module": "main.ist_core.tools.device.structural_gate",
-      "function": "_workbook_model",
-      "target": "main.common.file_identity",
-      "guarded": false
-    },
-    {
       "module": "main.kms.spec_index",
       "function": "_jev_rerank_semantic",
       "target": "main.common.jev_spec_rerank",
       "guarded": false
     },
     {
-      "module": "main.sync.command_tree_sync",
-      "function": "_xml_default_literal_closure",
-      "target": "main.case_compiler.credential_literals",
+      "module": "scripts.gen_blocks_schema",
+      "function": "_ssl_standard_library_kind",
+      "target": "main.case_compiler.excel_capability_samples",
       "guarded": false
     },
     {
-      "module": "main.sync.command_tree_sync",
-      "function": "rebuild_active_command_tree_projection",
-      "target": "scripts.maintenance.build_vendor_stdlib",
-      "guarded": false
-    },
-    {
-      "module": "main.sync.command_tree_sync",
-      "function": "sync_vendor_command_tree_from_config",
-      "target": "scripts.maintenance.build_vendor_stdlib",
+      "module": "scripts.gen_device_behavior_examples",
+      "function": "_ledger_receipt_rows",
+      "target": "main.ist_core.security_scrub",
       "guarded": false
     }
   ],
   "boundary_targets": [
     "main.case_compiler.behaviour_classes",
     "main.case_compiler.card_lint",
-    "main.case_compiler.credential_literals",
+    "main.case_compiler.claim_coverage",
     "main.case_compiler.criterion_author_rules",
     "main.case_compiler.criterion_normalization",
-    "main.case_compiler.device_characteristics",
+    "main.case_compiler.device_mcp_client",
     "main.case_compiler.excel_capability_samples",
+    "main.case_compiler.excel_release",
+    "main.case_compiler.excel_release_bundle",
     "main.case_compiler.membership_assertion",
     "main.case_compiler.mutation_testing",
-    "main.case_compiler.package_advisories",
     "main.case_compiler.recompile_comparison",
     "main.case_compiler.regex_anchor_proof",
     "main.case_compiler.rule_registry",
+    "main.case_compiler.scenario_fidelity",
     "main.case_compiler.ssl_lifecycle_contract",
     "main.case_compiler.tau_coverage",
     "main.case_compiler.vk_derivation",
-    "main.common.file_identity",
     "main.common.jev_spec_rerank",
     "main.ist_core.agents._llm",
     "main.ist_core.compile_engine.authoring_evidence",
     "main.ist_core.compile_engine.authoring_stops",
     "main.ist_core.compile_engine.authority_decision_reentry",
     "main.ist_core.compile_engine.backstops",
+    "main.ist_core.compile_engine.bed",
     "main.ist_core.compile_engine.blocking_taxonomy",
     "main.ist_core.compile_engine.emit_failure_evidence",
     "main.ist_core.compile_engine.engine_checkpoints",
@@ -1204,6 +1672,7 @@
     "main.ist_core.run_governance",
     "main.ist_core.security_scrub",
     "main.ist_core.skills.loader",
+    "main.ist_core.tools._shared",
     "main.ist_core.tools._shared.env_facts",
     "main.ist_core.tools.ask_user",
     "main.ist_core.tools.device.batch_tools",
@@ -1212,7 +1681,16 @@
     "main.ist_core.tools.device.run_case",
     "main.ist_core.tools.knowledge.kb_bug_search",
     "main.ist_core.worker_device_context",
-    "scripts.gen_command_teardown_atlas",
-    "scripts.maintenance.build_vendor_stdlib"
+    "main.kms.webdav_sync",
+    "main.langchain_env",
+    "main.sync.framework_sync",
+    "scripts.gen_network_topology",
+    "scripts.maintenance.backup_jumphost_framework",
+    "scripts.maintenance.build_excel_contract_workbooks",
+    "scripts.maintenance.emit_excel_release_evidence",
+    "scripts.maintenance.patch_jumphost_excel_runtime"
+  ],
+  "externalized": [
+    "main/case_compiler/package_advisories.py:DENIED_668_AUTOIDS"
   ]
 }
