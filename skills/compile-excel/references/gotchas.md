@@ -46,6 +46,6 @@
 
 ## verify 的语义边界
 
-- `verify_batch` Layer 1 全绿 ≠ 语义正确（dangling、G 语法它不判）。
-- 引擎可用时务必跑 Layer 2（`IST_ENGINE_ROOT` 透传给 execute 子进程再调
-  `tests/deep_check_infotest.py`）；不可用时在汇报里明说"语义终判未跑"。
+- `verify_batch` 全绿 ≠ 语义正确（dangling、G 语法它不判）。
+- 语义终判是上机：经网关跑框架、取结果库判定（SKILL.md 第 9 步）。没上机就在汇报里明说
+  "语义终判未跑"，不要拿 verify_batch 的结果顶替。

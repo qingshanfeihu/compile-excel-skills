@@ -24,7 +24,7 @@
       "description": "SLB调度算法轮询配置生效与缓存会话保持验证",
       "steps": [
         {"e": "APV_0", "f": "cmd_config", "g": "slb group method g_web1 roundrobin", "h": "", "i": "", "desc": "设置轮询调度"},
-        {"e": "APV_0", "f": "cmd_config", "g": "show slb group method g_web1", "h": "method_out", "i": "", "desc": "回显调度算法并存入变量"},
+        {"e": "APV_0", "f": "cmd_config", "g": "show slb group method g_web1", "h": "", "i": "", "desc": "回显调度算法"},
         {"e": "check_point", "f": "found", "g": "roundrobin", "h": "", "i": "", "desc": "断言轮询算法生效"},
         {"e": "APV_0", "f": "cmd_config", "g": "show slb health", "h": "", "i": "", "desc": "查看健康检查状态"},
         {"e": "check_point", "f": "not_found", "g": "error|fail", "h": "", "i": "", "desc": "断言无异常状态字样"}

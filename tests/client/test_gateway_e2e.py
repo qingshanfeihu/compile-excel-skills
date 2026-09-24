@@ -32,10 +32,20 @@ from test_server_e2e import BUILD, _login, server  # noqa: E402,F401 — 复用�
 
 
 def _load_gateway_fixtures():
-    spec = importlib.util.spec_from_file_location(
-        "ces_gateway_fixtures", SERVER_ROOT / "tests" / "gateway" / "conftest.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # 网关的 gateway/vendor/cex_core 不入 server 仓，夹具加载时从 CEX_SKILLS_ROOT 现生成：
+    # 指向本仓，网关跑的就是被测的这份 cex_core
+    previous = os.environ.get("CEX_SKILLS_ROOT")
+    os.environ["CEX_SKILLS_ROOT"] = str(REPO_ROOT)
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "ces_gateway_fixtures", SERVER_ROOT / "tests" / "gateway" / "conftest.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    finally:
+        if previous is None:
+            os.environ.pop("CEX_SKILLS_ROOT", None)
+        else:
+            os.environ["CEX_SKILLS_ROOT"] = previous
     return module
 
 

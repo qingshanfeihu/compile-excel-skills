@@ -56,7 +56,10 @@ def test_safe_paths():
                 "a/b:c", "x\n"):
         with pytest.raises(ClientError):
             wsmod.safe_relative_path(bad)
-    for bad in ("..", "a/b", "", ".x", "x" * 200):
+    for good in ("cmdtree_585.xml", "SAMPLE_BUILD_LOCAL", "framework_tree.tar.gz", "v1.2-rc"):
+        assert wsmod.safe_component(good, "build") == good
+    for bad in ("..", "../evil", "a/b", "/etc/passwd", "", ".x", ".hidden", "a..b", "name\n",
+                "x" * 200, None):
         with pytest.raises(ClientError):
             wsmod.safe_component(bad, "build")
 

@@ -49,3 +49,8 @@ def ensure() -> Path:
 
 
 HOME = ensure()
+
+
+if __name__ == "__main__":
+    # 无 cex_* 工具的 harness 用它找 bin/cex_tool：python3 scripts/_cex_path.py 打印发行根
+    print(HOME)

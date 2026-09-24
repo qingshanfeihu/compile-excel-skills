@@ -5,10 +5,8 @@
 对齐引擎口径：命令在不在这个 build 上，由命令树投影单方面说了算——查不到就拒绝，
 不管规格书或用例怎么写。
 
-判定来源（按序取第一个）：
-  --projection 显式路径 → 工作区已同步数据包里的命令树投影（vendor_stdlib_*.json）
-  → env 绑定 KNOWLEDGE_DIR 或 <workspace>/knowledge/ 下的 vendor_stdlib_*.json
-  → 只有显式给了 --tree 才读原始 cmdtree XML（旧路径，本地调试用）。
+判定来源：--projection 显式路径，否则工作区已同步数据包（cex_sync）里的命令树投影
+（vendor_stdlib_*.json）；只有显式给了 --tree 才读原始 cmdtree XML（本地调试用）。
 投影判定用 cex_core.vendor_cmd.resolve_vendor_command——与引擎同一个判定函数（逐字抽取），
 既判命令头在不在，也判参数是否合契约。服务端只下发投影，不下发原始 XML
 （原始 XML 带参数默认值，含凭据默认值）。
@@ -18,7 +16,7 @@
 - 全路径命中 = ok；部分命中（0<depth<len）= unknown_tail（多半是拼写/单复数，
   附同前缀兄弟节点作建议——portlist→portlists 就是这么抓的）；零命中 = unknown_head；
 - show/get/clear 等观察类命令同样在树内校验；
-- 树的 build（文件名 _585 等）与 env 的 IST_DEVICE_BUILD 不一致时警告（不阻断）。
+- 树的 build（文件名 _585 等）与工作区 device_build 不一致时警告（不阻断）。
 
 用法：
   python3 scripts/cmdtree_check.py --cases cases.json [--projection vendor_stdlib_x.json]
@@ -29,9 +27,7 @@
 from __future__ import annotations
 
 import argparse
-import glob
 import json
-import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -46,70 +42,37 @@ _SENTINEL_AUTOID = "999999999999999"
 _FRAMEWORK_WORDS = {"page"}
 
 
-def _load_env_file() -> dict:
-    env = {}
-    for cand in (
-        os.environ.get("COMPILE_EXCEL_ENV", ""),
-        str(Path.home() / ".config/compile-excel/env"),
-    ):
-        p = Path(cand).expanduser()
-        if p.is_file():
-            for raw in p.read_text(encoding="utf-8").splitlines():
-                line = raw.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    env[k.strip()] = v.strip()
-            break
-    return env
+def _workspace(start: Path):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import _cex_path  # noqa: F401,E402 — 发行根进 sys.path
+
+    from cex_client import workspace as wsmod
+
+    return wsmod.find(start)
 
 
-def _find_tree(explicit: str, workspace: Path) -> tuple[Path | None, str]:
-    """返回 (树路径, build 标签)。"""
-    candidates: list[Path] = []
-    if explicit:
-        candidates.append(Path(explicit).expanduser())
-    env = _load_env_file()
-    kd = env.get("KNOWLEDGE_DIR", "")
-    if kd:
-        candidates.extend(sorted(glob.glob(os.path.join(kd, "cmdtree*.xml"))))
-    candidates.extend(sorted((workspace / "knowledge").glob("cmdtree*.xml")))
-    engine_root = (os.environ.get("IST_ENGINE_ROOT") or env.get("IST_ENGINE_ROOT") or "").strip()
-    if engine_root:
-        engine = Path(engine_root).expanduser() / "knowledge" / "data" / "compile_ref"
-        if engine.is_dir():
-            candidates.extend(sorted(engine.glob("cmdtree*.xml")))
-    for p in candidates:
-        if p.is_file():
-            m = _BUILD_RE.search(p.name)
-            return p, (m.group(1) if m else "")
-    return None, ""
+def _find_tree(explicit: str) -> tuple[Path | None, str]:
+    """返回 (树路径, build 标签)。原始 XML 只认显式路径，不在任何目录里自动找。"""
+    path = Path(explicit).expanduser()
+    if not path.is_file():
+        return None, ""
+    m = _BUILD_RE.search(path.name)
+    return path, (m.group(1) if m else "")
 
 
 def _find_projection(explicit: str, workspace: Path) -> Path | None:
     if explicit:
         path = Path(explicit).expanduser()
         return path if path.is_file() else None
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import _cex_path  # noqa: F401,E402 — 发行根进 sys.path
+    ws = _workspace(workspace)
+    if ws is None:
+        return None
+    from cex_client import bundle
 
-    from cex_client import bundle, workspace as wsmod
-
-    ws = wsmod.find(workspace)
-    if ws is not None:
-        try:
-            found = bundle.entry_path(ws, "cmdtree", "vendor_stdlib_")
-        except Exception:  # noqa: BLE001 — 工作区坏了就接着找本地候选
-            found = None
-        if found is not None:
-            return found
-    env = _load_env_file()
-    roots = [Path(env["KNOWLEDGE_DIR"]).expanduser()] if env.get("KNOWLEDGE_DIR") else []
-    roots.append(workspace / "knowledge")
-    for root in roots:
-        hits = sorted(root.glob("vendor_stdlib_*.json")) if root.is_dir() else []
-        if hits:
-            return hits[0]
-    return None
+    try:
+        return bundle.entry_path(ws, "cmdtree", "vendor_stdlib_")
+    except Exception:  # noqa: BLE001 — 工作区坏了按“没有投影”处理，由调用方报 exit 2
+        return None
 
 
 def _check_with_projection(steps: list[dict], projection_path: Path, report: dict) -> None:
@@ -195,7 +158,7 @@ def _steps_from_xlsx(xlsx: Path) -> list[dict]:
 
     import _cex_path  # noqa: F401,E402 — 发行根进 sys.path
 
-    from cex_core.ist_emit.excel_contract import EXECUTION_HEADERS, resolve_execution_sheet
+    from cex_core.ist_emit.excel_contract import resolve_execution_sheet
 
     wb = load_workbook(xlsx, read_only=True, data_only=True)
     ws, _ = resolve_execution_sheet(wb, allow_legacy=False)
@@ -252,7 +215,7 @@ def main() -> int:
         print(json.dumps(report, ensure_ascii=False, indent=1))
         return 0 if report["ok_flag"] else 1
 
-    tree_path, build = _find_tree(args.tree, src.parent)
+    tree_path, build = _find_tree(args.tree)
     if tree_path is None:
         print(json.dumps({"ok": False, "error": f"--tree 指定的文件不存在: {args.tree}"},
                          ensure_ascii=False))
@@ -268,11 +231,11 @@ def main() -> int:
     report = {"schema": REPORT_SCHEMA, "tree": str(tree_path), "tree_build": build,
               "source": str(src), "checked": 0, "ok": 0, "unknown": [], "warnings": []}
 
-    env = _load_env_file()
-    want_build = env.get("IST_DEVICE_BUILD", "")
+    ws = _workspace(src.parent)
+    want_build = ws.device_build if ws is not None else ""
     if build and want_build and build.lower() not in want_build.lower():
         report["warnings"].append(
-            f"树 build={build} 与 IST_DEVICE_BUILD={want_build} 不一致——"
+            f"树 build={build} 与工作区 device_build={want_build} 不一致——"
             "树判定可能不代表床固件，建议换对应 build 的树"
         )
 

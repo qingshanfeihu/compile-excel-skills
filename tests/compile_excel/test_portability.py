@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""新机器从零可装的回归：不写死个人路径、服务端名字不能逃出缓存目录、上机阶段的引擎根只从绑定读。
+"""新机器从零可装的回归：不写死个人路径、拷走的 skill 能找回发行根、命令判定只读投影。
 
 跑法：python3 tests/test_portability.py（或 pytest tests/test_portability.py）
 """
@@ -16,9 +16,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_ROOT = REPO_ROOT / "skills" / "compile-excel"
 SCRIPTS = SKILL_ROOT / "scripts"
-sys.path.insert(0, str(SCRIPTS))
-
-import ist_client  # noqa: E402
 
 # 运行时拼装，避免守卫扫到自身
 _PERSONAL_PATH_MARKERS = ("/" + "Users/", "Public" + "/circle", "Public" + "/InfoTest")
@@ -40,28 +37,6 @@ class NoPersonalPathsTest(unittest.TestCase):
                 if marker in text:
                     offenders.append(f"{rel}: {marker}")
         self.assertEqual(offenders, [], "写死的个人机器路径会让别人的机器装不上")
-
-
-class SafePathComponentTest(unittest.TestCase):
-    def test_accepts_plain_names(self) -> None:
-        for name in ("cmdtree_585.xml", "SAMPLE_BUILD_LOCAL", "framework_tree.tar.gz", "v1.2-rc"):
-            self.assertEqual(ist_client.safe_path_component(name, "x"), name)
-
-    def test_rejects_anything_that_could_leave_the_cache_dir(self) -> None:
-        for name in ("", "..", "../evil", "a/b", "/etc/passwd", ".hidden", "a..b",
-                     "name\n", "x" * 200, None):
-            with self.assertRaises(ist_client.ClientError, msg=repr(name)):
-                ist_client.safe_path_component(name, "x")
-
-    def test_download_refuses_bad_name_before_any_network_call(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(ist_client.ClientError):
-                ist_client.download_artifact_verified("../escape", "0" * 64, Path(tmp))
-            self.assertEqual(list(Path(tmp).iterdir()), [])
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class CopiedSkillFindsDistributionTest(unittest.TestCase):
@@ -126,3 +101,7 @@ class CmdtreeCheckUsesProjectionTest(unittest.TestCase):
             missing = subprocess.run([sys.executable, str(script), "--cases", str(cases)],
                                      capture_output=True, text=True, env=env, timeout=60)
             self.assertEqual(missing.returncode, 2, "没有投影时不能悄悄退回去读原始 XML")
+
+
+if __name__ == "__main__":
+    unittest.main()

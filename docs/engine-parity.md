@@ -17,14 +17,14 @@
 
 | 引擎节点 | 引擎实现（代码事实） | skill 对应 | 差距级 |
 |---|---|---|---|
-| prep | compile_prep：脑图解析、管辖 SPEC 检索（governing_spec_status：bound/ambiguous/no_governing_spec）、版本锚定（vendor_build_anchor） | link_status/fetch（KMS 绑定） | **P1**：无 SPEC 检索与 build 锚定 |
+| prep | compile_prep：脑图解析、管辖 SPEC 检索（governing_spec_status：bound/ambiguous/no_governing_spec）、版本锚定（vendor_build_anchor） | `cex_sync` 数据包（按工作区 device_build 取 stable 包）；`cex_env_prepare` 核对床自述 build | **P1**：无管辖 SPEC 检索；build 锚定由数据包 + env_prepare 承担 |
 | recompose | 专职 fork + 引擎分片（assigned_autoids）、步骤适配（cmdtree 证据纠拼写）、过程值具体化、重绑许可（rebind_license）、proposal 披露、契约盖 seal | Circle 会话内做（mindmap-recompose 直接预览，governing_spec 恒 null） | **P0/P1**：无 spec 绑定、无命令树证据、无分片；零发明纪律已对齐 |
-| bed_gate | 环境池租约（env_pool.acquire_lease）、床身份钉死（execution_bed_identity_mismatch）、stale pytest 清理（force_clean）、device_busy 全局锁、设备可达探测 | run_device 直连单床（.103）；无租约/清场检查 | **P1**：单床假设成立时够用；多床/并发无保护 |
+| bed_gate | 环境池租约（env_pool.acquire_lease）、床身份钉死（execution_bed_identity_mismatch）、stale pytest 清理（force_clean）、device_busy 全局锁、设备可达探测 | 网关单床租约（flock 床锁随 pytest 进程组继承 + fencing token）+ `cex_env_prepare`（框架/可达/build/规则） | **P2**：单床；多床池未做 |
 | author | compile-worker fork 多轮：供给检查（supply_check）、载子检查（carriers）、自检 21 次/批、场景保真（scenario-fidelity fork：机械比对在先，模型判残差）、escalate/de-escalate | Circle 单会话写 cases.json（E/F/G/H/I IR） | **P2**：单会话质量靠模型档位；无机械保真比对 |
 | emit | emit 必崩规则（恒真/恒假断言族、崩卷形态，从框架 mirror 源码语义推导）+ emit_xlsx_tool | compile_excel.py（钉死模板 SHA、契约 marker、defined-name、哨兵） | **P1**：契约层同源；**必崩规则族未镜像**（verify_batch 只覆盖 echo-hit 一族） |
 | ask_decision | 唯一问人位：情景③④全批来源冲突，interrupt+Command(resume) | 无（Circle 直接问用户） | **P2**：交互面等价，无裁决空间模型 |
-| merge | 合并双卡点（重派集 ⊆ fail 集、passed→重编数据层非法、pass 锁卷面 mtime） | 无（整卷重编） | **P1**：返工纪律缺失（见 §3） |
-| run | dev_run_batch：一次递交整卷、result DB verdict（fail-closed）、detail_tail 证据、result_channel 状态机 | run_device.py = **同一 FrameworkMCPClient 无头驱动**，deliver SHA 对账 + run_and_wait + fetch_case_detail | ✅ **等价**（本轮补齐） |
+| merge | 合并双卡点（重派集 ⊆ fail 集、passed→重编数据层非法、pass 锁卷面 mtime） | `scripts/rework_gate.py`（重派集 ⊆ fail 集、pass 案按 provenance 指纹锁卷面，写 rework.json） | ✅ 主径已补（见 §5 第 5 条） |
+| run | dev_run_batch：一次递交整卷、result DB verdict（fail-closed）、detail_tail 证据、result_channel 状态机 | run_device.py / `cex_case_submit` → 网关冻结工作簿、上机前闸、只读落位 sha 对账 → 框架 pytest → 结果库按 task 取回 | ✅ **等价**；结果按任务绑定、早于投递的日志标 stale（引擎按构建表 + case_id 取） |
 | reconcile | 真机 vs 预期矛盾处理：六种带身份预期来源（Author/Spec/DefectSpec/Manual/ConfigBinding/CapabilityXml）、权威顺序自动裁决（Spec>Author>CapabilityXml>Manual）+ 披露 | 无；非 pass 只留 detail_tail | **P0**：预期值来源学完全缺失——这是"假断言"防线的中枢 |
 | attribute | 四层归因（G/E/V/瞬态）+ attributor fork + submit_attribution（证据须 verbatim）+ 同方法冻结 + 瞬态复发=误归因守卫 | backfill.py 只记 verdict 台账 | **P1**：有证据（detail_tail）无归因 |
 | diagnose | fail_attribution → 修复方向分派（G→emit 规则、E→可验证性、V→语义层） | references/gotchas.md 人工对照表 | **P1**：人工环 vs 机械分派 |
@@ -44,9 +44,10 @@
 | 手册（10.4.6/10.5.0/10.5.1 cli_cn/app_cn） | knowledge/data/manual/ | 步骤适配的逐字依据（manual:file:line 引用） | KMS docs_query 通道在，内容未接 → P1 |
 | mirror_manifest / EXCEL_FUNCTIONS.md / excel_workbook_manifest | compile_ref | 框架行为镜像（emit 必崩规则的推导源） | ist_emit 内嵌了冻结契约快照（同 SHA）→ 部分✅ |
 
-**关键事实**：24 个投影里，skill 通过 KMS manifest 协议**一个真投影都还没拿到**——
-`device_build: SAMPLE_BUILD_LOCAL`。cmdtree 缺失不是 skill 代码问题，是 **KMS 内容建设问题**；
-fetch.py 的协议（manifest+sha256+receipt）已经能承载真投影。
+**关键事实**：服务端数据包注册表（按构建、candidate/stable 通道、逐件 SHA-256）已能承载真投影，
+发布通道是 compile-excel-server 的 `tools/import_infotest.py`（在跑过 InfoTest 收敛链的工作站上，
+只调 InfoTest 自己的解析与校验函数）。本机只验证过合成样例包；**真实导入尚未在工作站上跑过**，
+所以 skill 现在拿到的仍不是真投影——这是发布侧待办，不是 skill 代码问题。
 
 ## 3. 门禁与纪律对账
 
@@ -64,21 +65,20 @@ fetch.py 的协议（manifest+sha256+receipt）已经能承载真投影。
 
 | 能力 | 状态 |
 |---|---|
-| 上机判定通道（deliver→框架→result DB→verdict） | ✅ 同一 FrameworkMCPClient，deliver SHA 对账同款 |
+| 上机判定通道（deliver→框架→result DB→verdict） | ✅ 同一框架 test_xlsx + 结果库；经网关投递，sha 对账同款 |
 | Excel 契约（表头 29 行/marker/defined-name/钉死模板 SHA） | ✅ 同源（ist_emit 冻结快照） |
 | E/F/G/H/I 语义主径 + found_times 硬契约 | ✅ verify_batch 与引擎 structural_gate 对拍过 |
 | 断言不命中命令原文（假通过防线第一条） | ✅ skill 先落地（引擎靠 emit 必崩规则覆盖） |
-| 凭据安全（不进对话/不落日志） | ✅ 双方同纪律（env 绑定 600，由用户自行写入） |
+| 凭据安全（不进对话/不落日志） | ✅ 文件夹里只有 OAuth 令牌；跳板机/设备口令只在网关；门户会话在用户级 0600 缓存 |
 | 真值回写 | ✅ 各自口径（引擎→knowledge footprint；skill→footprint.jsonl 台账） |
 | 速度/透明度 | skill 领先（3 案 42s，全链可对账） |
 
 ## 5. 收口计划（按优先级）
 
 **P0（不补就会产假判定/假断言）**
-1. ✅ **真命令树进 KMS**（2026-09-24 部分落地：`scripts/cmdtree_check.py` 已实现编译期
-   grounding，树自动发现 `KNOWLEDGE_DIR`/workspace `knowledge/`/引擎 compile_ref；实测抓
-   出原文 `portlist` 单数拼写并给出 `portlists` 建议。**待办：KMS 服务侧发布真投影**
-   ——现在 KMS 里仍是 sample 桩，树只在本机/引擎仓可得）。
+1. ◐ **真命令树进数据包**（`scripts/cmdtree_check.py` / `cex_cmd_check` 读数据包里的命令树投影，
+   判定函数逐字抽自引擎 `resolve_vendor_command`，命令头与参数契约都判；服务端只发投影、不发
+   原始 XML。**待办：工作站实跑导入器，发布真投影**）。
 2. ✅ **恒真/恒假断言族**（2026-09-24 落地：verify_batch 新增 tautology family——提示符形态/
    空串可匹配正则/not_found 命中命令词，附回归测试）。
 
@@ -89,8 +89,8 @@ fetch.py 的协议（manifest+sha256+receipt）已经能承载真投影。
    回执带归因层计数；语义层 E/V 仍留给会话，不越权）。
 5. ✅ 返工纪律（2026-09-24 落地：`scripts/rework_gate.py` 重派集⊆fail 集、pass 案锁卷面
    （provenance 指纹比对）、--force 整批判废留痕，写 rework.json 轮次账）。
-6. ◐ SPEC/手册通道：KNOWLEDGE_DIR 约定已立（recompose 把 *.md 当合法逐字来源），
-   KMS docs_query 通道在；**待办：KMS 内容侧接真手册/SPEC**。
+6. ◐ SPEC/手册通道：数据包带 spec / manual 条目，`cex_docs_query` 检索手册，二者都是合法逐字来源；
+   **待办：导入器发布真手册/SPEC**。
 
 **P2（体验与闭环深化）**
 7. 人口账（有效终态/隔离/未终结）进 run_receipt。

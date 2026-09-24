@@ -22,7 +22,7 @@
    - 只读 `.agents/skills` 的 harness（Codex、opencode 等）：`~/.agents/skills/compile-excel`
    - 若用户明确要求只给当前项目用：`<当前工作区>/.claude/skills/compile-excel`
      （pi 用 `<当前工作区>/.pi/skills/compile-excel`）
-2. **若目标已存在**：停止安装，告知用户已安装及版本（看 `reference/excel-contract.md` 的模板版本），询问是否覆盖或升级；**不要静默覆盖**。
+2. **若目标已存在**：停止安装，告知用户已安装及版本（看 `references/excel-contract.md` 的模板版本），询问是否覆盖或升级；**不要静默覆盖**。
 3. **获取文件**（二选一，优先 git）：
    ```bash
    TMPDIR="$(mktemp -d)"
@@ -48,21 +48,19 @@
    ```bash
    rm -rf "$TMPDIR"
    test -f "$TARGET/SKILL.md" && echo "SKILL.md OK"
-   python3 "$TARGET/scripts/preflight.py"    # 预期 exit=2（未绑定环境），证明脚本可运行
+   python3 "$TARGET/scripts/_cex_path.py"                      # 打印发行根，证明 skill 找得到 cex_core
+   python3 "$DIST/bin/cex_tool" list > /dev/null && echo "cex_tool OK"
    ```
-   preflight 因缺环境绑定返回 2 只说明脚本能跑。接着跑链接检查：
-   ```bash
-   python3 "$TARGET/scripts/link_status.py"
-   ```
-   - 退出码 3 或 5：OAuth 还没拿到。服务器装好后执行 `scripts/login.py`（设备授权），再 `scripts/fetch.py`。
-   - 退出码 4 或 5：设备用户名/密码不在 env 里。按 JSON 里的 `ask`，用 question 工具的 `secret: true` 向用户索取 `APV_USER` 和 `APV_PASSWORD`，写入 `target_file`。不要在对话里要密码。
-   - 退出码 0：OAuth 和设备口令都齐，链接完成。
-6. **告知用户**：安装位置、链接结果（OAuth 是否已取到、还缺不缺设备口令）、**新会话或 /reload 后 skill 生效**。
+6. **告知用户**：安装位置；**新会话或 /reload 后 skill 生效**；首次在项目文件夹里使用时，agent 会问
+   服务端地址和被测床的 device build，再引导浏览器授权登录（`cex_init` → `cex_login_start`）。
+   安装阶段不需要、也不要向用户要任何口令。
 
 ## 升级
 
-已安装目录就是普通文件：重复上述步骤，但第 2 步改为执行前先告知用户"将覆盖现有安装（用户自填的 env 不受影响，env 不随 skill 目录走）"，经确认后再 `rm -rf` 旧目录重新拷贝。
+已安装目录就是普通文件：重复上述步骤，但第 2 步改为执行前先告知用户"将覆盖现有安装"，经确认后再
+删除旧目录重新拷贝。项目文件夹里的 `.compile-excel/`（令牌、配置、已同步的数据包）不受影响。
 
-## 为什么不放在 skill 目录里配置
+## 为什么不在 skill 目录里放配置
 
-环境绑定（env 文件）按 SKILL.md 的三级查找链存放（`$COMPILE_EXCEL_ENV` → `<workspace>/.circle/compile-excel.env` → `~/.config/compile-excel/env`），**永远不写进 skill 安装目录**——升级覆盖安装时配置才不会丢。
+配置和令牌跟着**项目文件夹**走（`<文件夹>/.compile-excel/`），门户会话在用户级
+`~/.cache/compile-excel/`，都不写进 skill 安装目录——升级覆盖安装时才不会丢，也不会把令牌带进 skill 分发。
