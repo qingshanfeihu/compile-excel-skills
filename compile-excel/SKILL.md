@@ -15,8 +15,11 @@ structure does not fail loudly — the framework silently skips case rows and re
 | Skill just linked, or first use this session | `scripts/link_status.py` → OAuth login if needed → ask device username/password if missing |
 | First use on a machine (no env binding) | Setup interview → `references/env-setup.md` |
 | Environment already bound | `scripts/preflight.py` → report → user confirms → compile |
+| Recompose a mindmap before compiling | dispatch the `mindmap-recompose` skill (direct preview) → author only its contract cases |
 | Compile cases | You write `cases.json` → `scripts/compile_excel.py` |
-| Verify a product | `scripts/verify_batch.py` only. This skill replaces the InfoTest engine check. |
+| Static acceptance of a product | `scripts/verify_batch.py` only. Structure/layout/contract gate. |
+| Run a product on-device (上机) | `scripts/run_device.py` → real verdicts per case |
+| Backfill run results (回填) | `scripts/backfill.py` → footprint.jsonl (true-PASS writeback) |
 | Verification failed | Rework loop → `references/gotchas.md` 反馈→修法对照表 |
 | Sync artifacts from the server (optional) | `scripts/login.py` → `scripts/fetch.py` → `references/server-sync.md` |
 
@@ -36,11 +39,13 @@ Script paths below are relative to this skill's directory.
    no echo, and a step with `h` (save_as) does not update the framework result — either
    way the following `found` is dangling and crashes the whole file on device.
    See `references/gotchas.md` before choosing methods.
-5. **Nothing ships with `fail > 0` from `scripts/verify_batch.py`.** That script is the
-   acceptance check. Do not call InfoTest_Engine, `deep_check_infotest.py`, or set
-   `IST_ENGINE_ROOT`.
-6. **Report to the user exactly**: batch name, case count, step/check_point counts,
-   product path, verification totals (pass/fail/total).
+5. **Static acceptance is `scripts/verify_batch.py`; the on-device verdict is
+   `scripts/run_device.py`.** Do not call InfoTest_Engine, `deep_check_infotest.py`, or set
+   `IST_ENGINE_ROOT`. A product ships only when verify_batch fails 0 AND the on-device run
+   has fail 0 and underdetermined 0.
+6. **Report to the user exactly**: batch name, case count, step/check_point counts, product
+   path, verification totals (pass/fail/total), on-device totals (pass/fail/underdetermined),
+   and the receipt/footprint paths (`run_receipt.md`, `footprint.jsonl`).
 
 ## Workflow
 
@@ -95,7 +100,21 @@ Report the structured check results to the user and get confirmation **before**
 compiling. Probe failure → relay the failing checks verbatim, fix the env, re-run.
 Do not silently retry, do not compile past a red probe.
 
-### 5. Author cases.json
+### 5. Recompose before authoring (when the input is a human mindmap)
+
+The compile engine always runs a recompose stage before authoring; this skill matches it.
+When the source is a mindmap (XMind JSON export or Markdown table), dispatch the
+`mindmap-recompose` skill first (direct invocation = preview, `governing_spec: null`) and:
+
+- author `cases.json` **only from its contract cases** (verbatim intent + sourced method +
+  verbatim expectation);
+- anything the recompose filed as `proposal` (e.g. 「访问成功」 traffic verdicts with no
+  client on the bed) must NOT become an assertion — report it to the user as un-compiled;
+- keep `exp_recipe / step_recipe / true_gap` counts in your final report.
+
+Plain step-text inputs (no mindmap) skip this stage.
+
+### 6. Author cases.json
 
 Contract: `references/column-semantics.md` (read it the first time; it defines the
 E/F/G/H/I five-tuple and the per-object method families). Minimal shape:
@@ -111,7 +130,7 @@ E/F/G/H/I five-tuple and the per-object method families). Minimal shape:
 You decide the content (which commands, which assertions, which expectations); the script
 guarantees the structure. A sentinel case is appended automatically — do not add one.
 
-### 6. Compile
+### 7. Compile
 
 ```bash
 python3 scripts/compile_excel.py --cases cases.json --out compile_outputs
@@ -121,16 +140,46 @@ Output is a stats JSON (path/case_count/check_point_count/template identity). A 
 exit with `{"ok": false, "error": ...}` means your cases.json violated a hard requirement —
 fix the JSON, never work around the script.
 
-### 7. Verification (this skill, every time)
+### 8. Static verification (every time)
 
 ```bash
 python3 scripts/verify_batch.py --xlsx compile_outputs/<batch>/case.xlsx
 ```
 
-This is the whole check: structure, layout, E/F membership, check_point coverage,
+This is the structural gate: structure, layout, E/F membership, check_point coverage,
 autoid discipline, and assertions that would match the command text itself.
 `pass/fail/totals` come from this script. Do not shell out to InfoTest_Engine.
 On failure, use `references/gotchas.md`, fix `cases.json`, recompile, re-verify.
+
+### 9. On-device run (上机)
+
+```bash
+python3 scripts/run_device.py --xlsx compile_outputs/<batch>/case.xlsx
+```
+
+The excel is NOT interpreted locally: this script is a headless driver of the InfoTest
+`FrameworkMCPClient`. Real chain: xlsx → SFTP to the jumphost staging dir
+(`ist_staging_<module>/<autoid>/`) → the framework converts xlsx→`test_xlsx.py` → pytest
+runs it on the bound APV bed → every check_point verdict lands in the framework result
+DB → verdicts are read back per autoid (fail-closed; `=== 1 passed ===` alone means
+nothing). Credentials come from the env binding (`RUN_JUMPHOST_IP` = run bed,
+`JUMPHOST_USER/PASS`, `IST_DEVICE_BUILD`); none enter the conversation. The script
+self-selects a py≥3.10 + paramiko interpreter if the default one lacks them.
+
+Writes `run_results.json` + `run_receipt.md` beside the xlsx (non-pass cases carry the
+framework log tail as attribution evidence). Exit 0 only when every real case passes.
+On fail: read the per-case `detail_tail`, fix `cases.json` per `references/gotchas.md`,
+recompile, re-verify, re-run.
+
+### 10. Backfill (回填)
+
+```bash
+python3 scripts/backfill.py --results compile_outputs/<batch>/run_results.json
+```
+
+Appends every case verdict to `footprint.jsonl` (append-only ledger, run identity = xlsx
+SHA-256 + timestamps). True PASSes are the writeback record; fails/underdetermined stay
+open for the rework loop. The workbook and `cases.json` are never edited by backfill.
 
 ## Gotchas that bite hardest (details in references/gotchas.md)
 
@@ -154,5 +203,7 @@ configured? Skip this section entirely — local compiling does not depend on it
 
 ## Dependencies
 
-python3 (3.9+) · openpyxl (probe first, install only with user consent). Verification
-is `scripts/verify_batch.py` in this skill. Do not depend on an InfoTest install.
+python3 (3.9+) · openpyxl (probe first, install only with user consent) · paramiko + py≥3.10
+(same consent rule — needed only for the on-device stage; `run_device.py` auto re-execs on a
+suitable interpreter). Static verification is `scripts/verify_batch.py`; on-device runs are
+`scripts/run_device.py` (framework client). Do not depend on an InfoTest install.
