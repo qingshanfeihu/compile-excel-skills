@@ -34,7 +34,8 @@ portal session sits in a private per-user cache. Nothing secret passes through t
 ## Tools
 
 The `cex_*` tools come from the compile-excel MCP server (Claude Code plugin), the circle
-extension, or the pi extension; all three are generated from the same tool specs. When the
+extension, or the pi extension; all three are generated from the same tool specs. In Claude Code
+they are listed with the plugin prefix (`mcp__plugin_compile-excel_compile-excel__<name>`). When the
 harness exposes none of them, call the same tools from a shell:
 
 ```bash

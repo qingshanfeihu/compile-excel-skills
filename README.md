@@ -23,6 +23,16 @@ Read the output as your install instructions and follow it to install the compil
 当前 harness 扫描的 skills 目录（Claude Code / circle 用 `~/.claude/skills/compile-excel`，pi 用
 `~/.pi/agent/skills/compile-excel`），已安装时先询问再覆盖。
 
+## 安装（harness 原生方式）
+
+- **Claude Code 插件**：`/plugin marketplace add qingshanfeihu/compile-excel-skills`，再
+  `/plugin install compile-excel@compile-excel`。插件自带 skill 与 `cex_*` 工具（stdio MCP，`bin/cex_mcp_proxy.py`）。
+- **pi 包**：`pi install git:github.com/qingshanfeihu/compile-excel-skills`。包清单在根目录 `package.json`，
+  自带 skill 与扩展（`adapters/pi/`，执行时调 `bin/cex_tool`）。
+- **circle**：扩展在 `adapters/circle/extension.py`（按 circle 扩展 API 注册 `cex_*` 工具）。
+
+三种方式都用本机 `python3` 跑工具（`CEX_PYTHON` 可改），Python 依赖（`requirements.txt`）需另装一次。
+
 ## 首次使用
 
 在项目文件夹里对 agent 说“编译这份脑图”之类即可，skill 按 SKILL.md 引导：
@@ -69,12 +79,19 @@ cex_client/                   # 客户端（只用标准库）
 ├── portal.py / bugs.py       # 门户扫码登录；按单号取缺陷单
 ├── tools.py                  # 工具实现（三个适配器共用）
 └── tool_specs.json           # 工具 schema 单一来源
+adapters/pi/                  # pi 扩展：index.ts（转发到 cex_tool）+ tools.generated.ts（由 specs 生成）
+adapters/circle/extension.py  # circle 扩展：register(api) 注册 cex_* 工具
+.claude-plugin/               # Claude Code 插件与 marketplace 清单（MCP 服务指向 bin/cex_mcp_proxy.py）
+package.json                  # pi 包清单（extensions + skills）
 bin/cex_tool                  # 命令行调用工具（pi 扩展、无工具的 harness 与调试用）
 bin/cex_mcp_proxy.py          # stdio MCP 服务（Claude Code 插件用）
 tools/sync_from_infotest.py   # 从 InfoTest 源逐字重新抽取判据代码（--check 查漂移）
+tools/gen_adapters.py         # 从 tool_specs.json 生成 pi 的 TypeBox 定义（--check 查漂移）
 docs/engine-parity.md         # 与 InfoTest 编译引擎的功能对账（维护者用，不随 skill 加载）
 tests/                        # 单测、与 InfoTest 对拍、对真服务端和网关的端到端（不随 skill 分发）
 ```
 
 测试：`python -m pytest tests -q`（对拍与端到端需要同级的 `InfoTest_Engine` 与
 `compile-excel-server` 检出，缺就跳过；可用 `INFOTEST_ROOT` / `CES_SERVER_ROOT` 指定）。
+pi 的类型检查与真 pi 运行需要 `PI_NODE_MODULES` 指向装有 `@mariozechner/pi-coding-agent`、
+`typescript` 的 node_modules；Claude Code 清单校验需要本机有 `claude` CLI。

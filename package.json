@@ -1,0 +1,34 @@
+{
+  "name": "compile-excel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Compile test cases into device-ready case.xlsx and run them on the test bed through the jumphost gateway (pi package: skill + cex_* tools).",
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "UNLICENSED",
+  "pi": {
+    "extensions": [
+      "./adapters/pi/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@mariozechner/pi-ai": {
+      "optional": true
+    },
+    "@mariozechner/pi-coding-agent": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  }
+}
