@@ -39,8 +39,14 @@
    test -f "$TARGET/SKILL.md" && echo "SKILL.md OK"
    python3 "$TARGET/scripts/preflight.py"    # 预期 exit=2（未绑定环境），证明脚本可运行
    ```
-   preflight 因缺环境绑定返回 2 即安装成功；返回其它错误（如缺 python/openpyxl）如实转告用户。
-6. **告知用户**：安装完成的位置、首次使用时会走 SKILL.md 的 Setup 访谈绑定环境（kms 地址/跳转机 IP）、**新会话或 /reload 后 skill 生效**。
+   preflight 因缺环境绑定返回 2 只说明脚本能跑。接着跑链接检查：
+   ```bash
+   python3 "$TARGET/scripts/link_status.py"
+   ```
+   - 退出码 3 或 5：OAuth 还没拿到。服务器装好后执行 `scripts/login.py`（设备授权），再 `scripts/fetch.py`。
+   - 退出码 4 或 5：设备用户名/密码不在 env 里。按 JSON 里的 `ask`，用 question 工具的 `secret: true` 向用户索取 `APV_USER` 和 `APV_PASSWORD`，写入 `target_file`。不要在对话里要密码。
+   - 退出码 0：OAuth 和设备口令都齐，链接完成。
+6. **告知用户**：安装位置、链接结果（OAuth 是否已取到、还缺不缺设备口令）、**新会话或 /reload 后 skill 生效**。
 
 ## 升级
 

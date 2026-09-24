@@ -49,8 +49,40 @@ class ClientError(Exception):
     """所有客户端失败的结构化异常；消息不含任何机密。"""
 
 
+def _load_env_file() -> dict[str, str]:
+    """从环境绑定文件读取配置（与 preflight.py 同逻辑）。"""
+    candidates = []
+    explicit = os.environ.get("COMPILE_EXCEL_ENV")
+    if explicit:
+        candidates.append(Path(explicit).expanduser())
+    candidates.append(Path.cwd() / ".circle" / "compile-excel.env")
+    candidates.append(Path.home() / ".config" / "compile-excel" / "env")
+    for path in candidates:
+        if path.is_file():
+            data: dict[str, str] = {}
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                data[key.strip()] = value.strip()
+            return data
+    return {}
+
+
 def server_url() -> str:
-    return (os.environ.get("COMPILE_EXCEL_SERVER") or DEFAULT_SERVER).rstrip("/")
+    """优先级：$COMPILE_EXCEL_SERVER > 环境文件 KMS_ADDR > 默认 127.0.0.1。"""
+    explicit = os.environ.get("COMPILE_EXCEL_SERVER")
+    if explicit:
+        return explicit.rstrip("/")
+    env = _load_env_file()
+    kms_addr = env.get("KMS_ADDR", "").strip()
+    if kms_addr:
+        # KMS_ADDR 格式为 host:port，转为 http://host:port
+        if not kms_addr.startswith(("http://", "https://")):
+            kms_addr = f"http://{kms_addr}"
+        return kms_addr.rstrip("/")
+    return DEFAULT_SERVER.rstrip("/")
 
 
 # ── token 存取（0600 原子落盘；读时核权限）──────────────────────────────

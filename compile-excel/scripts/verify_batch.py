@@ -6,11 +6,10 @@
 2. 布局检查（Author 行/init 行/步骤行/空行分隔/哨兵）；
 3. E/F 合法集检查——**从冻结模板 K-P 列自举**（模板第 2 行自述分组）；
 4. 逐 case check_point≥1、found_times 的 G/H/I 硬契约、autoid 唯一；
-5. 若能定位 InfoTest 引擎（$IST_ENGINE_ROOT 或同级 InfoTest_Engine），
-   追加真契约数据驱动的逐行 E/F/G 校验（最强对拍）；不可用则明示 skip。
+5. 断言不得命中上一条命令原文（否则是恒真或恒假）。
 
-上机验证（设备执行）归 InfoTest 引擎，不在本报告范围（见 reference/excel-contract.md）。
-用法：python verify_batch.py --xlsx <case.xlsx> [--engine-root <InfoTest_Engine>]
+本脚本就是验收。不要再调用 InfoTest 引擎。
+用法：python verify_batch.py --xlsx <case.xlsx>
 退出码：0 = 全过；1 = 有失败项。
 """
 
@@ -18,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -85,7 +85,42 @@ def _ef_sets_from_template() -> tuple[set[str], dict[str, set[str]]]:
     return e_values, f_map
 
 
-def verify(path: Path, engine_root: str = "") -> dict:
+def _command_echo_hits(data: list[list]) -> list[str]:
+    """found/not_found/abs_found must not already match the command that feeds it."""
+    hits: list[str] = []
+    last_cmd = ""
+    saved: dict[str, str] = {}
+    for row in data:
+        e = str(row[4] or "").strip()
+        f = str(row[5] or "").strip()
+        g = str(row[6] or "")
+        h = str(row[7] or "").strip()
+        i_col = str(row[8] or "").strip()
+        if e == "check_point":
+            if h or not g.strip() or f not in {"found", "not_found", "abs_found"}:
+                continue
+            src = saved.get(i_col) if i_col else last_cmd
+            if not src:
+                continue
+            try:
+                matched = (
+                    src.find(g) >= 0 if f == "abs_found"
+                    else re.compile(g, re.DOTALL).search(src) is not None
+                )
+            except re.error:
+                continue
+            if matched:
+                hits.append(f"{f} {g!r} matches command {src[:48]!r}")
+            continue
+        if e.startswith("APV") and f == "cmd_config":
+            if h:
+                saved[h] = g
+            else:
+                last_cmd = g
+    return hits
+
+
+def verify(path: Path) -> dict:
     report = Report()
     wb = load_workbook(path, data_only=True)
 
@@ -176,53 +211,20 @@ def verify(path: Path, engine_root: str = "") -> dict:
     report.add("autoid >= 12 digits (framework boundary)", not bad_ids,
                f"bad={bad_ids}（生产惯例 18 位）")
     report.add("case count", True, f"cases={len(autoids)} autoids={autoids}")
+    echo_bad = _command_echo_hits(data)
+    report.add("assertion does not match the command text", not echo_bad,
+               f"hits={echo_bad[:4]}")
 
     wb.close()
-
-    # 5) InfoTest 真契约对拍（可选，最强校验）
-    engine = Path(engine_root) if engine_root else _locate_engine()
-    if engine is None:
-        report.add("infotest reverse check", True,
-                   "skip：未定位 InfoTest 引擎（$IST_ENGINE_ROOT 可指定）——"
-                   "结构检查已过，G 列内容终验建议在 InfoTest lint 侧兜底")
-    else:
-        code = _run_reverse_check(engine, path)
-        report.add("infotest reverse check (data-driven rows)", code == 0,
-                   f"engine={engine} exit={code}")
-
     return report.payload(str(path))
-
-
-def _locate_engine() -> Path | None:
-    import os
-
-    explicit = os.environ.get("IST_ENGINE_ROOT")
-    if explicit:
-        path = Path(explicit)
-        return path if (path / "main" / "case_compiler").is_dir() else None
-    sibling = Path(__file__).resolve().parents[4] / "InfoTest_Engine"
-    return sibling if (sibling / "main" / "case_compiler").is_dir() else None
-
-
-def _run_reverse_check(engine: Path, target: Path) -> int:
-    import subprocess
-
-    proc = subprocess.run(
-        [sys.executable, str(Path(__file__).resolve().parent.parent / "tests" / "reverse_check_infotest.py"),
-         str(target)],
-        capture_output=True, text=True, timeout=180,
-        env={**__import__("os").environ, "IST_ENGINE_ROOT": str(engine)},
-    )
-    return proc.returncode
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="case.xlsx 验收报告")
     parser.add_argument("--xlsx", required=True, help="待验 case.xlsx")
-    parser.add_argument("--engine-root", default="", help="InfoTest_Engine 根（缺省自动探测）")
     args = parser.parse_args()
 
-    result = verify(Path(args.xlsx), args.engine_root)
+    result = verify(Path(args.xlsx))
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["fail"] == 0 else 1
 

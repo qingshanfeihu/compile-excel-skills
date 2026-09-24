@@ -64,6 +64,17 @@ collect "APV 用户名"  "APV_USER"      0 0
 collect "APV 密码"    "APV_PASSWORD"  1 0
 collect "APV enable 密码（无则回车跳过）" "APV_ENABLE_PASSWORD" 1 1
 
+if [[ -f "$TARGET" ]]; then
+  KEPT="$(mktemp)"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    key="${line%%=*}"
+    if [[ "$line" == \#* || "$line" != *=* ]] || ! grep -q "^${key}=" "$TMP"; then
+      printf '%s\n' "$line" >> "$KEPT"
+    fi
+  done < "$TARGET"
+  cat "$TMP" >> "$KEPT"
+  mv "$KEPT" "$TMP"
+fi
 mv "$TMP" "$TARGET"
 trap - EXIT
 chmod 600 "$TARGET"

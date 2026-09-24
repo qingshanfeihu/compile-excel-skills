@@ -41,15 +41,41 @@ for pair in "${PAIRS[@]}"; do
   fi
 done
 
-mkdir -p "$(dirname "$TARGET")"
-chmod 700 "$(dirname "$TARGET")"
+TARGET_DIR="$(dirname "$TARGET")"
+mkdir -p "$TARGET_DIR"
+[[ "$TARGET_DIR" != "." ]] && chmod 700 "$TARGET_DIR"
 
 TMP="$(mktemp "${TARGET}.tmp.XXXXXX")"
+
+# 写入新文件：更新传入的键，保留未提及的键（bash 3.2 兼容）
 {
   echo "# compile-excel 环境绑定（由 bind_env.sh 写入；机密项请人工追加）"
+  
+  # 先输出新增/更新的键值对
   for pair in "${PAIRS[@]}"; do
     echo "$pair"
   done
+  
+  # 如果目标文件存在且使用 --force，追加未被更新的原有键
+  if [[ -f "$TARGET" && "$FORCE" -eq 1 ]]; then
+    while IFS= read -r line; do
+      # 跳过注释和空行
+      [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+      # 提取键名
+      key="${line%%=*}"
+      [[ -z "$key" ]] && continue
+      # 检查这个键是否在新传入的 PAIRS 中
+      found=0
+      for pair in "${PAIRS[@]}"; do
+        if [[ "${pair%%=*}" == "$key" ]]; then
+          found=1
+          break
+        fi
+      done
+      # 未被更新的键保留
+      [[ "$found" -eq 0 ]] && echo "$line"
+    done < "$TARGET"
+  fi
 } > "$TMP"
 chmod 600 "$TMP"
 mv "$TMP" "$TARGET"
