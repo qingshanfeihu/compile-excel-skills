@@ -193,6 +193,45 @@ def build_file_ir(doc: dict, *, sentinel: bool = True) -> FileIR:
                   cases=cases_out, module="ist_smoke")
 
 
+PROVENANCE_SCHEMA = "ist.excel.provenance"
+_SOURCE_KINDS = {
+    "author-verbatim", "author", "spec", "manual",
+    "defectspec", "defect", "configbinding", "capabilityxml",
+}
+
+
+def _build_provenance(doc: dict, fir: FileIR) -> tuple[dict, int]:
+    """逐 case check_point 的预期值来源边车（镜像引擎 ist.ide.assertion 轻量版）。
+
+    cases.json 的 check_point 步骤可带 ``source: {"kind": ..., "ref": ...}``；
+    缺省回落 author-verbatim（ref 指向脑图 autoid）并计数提示。
+    """
+    raw_cases = {str(c.get("autoid") or "").strip(): c for c in doc.get("cases", [])}
+    prov = {"schema": PROVENANCE_SCHEMA, "batch": fir.feature, "cases": {}}
+    defaulted = 0
+    for case_ir in fir.cases:
+        raw = raw_cases.get(case_ir.autoid) or {}
+        entries = []
+        for s in raw.get("steps", []):
+            if str(s.get("e", "")).strip() != "check_point":
+                continue
+            src = s.get("source") or {}
+            kind = str(src.get("kind") or "").strip().lower()
+            ref = str(src.get("ref") or "").strip()
+            if kind not in _SOURCE_KINDS or not ref:
+                defaulted += 1
+                kind, ref = "author-verbatim", f"mindmap:{case_ir.autoid}"
+            entries.append({
+                "E": "check_point",
+                "F": str(s.get("f") or ""),
+                "G": str(s.get("g") or ""),
+                "source": {"kind": kind, "ref": ref},
+            })
+        if entries:
+            prov["cases"][case_ir.autoid] = entries
+    return prov, defaulted
+
+
 def compile_excel(cases_path: str, out_dir: str, *, sentinel: bool = True) -> dict:
     try:
         doc = json.loads(Path(cases_path).read_text(encoding="utf-8"))
@@ -205,9 +244,14 @@ def compile_excel(cases_path: str, out_dir: str, *, sentinel: bool = True) -> di
     out_root = Path(out_dir).resolve()
     target = out_root / fir.feature / "case.xlsx"
     stats = emit_xlsx(fir, target, trusted_outputs_root=out_root)
+    prov, defaulted = _build_provenance(doc, fir)
+    (out_root / fir.feature / "provenance.json").write_text(
+        json.dumps(prov, ensure_ascii=False, indent=1), encoding="utf-8"
+    )
     stats["ok"] = True
     stats["batch"] = fir.feature
     stats["init_commands"] = len(fir.init_rows)
+    stats["sources_defaulted"] = defaulted
     return stats
 
 

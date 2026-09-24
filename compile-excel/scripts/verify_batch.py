@@ -120,6 +120,102 @@ def _command_echo_hits(data: list[list]) -> list[str]:
     return hits
 
 
+_PROMPT_LIKE = re.compile(
+    r"^(apv|router[a-z]?|[a-z_]+\(config\)#?|[#>*%-]{1,6}|\s*[#>-]{1,4}\s*)$",
+    re.I,
+)
+
+
+def _matches_empty(pattern: str) -> bool:
+    """正则可匹配空串 ⇒ 可匹配任何回显（恒真）。"""
+    try:
+        return re.compile(pattern, re.DOTALL).search("") is not None
+    except re.error:
+        return False
+
+
+def _tautology_family(data: list[list]) -> list[str]:
+    """恒真/恒假断言族（静态可判子集，镜像引擎 emit 必崩规则的机械部分）。
+
+    - 期望命中提示符形态（APV/#/>/(config)#）⇒ 每行回显都命中 ⇒ 恒真
+      （not_found 同形 ⇒ 恒假）；
+    - found 正则可匹配空串 ⇒ 恒真；
+    - not_found 的期望词出现在喂给它的命令行里 ⇒ 回显必含命令行 ⇒ 恒假。
+    """
+    bad: list[str] = []
+    last_cmd = ""
+    saved: dict[str, str] = {}
+    for row in data:
+        e = str(row[4] or "").strip()
+        f = str(row[5] or "").strip()
+        g = str(row[6] or "")
+        h = str(row[7] or "").strip()
+        i_col = str(row[8] or "").strip()
+        if e == "check_point":
+            if h or not g.strip() or f not in {"found", "not_found", "abs_found"}:
+                continue
+            expected = g.strip()
+            if _PROMPT_LIKE.match(expected):
+                bad.append(f"{f} {expected!r} 是提示符形态（每行回显都命中）"
+                           f" → 恒真{'假' if f == 'not_found' else ''}")
+                continue
+            if f == "found" and _matches_empty(g):
+                bad.append(f"found /{g}/ 可匹配空串 → 恒真")
+                continue
+            if f == "not_found":
+                src = saved.get(i_col) if i_col else last_cmd
+                if src:
+                    toks = {t.strip("\"'") for t in src.split()}
+                    if expected.strip("\"'") in toks:
+                        bad.append(f"not_found {expected!r} 出现在命令 "
+                                   f"{src[:40]!r} 里（回显含命令行）→ 恒假")
+            continue
+        if e.startswith("APV") and f == "cmd_config":
+            if h:
+                saved[h] = g
+            else:
+                last_cmd = g
+    return bad
+
+
+def _provenance_problems(xlsx: Path, data: list[list]) -> list[str]:
+    """provenance.json 边车：逐 case check_point 必须有非空来源（kind+ref）。"""
+    prov_path = xlsx.parent / "provenance.json"
+    if not prov_path.is_file():
+        return [f"缺 {prov_path.name}（先跑 compile_excel，不要手写 xlsx）"]
+    try:
+        prov = json.loads(prov_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return [f"provenance.json 不可读: {exc}"]
+    if prov.get("schema") != "ist.excel.provenance":
+        return [f"provenance schema 不符: {prov.get('schema')!r}"]
+    cases = prov.get("cases") if isinstance(prov.get("cases"), dict) else {}
+    problems: list[str] = []
+    cp_counts: dict[str, int] = {}
+    for row in data:
+        a = str(row[0] or "").strip()
+        e = str(row[4] or "").strip()
+        if a.isdigit() and len(a) >= 12 and a != "999999999999999":
+            cp_counts.setdefault(a, 0)
+        if e == "check_point" and cp_counts:
+            last = next(reversed(cp_counts))
+            cp_counts[last] += 1
+    for autoid, n in cp_counts.items():
+        entries = cases.get(autoid)
+        if not isinstance(entries, list) or not entries:
+            problems.append(f"{autoid}: provenance 缺该 case 的来源记录")
+            continue
+        if len(entries) != n:
+            problems.append(f"{autoid}: provenance {len(entries)} 条 ≠ xlsx "
+                            f"check_point {n} 条")
+        for ent in entries:
+            src = (ent or {}).get("source") or {}
+            if not str(src.get("kind") or "").strip() \
+                    or not str(src.get("ref") or "").strip():
+                problems.append(f"{autoid}: 存在 kind/ref 为空的来源记录")
+    return problems
+
+
 def verify(path: Path) -> dict:
     report = Report()
     wb = load_workbook(path, data_only=True)
@@ -214,6 +310,12 @@ def verify(path: Path) -> dict:
     echo_bad = _command_echo_hits(data)
     report.add("assertion does not match the command text", not echo_bad,
                f"hits={echo_bad[:4]}")
+    taut_bad = _tautology_family(data)
+    report.add("tautology family (prompt-like / empty-match / not_found-in-command)",
+               not taut_bad, f"hits={taut_bad[:4]}")
+    prov_bad = _provenance_problems(path, data)
+    report.add("provenance sidecar (expected-value sources)", not prov_bad,
+               f"problems={prov_bad[:4]}")
 
     wb.close()
     return report.payload(str(path))

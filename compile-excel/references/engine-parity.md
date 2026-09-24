@@ -75,18 +75,22 @@ fetch.py 的协议（manifest+sha256+receipt）已经能承载真投影。
 ## 5. 收口计划（按优先级）
 
 **P0（不补就会产假判定/假断言）**
-1. **真命令树进 KMS**：把 `cmdtree_585.xml`（或按 build 切片）经 manifest 发布；
-   skill 侧 preflight 增加命令存在性检查（原文命令 → 树查询，查不到=编译期拒绝，不是上机期报错）。
-2. **恒真/恒假断言族**：把 emit 必崩规则里与断言语义相关的子集移植进 verify_batch
-   （命中 prompt 行/命中空回显/期望=命令参数子串等形态）。
+1. ✅ **真命令树进 KMS**（2026-09-24 部分落地：`scripts/cmdtree_check.py` 已实现编译期
+   grounding，树自动发现 `KNOWLEDGE_DIR`/workspace `knowledge/`/引擎 compile_ref；实测抓
+   出原文 `portlist` 单数拼写并给出 `portlists` 建议。**待办：KMS 服务侧发布真投影**
+   ——现在 KMS 里仍是 sample 桩，树只在本机/引擎仓可得）。
+2. ✅ **恒真/恒假断言族**（2026-09-24 落地：verify_batch 新增 tautology family——提示符形态/
+   空串可匹配正则/not_found 命中命令词，附回归测试）。
 
 **P1（质量与纪律）**
-3. 预期值来源标注：cases.json 每条 check_point 增 `source`（author-verbatim 必填），
-   verify_batch 校验非空——reconcile 六来源学的轻量版。
-4. 归因初版：run_device 非 pass 时按 device_errors 的机械标记先分 G/瞬态两类，
-   其余留 detail_tail 给会话判（不越权判 E/V）。
-5. 返工纪律：batch 目录内 `rework.json`（fail 集、重派集⊆fail 集、pass 案 mtime 锁）。
-6. SPEC/手册通道：KMS docs_query 接真手册内容；recompose 请求可携带 governing_spec。
+3. ✅ 预期值来源标注（2026-09-24 落地：compile 写 `provenance.json` 边车，check_point 带
+   `source{kind,ref}`，verify_batch 校验非空；缺省回落 author-verbatim 并计数）。
+4. ✅ 归因初版（2026-09-24 落地：run_device 非 pass 案机械归因 G/transient?/undetermined，
+   回执带归因层计数；语义层 E/V 仍留给会话，不越权）。
+5. ✅ 返工纪律（2026-09-24 落地：`scripts/rework_gate.py` 重派集⊆fail 集、pass 案锁卷面
+   （provenance 指纹比对）、--force 整批判废留痕，写 rework.json 轮次账）。
+6. ◐ SPEC/手册通道：KNOWLEDGE_DIR 约定已立（recompose 把 *.md 当合法逐字来源），
+   KMS docs_query 通道在；**待办：KMS 内容侧接真手册/SPEC**。
 
 **P2（体验与闭环深化）**
 7. 人口账（有效终态/隔离/未终结）进 run_receipt。

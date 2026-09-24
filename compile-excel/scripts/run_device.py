@@ -43,6 +43,34 @@ ENGINE_ROOT = Path(os.environ.get(
 RESULT_SCHEMA = "ist.excel.device-run-result"
 SENTINEL_AUTOID = "999999999999999"
 
+# 归因初版：机械标记先行，语义层不越权（对齐引擎四层归因的可静态判定子集）
+_G_LAYER_MARKERS = (
+    "% invalid", "% unrecognized", "% unknown", "% error",
+    "syntax error", "invalid input", "command not found",
+)
+_TRANSIENT_MARKERS = (
+    "timeout", "timed out", "read_until", "connection reset",
+    "connection closed", "device_busy", "traceback", "not reachable",
+)
+
+
+def attribute_fail(detail_tail: str) -> dict:
+    """非 pass 的机械归因：G（命令/语法层）· transient 疑似 · undetermined。
+
+    只判协议级事实；G/E/V 语义裁决留给会话（引擎口径：机械预判只断协议事实）。
+    """
+    text = (detail_tail or "").lower()
+    for m in _G_LAYER_MARKERS:
+        if m in text:
+            return {"layer": "G", "evidence": m,
+                    "note": "命令/语法层——回显含 CLI 错误标记"}
+    for m in _TRANSIENT_MARKERS:
+        if m in text:
+            return {"layer": "transient?", "evidence": m,
+                    "note": "疑似瞬态（超时/连接/忙）——同签名复发则非瞬态，不升格"}
+    return {"layer": "undetermined", "evidence": "",
+            "note": "机械标记无法裁决，需会话按 detail_tail 语义归因（E/V/产品缺陷）"}
+
 
 def _utcnow() -> str:
     return _dt.datetime.now().astimezone().isoformat(timespec="seconds")
@@ -116,6 +144,9 @@ def write_receipts(result: dict, out_dir: Path) -> None:
     ]
     for c in result["cases"]:
         note = (c.get("detail_tail") or c.get("note") or "").replace("\n", " ⏎ ")[:160]
+        att = c.get("attribution") or {}
+        if att.get("layer"):
+            note = f"[{att['layer']}] {note}"
         lines.append(f"| {c['autoid']} | {c['verdict']} | {note or '-'} |")
     (out_dir / "run_receipt.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -248,7 +279,7 @@ def main() -> int:
                                       case_ids=autoids,
                                       poll_s=args.poll_s, max_s=max_s)
 
-            # 非 pass 证据：在连接存活期内取框架日志尾
+            # 非 pass：机械归因初版 + 框架日志尾证据
             results = run.get("results") if isinstance(run.get("results"), dict) else {}
             for autoid in autoids:
                 verdict = str(results.get(autoid, "not_run"))
@@ -257,7 +288,8 @@ def main() -> int:
                     try:
                         entry["detail_tail"] = client.fetch_case_detail(autoid)
                     except Exception:
-                        entry["note"] = (run.get("log_tail") or "")[-600:]
+                        entry["detail_tail"] = (run.get("log_tail") or "")[-600:]
+                    entry["attribution"] = attribute_fail(entry["detail_tail"])
                 result["cases"].append(entry)
     except Exception as exc:  # 连接/协议层失败
         print(json.dumps({"ok": False,
@@ -268,6 +300,13 @@ def main() -> int:
     result["task_id"] = str(run.get("task_id", ""))
     result["result_channel"] = run.get("result_channel", {})
     verdicts = [c["verdict"] for c in result["cases"]]
+    layers: dict[str, int] = {}
+    for c in result["cases"]:
+        att = c.get("attribution")
+        if att:
+            layers[att["layer"]] = layers.get(att["layer"], 0) + 1
+    if layers:
+        result["attribution_totals"] = layers
     result["finished"] = _utcnow()
     result["totals"] = {
         "cases": len(verdicts),
