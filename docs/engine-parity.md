@@ -102,3 +102,53 @@
 同一脑图、同一床、同一晚：skill 路线在「上机前拦截的命令拼写错误数」「恒真断言漏网数」
 「非 pass 案的归因覆盖率」「返工环重编案数 ≤ fail 集」四项上与引擎基线对齐，
 且 5/5 上机判定保持——即视为功能对账收敛。
+
+## 7. 判据引擎抽取与对拍（Phase 3 / E10）
+
+**抽了什么**：`tools/extract_engine.py` 从六个种子模块出发——`apv_lang`、`vendor_stdlib`、
+`step_structure`、`structural_gate`、`mechanical_case_gate`、`mindmap_contract_projector`——
+沿顶层 import 走出闭包，共 27 个模块，生成到 `cex_core/engine/`。模块树与 InfoTest 的
+`main` 包一一对应。每个文件按 AST 做了三处机械改动，逻辑一字不改：
+
+- `main.*` 改成 `cex_core.engine.*`，`scripts.*` 改成 `cex_core.engine.scripts.*`；
+- `Path(__file__)…parents[k]` 改成数据根下的同一相对目录。数据根由 `CEX_ENGINE_DATA_ROOT`
+  指定，布局与 InfoTest 仓根相同；没设时指向一个不存在的目录，读数据的地方按引擎自己的
+  "不可达"路径失败关闭；
+- 去掉注释与 docstring。里面有批次名、用例号等内部实证记录；设计理由回 InfoTest 源看。
+
+`MANIFEST.json` 记录每个文件的源 sha256，以及闭包边界。`--check` 比对漂移，默认测试会跑。
+
+**边界**：函数内的延迟 import 没有跟进去。跟进去就是整个引擎：338 个模块，约 23 万行。
+这类延迟 import 共 63 处，指向 29 个闭包外模块，最多的是 `emit_xlsx_tool` 12 处、
+`command_tree_sync` 8 处、`env_facts` 5 处。其中 15 处包在 try/except 里：在客户端会静默
+走另一个分支，而不是报错，所以在清单里标成 `guarded`。
+`provenance_ir` 的 ConfigBinding 规则指纹按路径读 InfoTest 源文件（`main/...py`），客户端
+没有这些文件，走"源不可达"失败关闭。
+
+**对拍方法**（`tools/engine_parity.py`，插件 `tests/core/engine_alias_plugin.py`）：
+在 InfoTest 自己的测试树里跑它自己的测试。一轮用原模块；另一轮把 `main.<抽取模块>`
+换成 `cex_core.engine.<模块>`。两轮按 (classname, name) 逐条比较结果（通过/失败/报错/跳过，
+失败时再比异常类型）。抽取副本那一轮必须留下"别名已生效"的证据，否则判失败，
+否则插件没装上时两轮必然一致。
+
+**结果**（2026-09-24，本机 InfoTest 检出，数据是库内那 8 份 compile_ref，没有镜像，
+没有环境派生投影）：
+
+| 模式 | 测试数 | 结果有变化 | 说明 |
+|---|---|---|---|
+| faithful（闭包外的延迟 import 回落 InfoTest 原模块） | 10,372 | 0（外加 1 条已登记） | 那 1 条是测试按 `structural_gate.__file__` 去同目录读 `emit_xlsx_tool.py`，抽取树里没有这个文件；与引擎行为无关，已按精确结果登记在 `EXPECTED_DIFFS` |
+| standalone（闭包外的延迟 import 照客户端的样子失败） | 10,372 | 555 | 474 条是撞上边界的 ModuleNotFoundError；另有约 80 条变成 AssertionError、IndexError 等，是被 try/except 包住的边界 import 悄悄走了另一个分支 |
+
+反向对照：在抽取副本里把 `nearest_candidates` 改成返回逆序，faithful 对拍报出 4 条差异。
+更弱的一个改动（`norm_action` 不做归一化）没被检出：现有测试的候选在不归一化时排序也不变。
+可见对拍的检出力受限于 InfoTest 测试本身覆盖到哪里。
+
+**证据边界**：
+- 基线里有 1318 条失败、241 条报错，主要缺的是环境派生的投影、框架镜像和 Excel 模板。
+  这些路径两边都在同一处失败：只证明失败方式一致，没有在真实数据上比过；
+- 要在真实数据上对拍，得在跑过收敛链的工作站上重跑
+  `CEX_ENGINE_PARITY=full pytest tests/core/test_engine_extract.py`。
+
+**InfoTest 改为转发**：按计划，只有对拍全绿且 InfoTest 测试全绿时才做。本机两个条件都不满足
+（环境数据缺失），而且 InfoTest 怎样依赖 cex_core（拷贝进仓，还是 `pip install -e`）
+还没定，所以没有改 InfoTest。

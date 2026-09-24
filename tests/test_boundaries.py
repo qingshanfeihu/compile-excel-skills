@@ -47,7 +47,10 @@ def test_tool_specs_and_registry_agree():
 
 def test_everything_imports_and_runs_without_infotest(tmp_path):
     """在屏蔽 InfoTest `main` 包的子进程里导入全部模块、跑一遍脱敏与解析：
-    抽取来的代码里若残留函数内的延迟导入，这里会炸（对拍测试因为 InfoTest 在 sys.path 上看不出来）。"""
+    抽取来的代码里若残留函数内的延迟导入，这里会炸（对拍测试因为 InfoTest 在 sys.path 上看不出来）。
+
+    cex_core.engine 除外：它的模块像在 InfoTest 里一样导入时就读数据，没有数据根导入即失败；
+    带数据根的独立导入在 tests/core/test_engine_extract.py 里查。"""
     import sys
 
     script = tmp_path / "probe.py"
@@ -62,7 +65,10 @@ def _guard(name, *a, **k):
 builtins.__import__ = _guard
 import cex_core, cex_client
 for pkg in (cex_core, cex_client):
-    for mod in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + "."):
+    for mod in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + ".",
+                                     onerror=lambda name: None):
+        if mod.name.startswith("cex_core.engine."):
+            continue
         importlib.import_module(mod.name)
 from cex_core.defects.scrub import scrub_declaration_text, contains_prohibited_declaration
 assert scrub_declaration_text("password=hunter2 x") != "password=hunter2 x"

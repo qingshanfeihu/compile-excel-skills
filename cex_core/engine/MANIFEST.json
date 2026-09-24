@@ -1,0 +1,600 @@
+{
+  "schema": "cex.engine-extract/v1",
+  "seeds": [
+    "main.case_compiler.apv_lang",
+    "main.case_compiler.vendor_stdlib",
+    "main.case_compiler.step_structure",
+    "main.ist_core.tools.device.structural_gate",
+    "main.case_compiler.mechanical_case_gate",
+    "main.case_compiler.mindmap_contract_projector"
+  ],
+  "modules": [
+    {
+      "module": "main.case_compiler._sealed_io",
+      "source": "main/case_compiler/_sealed_io.py",
+      "source_sha256": "b5c68376590d761201efe9e82253177a376ad4269cf180da44d91f399c61e787",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.apv_lang",
+      "source": "main/case_compiler/apv_lang.py",
+      "source_sha256": "cae4536b6bf4dca2336365d67bfcad5e9584048c1f653c508f565de5dac3fbbf",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.case_compiler.blocks",
+      "source": "main/case_compiler/blocks.py",
+      "source_sha256": "fd9c31d8c99845f7bd0455e3849fa1ce9a959fc52ff355a13cba64d035e1d946",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.case_ir",
+      "source": "main/case_compiler/case_ir.py",
+      "source_sha256": "3f5ab045668d66322cf972bec5f67394b6862338c680e609221770e084a09151",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.config",
+      "source": "main/case_compiler/config.py",
+      "source_sha256": "b107cb3530dd6ba402b1c32e5392d6394a25bd46fca63c8cff85c65cefea937b",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.case_compiler.consistency_contract",
+      "source": "main/case_compiler/consistency_contract.py",
+      "source_sha256": "d5b179f4a989901c7d5e0516bf51010ad58b3143dd42d1c88715e375a2a8c49c",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.contract_entry",
+      "source": "main/case_compiler/contract_entry.py",
+      "source_sha256": "7f79aa50c9f1a0c759937f4882938bfcba1680073f0a324b59322f0af7752708",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.criterion_carriers",
+      "source": "main/case_compiler/criterion_carriers.py",
+      "source_sha256": "f9a48aab688e917f1ed4aecb6365d8d6b241977dda93b2eafb1674fc4a8ab22b",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.distribution_assertion",
+      "source": "main/case_compiler/distribution_assertion.py",
+      "source_sha256": "7eb5aaa9ab6ac427f7efb775e030a42e4299fe7e927d2c09cdf48fb02ca4bc35",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.domain_grammar",
+      "source": "main/case_compiler/domain_grammar.py",
+      "source_sha256": "24511cf4fb9489abe0103d920c13dfd39c0f412748a624fe6d1a654611046a64",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.excel_contract",
+      "source": "main/case_compiler/excel_contract.py",
+      "source_sha256": "ee81243ff0546430b0b9deaed2c8f05507510046b403e429d9bcf1c54130a100",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.case_compiler.gate_advisories",
+      "source": "main/case_compiler/gate_advisories.py",
+      "source_sha256": "6a5e7e8a43d884952e5f4834e7f23e4117f16221caf148a50e14af1fe54da837",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.ir_coverage",
+      "source": "main/case_compiler/ir_coverage.py",
+      "source_sha256": "04b0f521b93f110b1467ca4cbd36a0bd2fe3f94c91de23ed8633db8c26190161",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.case_compiler.mechanical_case",
+      "source": "main/case_compiler/mechanical_case.py",
+      "source_sha256": "100fd6c46788d53158f56a93f19aa2acb9d46656806d99ff928e8c88d508f9b9",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "source": "main/case_compiler/mechanical_case_gate.py",
+      "source_sha256": "67c35edc10da202a51195c14f092d77e35ecfb3e90875b7b1865dc9c562073c2",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.mindmap_contract_projector",
+      "source": "main/case_compiler/mindmap_contract_projector.py",
+      "source_sha256": "e53fef3f7b8434157f51a04b2a74a7a0a776f747d15084e18e8aabc85b624f29",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.observe_ops",
+      "source": "main/case_compiler/observe_ops.py",
+      "source_sha256": "564cee8606a51ed9cf75bb002627c6c34698e1340a7e306e7426f30fd48aec2d",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.provenance_ir",
+      "source": "main/case_compiler/provenance_ir.py",
+      "source_sha256": "c7d4bd2c9535b6d6711bcf84a31bb070e231aba7d15779ae44f4631571a465c2",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.case_compiler.step_graph",
+      "source": "main/case_compiler/step_graph.py",
+      "source_sha256": "74a5dec9a24deb028fde95e3f1132060151e6a0844fc5f85df1adfa03c5edb1e",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.step_structure",
+      "source": "main/case_compiler/step_structure.py",
+      "source_sha256": "c3b6fc9549b1cc6db4bd820febb6115accc291b145d217938e595d82e1893479",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.vendor_stdlib",
+      "source": "main/case_compiler/vendor_stdlib.py",
+      "source_sha256": "424b676b61e7d7e371832e3a52572c7d88caca186cc1b0080d78cfd292259c33",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.common.engine_track_schema",
+      "source": "main/common/engine_track_schema.py",
+      "source_sha256": "2661096ae361d229144345b3628fbb8df7292f64e4d519307486da64f90b2190",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.common.schema_identity",
+      "source": "main/common/schema_identity.py",
+      "source_sha256": "5607eee78965e59d8e2f824eb6b3ecf0c60db55a1c47c47836ce795de7304eff",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.defect_spec_source",
+      "source": "main/defect_spec_source.py",
+      "source_sha256": "e3d8b4e15b5573a1c36f7bbe9f441f38b6eb36b2e8f347ac15d69eb6f7a75bbb",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.engine_managed_outputs",
+      "source": "main/engine_managed_outputs.py",
+      "source_sha256": "5a1bb196e1c70d8540b39513a3ff4a3994bb9b6048645d08f48aa80441fcb3e5",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.tools.device.structural_gate",
+      "source": "main/ist_core/tools/device/structural_gate.py",
+      "source_sha256": "8a4f86783bc25e17d198f68533b77a127110368c6dcbe49ffa02189562f7cd5b",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.knowledge_paths",
+      "source": "main/knowledge_paths.py",
+      "source_sha256": "fb8e21f79a6434da35252fd4bafb1ab42fa63ba4b0cc655bd516c74a8dd2abe7",
+      "data_root_rewrites": [
+        "main"
+      ]
+    }
+  ],
+  "boundary": [
+    {
+      "module": "main.case_compiler._sealed_io",
+      "function": "_is_run_cancelled",
+      "target": "main.ist_core.run_governance",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler._sealed_io",
+      "function": "_run_owner_commit_scope",
+      "target": "main.ist_core.run_governance",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.blocks",
+      "function": "expand_blocks",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.blocks",
+      "function": "lower_derived_assertions",
+      "target": "main.case_compiler.membership_assertion",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.contract_entry",
+      "function": "_normalized_claim",
+      "target": "main.case_compiler.criterion_author_rules",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.contract_entry",
+      "function": "_normalized_claim",
+      "target": "main.case_compiler.criterion_normalization",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.contract_entry",
+      "function": "_public_text",
+      "target": "main.ist_core.security_scrub",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.contract_entry",
+      "function": "build_validation_cards",
+      "target": "main.case_compiler.card_lint",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.contract_entry",
+      "function": "normalize_contract",
+      "target": "main.case_compiler.rule_registry",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.contract_entry",
+      "function": "sign_card",
+      "target": "main.case_compiler.card_lint",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.distribution_assertion",
+      "function": "expand_distribution_step",
+      "target": "main.case_compiler.regex_anchor_proof",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_author_ip_literals_for_submission",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_contract_claim_maps",
+      "target": "main.ist_core.compile_engine.authority_reconcile",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_declared_causal_block_command_lines",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_gate_answerer_statement",
+      "target": "main.ist_core.tools._shared.env_facts",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_gate_author_procedure_coverage",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_gate_expectation_bijection",
+      "target": "main.ist_core.compile_engine.authority_reconcile",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_gate_https_certificate_lifecycle",
+      "target": "main.case_compiler.excel_capability_samples",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_gate_https_certificate_lifecycle",
+      "target": "main.case_compiler.ssl_lifecycle_contract",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_gate_https_certificate_lifecycle",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_gate_negative_probe_path",
+      "target": "main.ist_core.tools._shared.env_facts",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_gate_paired_teardown",
+      "target": "main.case_compiler.tau_coverage",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_gate_structural_lint",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_gate_trigger_reachability",
+      "target": "main.ist_core.tools._shared.env_facts",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_gate_trigger_reachability",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_gate_unreachable_ips",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_measurements",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_product_assertions",
+      "target": "main.ist_core.compile_engine.authority_reconcile",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mechanical_case_gate",
+      "function": "_teardown_reversal_index",
+      "target": "scripts.gen_command_teardown_atlas",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.mindmap_contract_projector",
+      "function": "_card_device_disclosure",
+      "target": "main.case_compiler.behaviour_classes",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mindmap_contract_projector",
+      "function": "_card_device_disclosure",
+      "target": "main.case_compiler.device_characteristics",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mindmap_contract_projector",
+      "function": "_eligible",
+      "target": "main.ist_core.compile_engine.rebind_binder",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mindmap_contract_projector",
+      "function": "_project_case",
+      "target": "main.case_compiler.criterion_normalization",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mindmap_contract_projector",
+      "function": "_step_structure_disclosures",
+      "target": "main.ist_core.display_lexicon",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mindmap_contract_projector",
+      "function": "project_machine_mindmap",
+      "target": "main.ist_core.compile_engine.conflict_chain",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mindmap_contract_projector",
+      "function": "project_machine_mindmap",
+      "target": "main.ist_core.display_lexicon",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.mindmap_contract_projector",
+      "function": "project_machine_mindmap",
+      "target": "main.ist_core.tools.device.recompose_parts",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.provenance_ir",
+      "function": "_contract_author_claim_shas",
+      "target": "main.case_compiler.vk_derivation",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.provenance_ir",
+      "function": "_derive_rule_membership_literal_set",
+      "target": "main.case_compiler.membership_assertion",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.provenance_ir",
+      "function": "_narrow_to_bound_manual_version",
+      "target": "main.case_compiler.criterion_author_rules",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.provenance_ir",
+      "function": "_validate_defect_spec_expected_receipt",
+      "target": "main.ist_core.tools.knowledge.kb_bug_search",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.provenance_ir",
+      "function": "compile_expect_authority",
+      "target": "main.case_compiler.package_advisories",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.step_structure",
+      "function": "_bed_facts",
+      "target": "main.ist_core.tools._shared.env_facts",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.step_structure",
+      "function": "command_role_atlas",
+      "target": "scripts.gen_command_teardown_atlas",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.step_structure",
+      "function": "normalized_expectations_for_case",
+      "target": "main.case_compiler.criterion_normalization",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.vendor_stdlib",
+      "function": "_inventory_version_from_device_build",
+      "target": "main.sync.command_tree_sync",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.vendor_stdlib",
+      "function": "_product_platform_from_device_build",
+      "target": "main.sync.command_tree_sync",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.vendor_stdlib",
+      "function": "_projection_xml_identity_valid",
+      "target": "main.sync.command_tree_sync",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.vendor_stdlib",
+      "function": "available_vendor_builds",
+      "target": "main.sync.command_tree_sync",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.vendor_stdlib",
+      "function": "diagnose_active_command_tree",
+      "target": "main.sync.command_tree_sync",
+      "guarded": false
+    },
+    {
+      "module": "main.case_compiler.vendor_stdlib",
+      "function": "load_vendor_stdlib",
+      "target": "main.sync.command_tree_sync",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.vendor_stdlib",
+      "function": "load_vendor_stdlib_generation",
+      "target": "main.sync.command_tree_sync",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.vendor_stdlib",
+      "function": "vendor_stdlib_path",
+      "target": "main.sync.command_tree_sync",
+      "guarded": true
+    },
+    {
+      "module": "main.defect_spec_source",
+      "function": "_contains_credential_material",
+      "target": "main.ist_core.security_scrub",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.structural_gate",
+      "function": "_check_command_allowlist",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.structural_gate",
+      "function": "_check_command_existence_same_source",
+      "target": "main.ist_core.compile_engine.engine_errors",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.structural_gate",
+      "function": "_check_command_existence_same_source",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.structural_gate",
+      "function": "_check_driver_no_declared_path",
+      "target": "main.ist_core.tools._shared.env_facts",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.structural_gate",
+      "function": "_check_line_anchor_assertions",
+      "target": "main.case_compiler.regex_anchor_proof",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.structural_gate",
+      "function": "_check_mutation_control_order",
+      "target": "main.case_compiler.mutation_testing",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.structural_gate",
+      "function": "_check_no_destructive_commands",
+      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.structural_gate",
+      "function": "_load_allowlist_prefixes",
+      "target": "main.ist_core.memory.footprint",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.structural_gate",
+      "function": "_workbook_model",
+      "target": "main.common.file_identity",
+      "guarded": false
+    }
+  ],
+  "boundary_targets": [
+    "main.case_compiler.behaviour_classes",
+    "main.case_compiler.card_lint",
+    "main.case_compiler.criterion_author_rules",
+    "main.case_compiler.criterion_normalization",
+    "main.case_compiler.device_characteristics",
+    "main.case_compiler.excel_capability_samples",
+    "main.case_compiler.membership_assertion",
+    "main.case_compiler.mutation_testing",
+    "main.case_compiler.package_advisories",
+    "main.case_compiler.regex_anchor_proof",
+    "main.case_compiler.rule_registry",
+    "main.case_compiler.ssl_lifecycle_contract",
+    "main.case_compiler.tau_coverage",
+    "main.case_compiler.vk_derivation",
+    "main.common.file_identity",
+    "main.ist_core.compile_engine.authority_reconcile",
+    "main.ist_core.compile_engine.conflict_chain",
+    "main.ist_core.compile_engine.engine_errors",
+    "main.ist_core.compile_engine.rebind_binder",
+    "main.ist_core.display_lexicon",
+    "main.ist_core.memory.footprint",
+    "main.ist_core.run_governance",
+    "main.ist_core.security_scrub",
+    "main.ist_core.tools._shared.env_facts",
+    "main.ist_core.tools.device.emit_xlsx_tool",
+    "main.ist_core.tools.device.recompose_parts",
+    "main.ist_core.tools.knowledge.kb_bug_search",
+    "main.sync.command_tree_sync",
+    "scripts.gen_command_teardown_atlas"
+  ]
+}

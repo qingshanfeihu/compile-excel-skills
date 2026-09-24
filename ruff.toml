@@ -1,0 +1,2 @@
+# cex_core/engine 是 tools/extract_engine.py 从 InfoTest 生成的副本：lint 问题在 InfoTest 源里改
+extend-exclude = ["cex_core/engine"]

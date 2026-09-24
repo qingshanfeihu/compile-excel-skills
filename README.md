@@ -71,7 +71,9 @@ cex_core/                     # 判据与出件共享库（harness 无关）
 ├── vendor_cmd.py             # 命令存在性/参数契约判定（逐字抽自 InfoTest vendor_stdlib）
 ├── scan_destructive.py       # 自毁命令扫描（规则来自数据包 domain_grammar.json，读不到即拒）
 ├── security_scrub.py         # 凭据脱敏（逐字抽自 InfoTest）
-└── defects/                  # 缺陷页解析 + 脱敏（逐字抽自 InfoTest main/ingest）
+├── defects/                  # 缺陷页解析 + 脱敏（逐字抽自 InfoTest main/ingest）
+└── engine/                   # 判据引擎：InfoTest 27 个判据模块的生成副本（数据根 CEX_ENGINE_DATA_ROOT；
+                              #   范围、边界、对拍结果见 MANIFEST.json 与 docs/engine-parity.md §7）
 cex_client/                   # 客户端（只用标准库）
 ├── workspace.py              # 唯一路径解析器：<文件夹>/.compile-excel/
 ├── auth.py / bundle.py       # 设备流登录与令牌轮换；数据包同步
@@ -86,6 +88,8 @@ package.json                  # pi 包清单（extensions + skills）
 bin/cex_tool                  # 命令行调用工具（pi 扩展、无工具的 harness 与调试用）
 bin/cex_mcp_proxy.py          # stdio MCP 服务（Claude Code 插件用）
 tools/sync_from_infotest.py   # 从 InfoTest 源逐字重新抽取判据代码（--check 查漂移）
+tools/extract_engine.py       # 从 InfoTest 源生成 cex_core/engine（--check 查漂移）
+tools/engine_parity.py        # 对拍：InfoTest 自己的测试分别跑原模块与 cex_core/engine，逐条比结果
 tools/gen_adapters.py         # 从 tool_specs.json 生成 pi 的 TypeBox 定义（--check 查漂移）
 install.py                    # 安装器：发行根落位 + 挂进 claude / pi / circle（--dry-run 看计划）
 docs/engine-parity.md         # 与 InfoTest 编译引擎的功能对账（维护者用，不随 skill 加载）
