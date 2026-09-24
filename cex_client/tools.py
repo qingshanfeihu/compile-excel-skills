@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from . import auth, bundle
+from . import auth, bundle, device, gateway
 from . import workspace as wsmod
 from .errors import ClientError
 
@@ -130,6 +130,41 @@ def cex_scan_destructive(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": not findings, "findings": findings}
 
 
+def cex_bed_lease(args: dict[str, Any]) -> dict[str, Any]:
+    return gateway.lease(_ws(args), str(args.get("action") or ""))
+
+
+def cex_env_prepare(args: dict[str, Any]) -> dict[str, Any]:
+    ws = _ws(args)
+    return gateway.call_tool(ws, "env_prepare", gateway.lease_args(ws))
+
+
+def cex_case_submit(args: dict[str, Any]) -> dict[str, Any]:
+    return device.submit(_ws(args), str(args.get("xlsx") or ""), args.get("module") or None)
+
+
+def cex_case_status(args: dict[str, Any]) -> dict[str, Any]:
+    return device.status(_ws(args), str(args.get("task_id") or ""))
+
+
+def cex_case_results(args: dict[str, Any]) -> dict[str, Any]:
+    return device.results(_ws(args), str(args.get("task_id") or ""))
+
+
+def cex_probe_show(args: dict[str, Any]) -> dict[str, Any]:
+    ws = _ws(args)
+    return gateway.call_tool(ws, "probe_show", {
+        **gateway.lease_args(ws), "command": str(args.get("command") or ""),
+        "device_index": int(args.get("device_index") or 0)})
+
+
+def cex_init_device(args: dict[str, Any]) -> dict[str, Any]:
+    ws = _ws(args)
+    forwarded = {k: args[k] for k in ("step", "device_index", "device_count", "confirmation")
+                 if args.get(k) is not None}
+    return gateway.call_tool(ws, "init_device", {**gateway.lease_args(ws), **forwarded})
+
+
 TOOLS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "cex_init": cex_init,
     "cex_status": cex_status,
@@ -141,6 +176,13 @@ TOOLS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "cex_docs_query": cex_docs_query,
     "cex_cmd_check": cex_cmd_check,
     "cex_scan_destructive": cex_scan_destructive,
+    "cex_bed_lease": cex_bed_lease,
+    "cex_env_prepare": cex_env_prepare,
+    "cex_case_submit": cex_case_submit,
+    "cex_case_status": cex_case_status,
+    "cex_case_results": cex_case_results,
+    "cex_probe_show": cex_probe_show,
+    "cex_init_device": cex_init_device,
 }
 
 

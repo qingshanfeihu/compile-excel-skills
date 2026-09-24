@@ -8,13 +8,35 @@
    "input_schema": {
     "type": "object",
     "properties": {
-     "server": {"type": "string", "description": "compile-excel-server base URL (https, or http on loopback)."},
-     "device_build": {"type": "string", "description": "Execution build identifier the bundles are published under."},
-     "workspace": {"type": "string", "description": "Folder to initialise; defaults to the current directory."},
-     "channel": {"type": "string", "enum": ["stable", "candidate"], "description": "Bundle channel to sync; defaults to stable."},
-     "insecure_lan": {"type": "boolean", "description": "Allow plain http to a non-loopback server on a trusted lab network."}
+     "server": {
+      "type": "string",
+      "description": "compile-excel-server base URL (https, or http on loopback)."
+     },
+     "device_build": {
+      "type": "string",
+      "description": "Execution build identifier the bundles are published under."
+     },
+     "workspace": {
+      "type": "string",
+      "description": "Folder to initialise; defaults to the current directory."
+     },
+     "channel": {
+      "type": "string",
+      "enum": [
+       "stable",
+       "candidate"
+      ],
+      "description": "Bundle channel to sync; defaults to stable."
+     },
+     "insecure_lan": {
+      "type": "boolean",
+      "description": "Allow plain http to a non-loopback server on a trusted lab network."
+     }
     },
-    "required": ["server", "device_build"],
+    "required": [
+     "server",
+     "device_build"
+    ],
     "additionalProperties": false
    }
   },
@@ -24,7 +46,11 @@
    "read_only": true,
    "input_schema": {
     "type": "object",
-    "properties": {"workspace": {"type": "string"}},
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
     "additionalProperties": false
    }
   },
@@ -34,7 +60,11 @@
    "read_only": false,
    "input_schema": {
     "type": "object",
-    "properties": {"workspace": {"type": "string"}},
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
     "additionalProperties": false
    }
   },
@@ -45,8 +75,13 @@
    "input_schema": {
     "type": "object",
     "properties": {
-     "workspace": {"type": "string"},
-     "timeout_s": {"type": "number", "description": "Seconds to wait in this call (1-300, default 60)."}
+     "workspace": {
+      "type": "string"
+     },
+     "timeout_s": {
+      "type": "number",
+      "description": "Seconds to wait in this call (1-300, default 60)."
+     }
     },
     "additionalProperties": false
    }
@@ -57,7 +92,11 @@
    "read_only": false,
    "input_schema": {
     "type": "object",
-    "properties": {"workspace": {"type": "string"}},
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
     "additionalProperties": false
    }
   },
@@ -68,8 +107,16 @@
    "input_schema": {
     "type": "object",
     "properties": {
-     "workspace": {"type": "string"},
-     "channel": {"type": "string", "enum": ["stable", "candidate"]}
+     "workspace": {
+      "type": "string"
+     },
+     "channel": {
+      "type": "string",
+      "enum": [
+       "stable",
+       "candidate"
+      ]
+     }
     },
     "additionalProperties": false
    }
@@ -80,7 +127,11 @@
    "read_only": false,
    "input_schema": {
     "type": "object",
-    "properties": {"workspace": {"type": "string"}},
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
     "additionalProperties": false
    }
   },
@@ -91,11 +142,22 @@
    "input_schema": {
     "type": "object",
     "properties": {
-     "workspace": {"type": "string"},
-     "q": {"type": "string", "description": "Search terms."},
-     "limit": {"type": "integer", "minimum": 1, "maximum": 10}
+     "workspace": {
+      "type": "string"
+     },
+     "q": {
+      "type": "string",
+      "description": "Search terms."
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+     }
     },
-    "required": ["q"],
+    "required": [
+     "q"
+    ],
     "additionalProperties": false
    }
   },
@@ -106,10 +168,20 @@
    "input_schema": {
     "type": "object",
     "properties": {
-     "workspace": {"type": "string"},
-     "commands": {"type": "array", "items": {"type": "string"}, "maxItems": 200}
+     "workspace": {
+      "type": "string"
+     },
+     "commands": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 200
+     }
     },
-    "required": ["commands"],
+    "required": [
+     "commands"
+    ],
     "additionalProperties": false
    }
   },
@@ -120,10 +192,182 @@
    "input_schema": {
     "type": "object",
     "properties": {
-     "workspace": {"type": "string"},
-     "xlsx": {"type": "string", "description": "Workbook path inside the workspace."}
+     "workspace": {
+      "type": "string"
+     },
+     "xlsx": {
+      "type": "string",
+      "description": "Workbook path inside the workspace."
+     }
     },
-    "required": ["xlsx"],
+    "required": [
+     "xlsx"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_bed_lease",
+   "read_only": false,
+   "description": "Manage your lease on the test bed through the jumphost gateway. acquire before any device work, heartbeat during long sessions, release when done, status to see who holds it. The lease is kept in the workspace; other device tools use it automatically.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "action": {
+      "type": "string",
+      "enum": [
+       "acquire",
+       "heartbeat",
+       "release",
+       "status"
+      ]
+     }
+    },
+    "required": [
+     "action"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_env_prepare",
+   "read_only": true,
+   "description": "Check the bed before running cases: framework present, devices reachable, device build matches the bundle build, safety rules available. Needs the lease.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_case_submit",
+   "read_only": false,
+   "description": "Submit a compiled workbook from the workspace to run on the bed. The gateway re-checks it (Excel contract, destructive commands, credential literals) and refuses on any finding. Returns task_id. Needs the lease.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "xlsx": {
+      "type": "string",
+      "description": "Workbook path inside the workspace."
+     },
+     "module": {
+      "type": "string",
+      "description": "Staging module; default is the gateway's."
+     }
+    },
+    "required": [
+     "xlsx"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_case_status",
+   "read_only": true,
+   "description": "State of a submitted run (running or done) with the tail of its log.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "task_id": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "task_id"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_case_results",
+   "read_only": false,
+   "description": "Per-case framework verdicts of a finished run. Writes run_results.json and run_receipt.md next to the workbook. Logs from earlier runs are marked and not used as evidence.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "task_id": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "task_id"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_probe_show",
+   "read_only": true,
+   "description": "Run one read-only show/get command on a bed device and return the output. Needs the lease.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "command": {
+      "type": "string"
+     },
+     "device_index": {
+      "type": "integer",
+      "minimum": 0
+     }
+    },
+    "required": [
+     "command"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_init_device",
+   "read_only": false,
+   "description": "Wipe and re-baseline bed devices over the serial console (needs jumphost:admin). step=prepare returns the exact plan and a one-time confirmation code; show the plan to the user and call step=confirm with the code only after they approve.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "step": {
+      "type": "string",
+      "enum": [
+       "prepare",
+       "confirm"
+      ]
+     },
+     "device_index": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "device_count": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "confirmation": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "step"
+    ],
     "additionalProperties": false
    }
   }

@@ -19,7 +19,6 @@ SCRIPTS = SKILL_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import ist_client  # noqa: E402
-from run_device import resolve_engine_root  # noqa: E402
 
 # 运行时拼装，避免守卫扫到自身
 _PERSONAL_PATH_MARKERS = ("/" + "Users/", "Public" + "/circle", "Public" + "/InfoTest")
@@ -59,27 +58,6 @@ class SafePathComponentTest(unittest.TestCase):
             with self.assertRaises(ist_client.ClientError):
                 ist_client.download_artifact_verified("../escape", "0" * 64, Path(tmp))
             self.assertEqual(list(Path(tmp).iterdir()), [])
-
-
-class EngineRootTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self._saved = os.environ.pop("IST_ENGINE_ROOT", None)
-
-    def tearDown(self) -> None:
-        if self._saved is not None:
-            os.environ["IST_ENGINE_ROOT"] = self._saved
-
-    def test_missing_binding_yields_none_instead_of_a_guessed_path(self) -> None:
-        self.assertIsNone(resolve_engine_root({}))
-
-    def test_binding_must_point_at_a_checkout_with_the_framework_client(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self.assertIsNone(resolve_engine_root({"IST_ENGINE_ROOT": str(root)}))
-            client = root / "main" / "case_compiler" / "device_mcp_client.py"
-            client.parent.mkdir(parents=True)
-            client.write_text("", encoding="utf-8")
-            self.assertEqual(resolve_engine_root({"IST_ENGINE_ROOT": str(root)}), root)
 
 
 if __name__ == "__main__":

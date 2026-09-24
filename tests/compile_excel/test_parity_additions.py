@@ -19,7 +19,7 @@ SCRIPTS = SKILL_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from verify_batch import _tautology_family  # noqa: E402
-from run_device import attribute_fail  # noqa: E402
+from cex_client.device import attribute_fail  # noqa: E402
 
 def _run(script: str, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(

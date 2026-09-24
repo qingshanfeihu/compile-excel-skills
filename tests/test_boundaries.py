@@ -1,7 +1,6 @@
 """仓库边界守门：compile-excel 的代码不读 InfoTest 的配置文件、不 import InfoTest 的环境加载模块。
 
-例外只有 skills/compile-excel/scripts/run_device.py：它是过渡期的旧上机路径，调用 InfoTest 引擎
-自己的客户端（InfoTest 的代码读它自己的配置），E5 改走网关后删除。
+上机已改走跳板机网关（run_device.py 不再借 InfoTest 引擎的客户端）。
 """
 
 from __future__ import annotations
@@ -11,7 +10,9 @@ import subprocess
 
 from conftest import REPO_ROOT
 
-ALLOWED = {"skills/compile-excel/scripts/run_device.py"}
+# tools/sync_from_infotest.py 以文本方式读取 InfoTest 源码做逐字抽取（字符串里必然出现 main.），
+# 从不 import InfoTest；它是唯一例外。
+ALLOWED = {"tools/sync_from_infotest.py"}
 # 运行时拼装，避免守卫扫到自身
 _PATTERNS = [
     re.compile(r"langchain" + r"_env"),
