@@ -60,6 +60,8 @@ _SOURCE_TEXT = {
     "tests.ist_core.compile_engine.test_mechanical_case_unproducible"
     "::test_the_code_comment_writes_down_the_boundary_against_the_device_outlet":
         ("ValueError", "reads a code comment next to the constant; the extraction strips comments"),
+    "tests.case_compiler.test_engine_defect_not_author_problem"
+    "::test_recompose_quarantine_is_classified_as_engine_defect": ("ValueError", _UNPARSED),
     # 以下两条是模块名本身：抽取副本的 __name__ 是 cex_core.engine.*
     "tests.case_compiler.test_framework_projection_identity"
     "::test_preflight_keeps_the_method_reference_producer_in_source_drift_guidance":
@@ -72,6 +74,19 @@ _SOURCE_TEXT = {
 }
 EXPECTED_DIFFS.update({test: (("passed", ""), ("failed", exc), reason)
                        for test, (exc, reason) in _SOURCE_TEXT.items()})
+# 按 InfoTest 模块名模拟导入失败（改 builtins.__import__ 只拦 main.* 这个名字）：抽取副本导入的是
+# cex_core.engine.* 这个名字，模拟的失败根本不触发，走到的是后面的正常判据
+_SIMULATED_IMPORT_FAILURE = ("simulates an import failure for the InfoTest module name (patching "
+                             "builtins.__import__ or sys.modules['main.…']); the extracted code "
+                             "imports the engine name, so the simulated failure never fires")
+EXPECTED_DIFFS.update({
+    test: (("passed", ""), ("failed", ""), _SIMULATED_IMPORT_FAILURE) for test in (
+        "tests.ist_core.tools.test_tau_coverage_gate"
+        "::test_gate_import_failure_cannot_silently_pass",
+        "tests.ist_core.tools.test_command_existence_gate"
+        "::test_gate_command_existence_import_failure_refuses",
+    )
+})
 _EXC = re.compile(r"^\s*([A-Za-z_][\w.]*(?:Error|Exception|Exit|Interrupt|Warning|Failed|Skipped))\b")
 
 

@@ -20,6 +20,7 @@ import importlib.util
 import json
 import os
 import sys
+import types
 from pathlib import Path
 
 SKILLS_ROOT = Path(os.environ["CEX_SKILLS_ROOT"]).resolve()
@@ -83,10 +84,19 @@ def _install() -> None:
         sys.meta_path.insert(0, _BackToInfoTest())
     for name in EXTRACTED:
         sys.modules[name] = importlib.import_module(_engine_name(name))
+        module = sys.modules[name]
+        if MODE == "faithful" and hasattr(module, "__path__"):
+            # 抽了正文的包：没抽的子模块仍从 InfoTest 自己的包目录加载
+            original = Path(os.environ["CEX_ENGINE_DATA_ROOT"]).joinpath(*name.split("."))
+            if original.is_dir() and str(original) not in module.__path__:
+                module.__path__.append(str(original))
     for name in EXTRACTED:
         parent, _, child = name.rpartition(".")
         if parent:
-            setattr(importlib.import_module(parent), child, sys.modules[name])
+            owner = importlib.import_module(parent)
+            # 包的 __init__ 可能把同名对象（如与子模块同名的工具函数）绑在这个属性上：不覆盖
+            if isinstance(getattr(owner, child, None), (types.ModuleType, type(None))):
+                setattr(owner, child, sys.modules[name])
     marker = os.environ.get("CEX_ALIAS_MARKER")
     if marker:
         # 证明别名真的生效：每个 main.X 指向的模块文件都在抽取树里
