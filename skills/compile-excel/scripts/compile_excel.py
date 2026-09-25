@@ -199,6 +199,10 @@ PROVENANCE_SCHEMA = "ist.excel.provenance"
 _SOURCE_KINDS = {
     "author-verbatim", "author", "spec", "manual",
     "defectspec", "defect", "configbinding", "capabilityxml",
+    # cex_author_emit 从引擎展开带出的断言出处（provenance_ir 的外部来源与派生来源）
+    "intent", "defect_spec", "capability_xml", "footprint", "env_facts", "skeleton",
+    "config_derived", "captured_relation", "distribution_derived", "membership_derived",
+    "status_derived",
 }
 
 
@@ -215,7 +219,7 @@ def _build_provenance(doc: dict, fir: FileIR) -> tuple[dict, int]:
         raw = raw_cases.get(case_ir.autoid) or {}
         entries = []
         for s in raw.get("steps", []):
-            if str(s.get("e", "")).strip() != "check_point":
+            if str(_step_field(s, "e") or "").strip() != "check_point":
                 continue
             src = s.get("source") or {}
             kind = str(src.get("kind") or "").strip().lower()
@@ -225,8 +229,8 @@ def _build_provenance(doc: dict, fir: FileIR) -> tuple[dict, int]:
                 kind, ref = "author-verbatim", f"mindmap:{case_ir.autoid}"
             entries.append({
                 "E": "check_point",
-                "F": str(s.get("f") or ""),
-                "G": str(s.get("g") or ""),
+                "F": str(_step_field(s, "f") or ""),
+                "G": str(_step_field(s, "g") or ""),
                 "source": {"kind": kind, "ref": ref},
             })
         if entries:
