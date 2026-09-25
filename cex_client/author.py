@@ -471,21 +471,30 @@ def _project_and_publish(ws: Workspace, state: dict[str, Any]) -> dict[str, Any]
         stamped[aid] = {"consistency_requirement": proof["requirement"],
                         "source_case_slice_sha256": slice_sha}
     capability = info.get("capability") or {}
+    # 重投影后契约卡逐字节没变的案，已封存的机械用例仍然有效；变了的要重新提交
+    contracts = receipt["contract_sha256_by_autoid"]
+    sealed = {aid: record for aid, record in (state.get("sealed") or {}).items()
+              if contracts.get(aid) == record.get("contract_sha256")}
     state.update({"phase": "published", "receipt": receipt, "cases": stamped, "pending": {},
                   "data_root": str(root), "bundle_id": info.get("bundle_id"),
-                  "capability": capability, "sealed": state.get("sealed") or {}})
+                  "capability": capability, "sealed": sealed})
     _save_state(ws, state)
     language = _criterion_language()
     from . import bed
 
     topology = bed.load(ws) or {}
+    disclosures = [{k: item.get(k) for k in ("autoid", "code", "message", "criterion_type")
+                    if item.get(k) is not None} for item in summary["disclosures"]]
+    disclosures_path = batch / "author_disclosures.json"
+    disclosures_path.write_text(json.dumps(disclosures, ensure_ascii=False, indent=1),
+                                encoding="utf-8")
     return {
         "ok": True, "out_name": state["out_name"], "phase": "published",
         "cases": [_card_view(batch, aid, language) for aid in summary["written"]],
         "quarantined": summary["quarantined"], "needs_decision": summary["needs_decision"],
         "abandoned": summary["abandoned"],
-        "disclosures": [{k: item.get(k) for k in ("autoid", "code", "message", "criterion_type")
-                         if item.get(k) is not None} for item in summary["disclosures"]],
+        # 给用户看的披露（判据归类、重组提案）落盘，最终报告照这份写；编写本身不需要它们
+        "disclosures": {"count": len(disclosures), "path": str(disclosures_path)},
         "bed": bed.facts_view(topology) if topology else None,
         "blocks_schema": str(root / "knowledge" / "data" / "compile_ref" / "blocks_schema.json"),
         "next": ("Write one mechanical case per case (blocks language, see the skill's "
@@ -544,7 +553,8 @@ def prepare(ws: Workspace, out_name: str) -> dict[str, Any]:
     rstate, _batch = _sealed_batch(ws, out_name)
     previous = read_private_json(_state_path(ws, rstate["out_name"])) or {}
     state = {"schema": STATE_SCHEMA, "out_name": rstate["out_name"],
-             "round_records": previous.get("round_records") or []}
+             "round_records": previous.get("round_records") or [],
+             "sealed": previous.get("sealed") or {}}
     return _project_and_publish(ws, state)
 
 
@@ -806,6 +816,10 @@ def emit(ws: Workspace, out_name: str) -> dict[str, Any]:
         if aid not in sealed:
             continue
         body, steps = expand_case(Path(sealed[aid]["artifact"]))
+        if (body.get("binding") or {}).get("contract_sha256") != \
+                (receipt.get("contract_sha256_by_autoid") or {}).get(aid):
+            missing.append(aid)  # 封存时的契约卡已不是现在这张：要按新卡重新提交
+            continue
         description = body.get("description") or {}
         cases.append({"autoid": aid, "priority": "P1",
                       "description": str(description.get("intent_verbatim") or ""),

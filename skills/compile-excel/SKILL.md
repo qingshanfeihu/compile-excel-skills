@@ -135,7 +135,9 @@ Read `references/authoring.md` before the first case. In short:
    contract card per case (the author's expectations, each typed with a criterion and the block
    kinds / operators allowed to redeem it) and returns them with the bed summary. When it stops
    at `criterion_pending`, type each pending shape per `references/criterion.md`
-   (`cex_criterion_record`); the cards are published after the last one.
+   (`cex_criterion_record`); the cards are published after the last one. The user-facing
+   disclosures (how each verdict was typed, recompose proposals) are written to
+   `compile_outputs/<batch>/author_disclosures.json` for your final report.
 3. Per case, write one mechanical case in the block language and submit it with
    `cex_author_submit_case`. Every card expectation must be redeemed by exactly one assertion —
    traffic verdicts such as 「访问成功」「访问失败」 by `OBSERVE_EXIT` from the paired trigger host,
