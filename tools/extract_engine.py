@@ -76,6 +76,36 @@ SEEDS = (
     "scripts.gen_rule_registry",
     "scripts.gen_vendor_pacing_usage",
     "scripts.maintenance.build_vendor_stdlib",
+    # 编写阶段（脑图重组之后到出卷）：契约卡与判词裁定、机械用例提交与门禁、块展开与出件、
+    # 床拓扑事实（env_facts 读 auto_env/network_topology.json；生成器的纯函数给网关用）
+    "main.ist_core.tools.device.mechanical_case_submit_tool",
+    "main.ist_core.tools.device.emit_xlsx_tool",
+    "main.case_compiler.criterion_normalization",
+    "main.case_compiler.criterion_author_rules",
+    "main.case_compiler.card_lint",
+    "main.ist_core.compile_engine.user_text_contract",
+    "main.common.runtime_paths",
+    "main.kms.manual_chapter_locator",
+    "main.ist_core.tools._shared.env_facts",
+    "main.case_compiler.ssl_lifecycle_contract",
+    "main.case_compiler.excel_capability_samples",
+    "main.case_compiler.tau_coverage",
+    "scripts.gen_network_topology",
+    # 编写阶段门禁/展开路径上的纯逻辑（lower_derived_assertions、断言强度、投影层依赖）
+    "main.case_compiler.membership_assertion",
+    "main.case_compiler.mutation_testing",
+    "main.case_compiler.pass_audit",
+    "main.case_compiler.regex_anchor_proof",
+    "main.ist_core.display_lexicon",
+    "main.case_compiler.rule_registry",
+    "main.ist_core.security_scrub",
+    "main.ist_core.compile_engine.recompose_diagnostics",
+    "main.ist_core.tools.ask_user",
+    "main.ist_core.compile_engine.blocking_taxonomy",
+    "main.ist_core.tools.device.compile_prep",
+    "main.ist_core.worker_device_context",
+    "main.ist_core.compile_engine.consistency_requirement",
+    "main.ist_core.memory.footprint",
     "scripts.maintenance.build_package_advisories",
     "scripts.maintenance.build_language_docs_index",
 )
@@ -178,6 +208,25 @@ class ExtractError(RuntimeError):
     pass
 
 
+def _dynamic_import_name(node: ast.AST) -> ast.Constant | None:
+    """``importlib.import_module("m")`` / ``import_module("m")`` / ``__import__("m", ...)`` 的字面模块名。"""
+    if not isinstance(node, ast.Call) or not node.args:
+        return None
+    func = node.func
+    name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ""
+    first = node.args[0]
+    if name in ("import_module", "__import__") and isinstance(first, ast.Constant) \
+            and isinstance(first.value, str):
+        return first
+    return None
+
+
+def _has_code(source: str) -> bool:
+    """模块体除文档串外还有语句。"""
+    tree = ast.parse(source)
+    return any(not _is_doc(stmt) for stmt in tree.body)
+
+
 def _module_path(root: Path, module: str) -> Path | None:
     base = root / Path(*module.split("."))
     if base.with_suffix(".py").is_file():
@@ -197,9 +246,9 @@ def _imports(tree: ast.Module, module: str, root: Path) -> tuple[set[str], list[
             if node.level:
                 raise ExtractError(f"{module}: relative import is not supported")
             name = node.module or ""
-            out = [name]
-            out += [f"{name}.{a.name}" for a in node.names if _module_path(root, f"{name}.{a.name}")]
-            return out
+            subs = [f"{name}.{a.name}" for a in node.names if _module_path(root, f"{name}.{a.name}")]
+            # 只取子模块时包本身不进闭包（生成的包是空壳）；取包正文里定义的名字才要它的正文
+            return subs + ([name] if len(subs) < len(node.names) else [])
         return [a.name for a in node.names]  # type: ignore[attr-defined]
 
     def walk(node: ast.AST, func: str | None, guarded: bool) -> None:
@@ -213,6 +262,15 @@ def _imports(tree: ast.Module, module: str, root: Path) -> tuple[set[str], list[
                     else:
                         lazy.append({"module": module, "function": func, "target": name,
                                      "guarded": guarded})
+            elif (literal := _dynamic_import_name(child)) is not None and \
+                    _renamed(literal.value) is not None and _module_path(root, literal.value):
+                # 字面串的动态 import 与 import 语句同等对待：顶层进闭包，函数内记延迟站点
+                if func is None:
+                    top.add(literal.value)
+                else:
+                    lazy.append({"module": module, "function": func, "target": literal.value,
+                                 "guarded": guarded, "dynamic": True})
+                walk(child, func, guarded)
             elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 walk(child, child.name if func is None else func, guarded)
             elif isinstance(child, ast.Try):
@@ -227,7 +285,41 @@ def _imports(tree: ast.Module, module: str, root: Path) -> tuple[set[str], list[
                 walk(child, func, guarded)
 
     walk(tree, None, False)
+    # 模块体在导入时就调用的函数（``_X = _build()``），它们里面的 import 在导入时就执行
+    called = _called_at_import(tree)
+    top |= {site["target"] for site in lazy if site["function"] in called}
+    lazy = [site for site in lazy if site["function"] not in called]
     return top, lazy
+
+
+def _called_at_import(tree: ast.Module) -> set[str]:
+    """模块体（函数、类定义之外）直接或间接调用到的本模块顶层函数。"""
+    defs = {node.name: node for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+    def calls(node: ast.AST) -> set[str]:
+        return {child.func.id for child in ast.walk(node)
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
+                and child.func.id in defs}
+
+    def main_guard(stmt: ast.stmt) -> bool:
+        """``if __name__ == "__main__":`` —— 作脚本跑时才执行，导入时不执行。"""
+        test = stmt.test if isinstance(stmt, ast.If) else None
+        return (isinstance(test, ast.Compare) and isinstance(test.left, ast.Name)
+                and test.left.id == "__name__")
+
+    pending: set[str] = set()
+    for stmt in tree.body:
+        if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) \
+                and not main_guard(stmt):
+            pending |= calls(stmt)
+    seen: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name not in seen:
+            seen.add(name)
+            pending |= calls(defs[name]) - seen
+    return seen
 
 
 def closure(root: Path) -> tuple[list[str], list[dict]]:
@@ -258,6 +350,7 @@ def _is_doc(stmt: ast.stmt) -> bool:
 
 
 _BATCH = re.compile(r"\b(?:internala|internalb)[A-Za-z0-9_]*", re.IGNORECASE)
+_RUN = re.compile(r"\bRUN_20\d{2}[A-Za-z0-9_-]*")
 _SIX = re.compile(r"(?<![\d.])\d{6}(?![\d.])")
 
 
@@ -266,26 +359,30 @@ def _scrub_doc(text: str) -> str:
         n = int(match.group(0))
         # 整数常量（整万、2 的幂）不是用例号
         return match.group(0) if n % 1000 == 0 or n & (n - 1) == 0 else "<case>"
-    return _SIX.sub(case, _BATCH.sub("<batch>", text))
+    return _SIX.sub(case, _RUN.sub("<run>", _BATCH.sub("<batch>", text)))
 
 
-def _makes_tools(tree: ast.Module) -> bool:
-    """``@tool`` / ``@tool(...)`` 装饰器或 ``X.from_function(...)``：docstring 会成为工具说明。"""
+def _tool_functions(tree: ast.Module) -> set[str]:
+    """docstring 会成为工具说明的函数：``@tool`` / ``@tool(...)`` 装饰的，以及交给
+    ``X.from_function(...)``（位置参数或 ``func=`` / ``coroutine=``）的。"""
+    names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
                 and node.func.attr == "from_function":
-            return True
+            candidates = list(node.args[:1]) + [k.value for k in node.keywords
+                                                 if k.arg in ("func", "coroutine")]
+            names.update(c.id for c in candidates if isinstance(c, ast.Name))
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for deco in node.decorator_list:
                 target = deco.func if isinstance(deco, ast.Call) else deco
                 if isinstance(target, ast.Name) and target.id == "tool":
-                    return True
-    return False
+                    names.add(node.name)
+    return names
 
 
 def _sanitize_docstrings(tree: ast.Module, rel_file: str) -> int:
     changed = 0
-    tools = _makes_tools(tree)
+    tools = _tool_functions(tree)
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -294,9 +391,10 @@ def _sanitize_docstrings(tree: ast.Module, rel_file: str) -> int:
         const = node.body[0].value
         scrubbed = _scrub_doc(const.value)
         if scrubbed != const.value:
-            if tools:
-                raise ExtractError(f"{rel_file}: a docstring needs scrubbing in a module that "
-                                   "builds tools from docstrings; fix it in InfoTest")
+            # 工具说明就是给模型的提示词：不许在这里静默改写，回 InfoTest 源头改
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in tools:
+                raise ExtractError(f"{rel_file}: the docstring of tool {node.name!r} needs "
+                                   "scrubbing; fix it in InfoTest")
             const.value = scrubbed
             changed += 1
     return changed
@@ -351,6 +449,14 @@ class _Rewrite(ast.NodeTransformer):
             if _renamed(alias.name) is not None:
                 raise ExtractError(f"`import {alias.name}` is not supported; use from-imports")
         return node
+
+    def visit_Call(self, node: ast.Call):
+        literal = _dynamic_import_name(node)
+        if literal is not None:
+            renamed = _renamed(literal.value)
+            if renamed is not None:
+                literal.value = renamed
+        return self.generic_visit(node)
 
 
 def _externalize(tree: ast.Module, rel_file: str) -> dict[str, list[str]]:
@@ -419,18 +525,22 @@ def generate(root: Path) -> tuple[dict[Path, str], dict]:
         engine_module = _renamed(mod)
         assert engine_module is not None
         parts = engine_module.split(".")[len(PREFIX.split(".")):]
-        if src_path.name == "__init__.py":
+        source = src_path.read_text(encoding="utf-8")
+        is_package = src_path.name == "__init__.py"
+        if is_package:
             if parts:
                 packages.add(tuple(parts))
-            continue
+            # 只有文档串的包照旧出空壳；代码写在 __init__ 里的包（被闭包直接 import 的）要抽正文
+            if not _has_code(source):
+                continue
         for i in range(1, len(parts)):
             packages.add(tuple(parts[:i]))
-        source = src_path.read_text(encoding="utf-8")
         body, rewrites, found = transform(source, rel)
         identities.update(found)
         header = (f"# 生成：tools/extract_engine.py ← InfoTest {rel}"
                   f"（sha256 {_sha(source)[:16]}）。不在这里手改。\n")
-        out = OUT_DIR.joinpath(*parts).with_suffix(".py")
+        out = (OUT_DIR.joinpath(*parts, "__init__.py") if is_package
+               else OUT_DIR.joinpath(*parts).with_suffix(".py"))
         try:
             compile(header + body, str(out), "exec")
         except SyntaxError as exc:
@@ -440,7 +550,7 @@ def generate(root: Path) -> tuple[dict[Path, str], dict]:
                         "source_sha256": _sha(source),
                         "data_root_rewrites": sorted(set(rewrites))})
     for pkg in sorted(packages):
-        files[OUT_DIR.joinpath(*pkg, "__init__.py")] = PACKAGE_INIT
+        files.setdefault(OUT_DIR.joinpath(*pkg, "__init__.py"), PACKAGE_INIT)
     files[OUT_DIR / "__init__.py"] = ENGINE_INIT
     files[OUT_DIR / "_root.py"] = ROOT_MODULE
     # 生成出来的包（含只有 __init__ 的中间包）按 InfoTest 原名记，边界不把它们算作闭包外

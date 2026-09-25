@@ -54,7 +54,9 @@ def test_manifest_lists_every_generated_module_and_boundary():
     assert "main.case_compiler.apv_lang" in modules and len(modules) >= 20
     for entry in manifest["modules"]:
         rel = entry["engine_module"].split(".")[2:]
-        assert ENGINE.joinpath(*rel).with_suffix(".py").is_file(), entry["module"]
+        target = (ENGINE.joinpath(*rel, "__init__.py") if entry["source"].endswith("/__init__.py")
+                  else ENGINE.joinpath(*rel).with_suffix(".py"))
+        assert target.is_file(), entry["module"]
     assert not modules & set(manifest["boundary_targets"])
     assert all(site["target"] in manifest["boundary_targets"] for site in manifest["boundary"])
 

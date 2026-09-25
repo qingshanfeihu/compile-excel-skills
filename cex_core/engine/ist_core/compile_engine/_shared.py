@@ -265,7 +265,7 @@ def _append_with_admission(state: dict, new_facts: list[dict]) -> int:
             EC.validate_condition_disclosure(fact)
             accepted.append(fact)
             if fact.get('scope') == 'batch':
-                accepted.append({'ev': 'batch_execution_paused', 'aid': '', 'diagnostic_id': fact['diagnostic_id'], 'source_fact_sha256': __import__('main.ist_core.compile_engine.terminal_credentials', fromlist=['_fact_sha256'])._fact_sha256(fact), 'reason': 'a required batch condition is unavailable; responsibility is unverified', 'revoked_dispatch_ids': sorted({str(row['dispatch_id']) for row in F.this_run_slice(existing + accepted) if row.get('ev') == 'worker_dispatch_started' and row.get('dispatch_id')})})
+                accepted.append({'ev': 'batch_execution_paused', 'aid': '', 'diagnostic_id': fact['diagnostic_id'], 'source_fact_sha256': __import__('cex_core.engine.ist_core.compile_engine.terminal_credentials', fromlist=['_fact_sha256'])._fact_sha256(fact), 'reason': 'a required batch condition is unavailable; responsibility is unverified', 'revoked_dispatch_ids': sorted({str(row['dispatch_id']) for row in F.this_run_slice(existing + accepted) if row.get('ev') == 'worker_dispatch_started' and row.get('dispatch_id')})})
             elif fact.get('aid'):
                 aid = str(fact['aid'])
                 mine = [row for row in existing + accepted if row.get('aid') == aid]

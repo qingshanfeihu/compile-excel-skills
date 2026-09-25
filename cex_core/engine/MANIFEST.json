@@ -34,6 +34,33 @@
     "scripts.gen_rule_registry",
     "scripts.gen_vendor_pacing_usage",
     "scripts.maintenance.build_vendor_stdlib",
+    "main.ist_core.tools.device.mechanical_case_submit_tool",
+    "main.ist_core.tools.device.emit_xlsx_tool",
+    "main.case_compiler.criterion_normalization",
+    "main.case_compiler.criterion_author_rules",
+    "main.case_compiler.card_lint",
+    "main.ist_core.compile_engine.user_text_contract",
+    "main.common.runtime_paths",
+    "main.kms.manual_chapter_locator",
+    "main.ist_core.tools._shared.env_facts",
+    "main.case_compiler.ssl_lifecycle_contract",
+    "main.case_compiler.excel_capability_samples",
+    "main.case_compiler.tau_coverage",
+    "scripts.gen_network_topology",
+    "main.case_compiler.membership_assertion",
+    "main.case_compiler.mutation_testing",
+    "main.case_compiler.pass_audit",
+    "main.case_compiler.regex_anchor_proof",
+    "main.ist_core.display_lexicon",
+    "main.case_compiler.rule_registry",
+    "main.ist_core.security_scrub",
+    "main.ist_core.compile_engine.recompose_diagnostics",
+    "main.ist_core.tools.ask_user",
+    "main.ist_core.compile_engine.blocking_taxonomy",
+    "main.ist_core.tools.device.compile_prep",
+    "main.ist_core.worker_device_context",
+    "main.ist_core.compile_engine.consistency_requirement",
+    "main.ist_core.memory.footprint",
     "scripts.maintenance.build_package_advisories",
     "scripts.maintenance.build_language_docs_index"
   ],
@@ -55,11 +82,27 @@
       ]
     },
     {
+      "module": "main.case_compiler.behaviour_classes",
+      "engine_module": "cex_core.engine.case_compiler.behaviour_classes",
+      "source": "main/case_compiler/behaviour_classes.py",
+      "source_sha256": "cab7ec6aa593493bc46938d2637a6c6bbb7d77611afb2a3c067beba9564275b7",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.case_compiler.blocks",
       "engine_module": "cex_core.engine.case_compiler.blocks",
       "source": "main/case_compiler/blocks.py",
       "source_sha256": "fd9c31d8c99845f7bd0455e3849fa1ce9a959fc52ff355a13cba64d035e1d946",
       "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.card_lint",
+      "engine_module": "cex_core.engine.case_compiler.card_lint",
+      "source": "main/case_compiler/card_lint.py",
+      "source_sha256": "61d436f8ac3099252d3de227c1faf8f4c52a87361d22ce7ec04b796eb545c272",
+      "data_root_rewrites": [
+        "<root>"
+      ]
     },
     {
       "module": "main.case_compiler.case_ir",
@@ -99,11 +142,27 @@
       "data_root_rewrites": []
     },
     {
+      "module": "main.case_compiler.criterion_author_rules",
+      "engine_module": "cex_core.engine.case_compiler.criterion_author_rules",
+      "source": "main/case_compiler/criterion_author_rules.py",
+      "source_sha256": "f195d70256505bcbbfcf45c0316e03e5be7b6fe15a1bb242f8f1de223ce3f793",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.case_compiler.criterion_carriers",
       "engine_module": "cex_core.engine.case_compiler.criterion_carriers",
       "source": "main/case_compiler/criterion_carriers.py",
       "source_sha256": "f9a48aab688e917f1ed4aecb6365d8d6b241977dda93b2eafb1674fc4a8ab22b",
       "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.criterion_normalization",
+      "engine_module": "cex_core.engine.case_compiler.criterion_normalization",
+      "source": "main/case_compiler/criterion_normalization.py",
+      "source_sha256": "5b40e7cf22f48e308e74f2c8e2d06e4b218a419b41f37a2f00fcfdc2b648a313",
+      "data_root_rewrites": [
+        "<root>"
+      ]
     },
     {
       "module": "main.case_compiler.device_characteristics",
@@ -131,6 +190,15 @@
       "engine_module": "cex_core.engine.case_compiler.excel_capability_receipts",
       "source": "main/case_compiler/excel_capability_receipts.py",
       "source_sha256": "5ed8806dce20ec4dcd0ab87f3e68df12f6de43b87e6655ac54539b378f75d7aa",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.case_compiler.excel_capability_samples",
+      "engine_module": "cex_core.engine.case_compiler.excel_capability_samples",
+      "source": "main/case_compiler/excel_capability_samples.py",
+      "source_sha256": "83ccf0bd58978391d18df32cb4adc4e067c592aa3266fc49a09245f383794265",
       "data_root_rewrites": [
         "<root>"
       ]
@@ -184,10 +252,24 @@
       "data_root_rewrites": []
     },
     {
+      "module": "main.case_compiler.membership_assertion",
+      "engine_module": "cex_core.engine.case_compiler.membership_assertion",
+      "source": "main/case_compiler/membership_assertion.py",
+      "source_sha256": "99d6f353462cdde9b87a409aeff9f44175abef79ff8ce68a150c233a1171503f",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.case_compiler.mindmap_contract_projector",
       "engine_module": "cex_core.engine.case_compiler.mindmap_contract_projector",
       "source": "main/case_compiler/mindmap_contract_projector.py",
       "source_sha256": "e53fef3f7b8434157f51a04b2a74a7a0a776f747d15084e18e8aabc85b624f29",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.mutation_testing",
+      "engine_module": "cex_core.engine.case_compiler.mutation_testing",
+      "source": "main/case_compiler/mutation_testing.py",
+      "source_sha256": "205e5e339a01d2c03c473bc1e8f8c199e4644a3f67ce71c853b3da7b918cc05f",
       "data_root_rewrites": []
     },
     {
@@ -207,10 +289,42 @@
       ]
     },
     {
+      "module": "main.case_compiler.pass_audit",
+      "engine_module": "cex_core.engine.case_compiler.pass_audit",
+      "source": "main/case_compiler/pass_audit.py",
+      "source_sha256": "c22b15ff1618da1701d5406accf66f01682c9cd1d4e4cb386e57fc79ec970f87",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.case_compiler.provenance_ir",
       "engine_module": "cex_core.engine.case_compiler.provenance_ir",
       "source": "main/case_compiler/provenance_ir.py",
       "source_sha256": "c7d4bd2c9535b6d6711bcf84a31bb070e231aba7d15779ae44f4631571a465c2",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.case_compiler.regex_anchor_proof",
+      "engine_module": "cex_core.engine.case_compiler.regex_anchor_proof",
+      "source": "main/case_compiler/regex_anchor_proof.py",
+      "source_sha256": "fc983e340167d9981034b0f744b7afcd772f77fc5564d1d9beed461ff2541201",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.case_compiler.rule_registry",
+      "engine_module": "cex_core.engine.case_compiler.rule_registry",
+      "source": "main/case_compiler/rule_registry.py",
+      "source_sha256": "698c156b3589b684dc74e80ca643656f7f634acdae4167ac4ac872448669722e",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.case_compiler.ssl_lifecycle_contract",
+      "engine_module": "cex_core.engine.case_compiler.ssl_lifecycle_contract",
+      "source": "main/case_compiler/ssl_lifecycle_contract.py",
+      "source_sha256": "e0551b5573e4d64325d98b1075147d679414a474b132d64fcf1f120cb3d7bb50",
       "data_root_rewrites": [
         "<root>"
       ]
@@ -230,6 +344,13 @@
       "data_root_rewrites": []
     },
     {
+      "module": "main.case_compiler.tau_coverage",
+      "engine_module": "cex_core.engine.case_compiler.tau_coverage",
+      "source": "main/case_compiler/tau_coverage.py",
+      "source_sha256": "e87d81db53bff7193fa5bfd2973fa458b1e4dd777c6f9d64d5558d912fa15a13",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.case_compiler.vendor_stdlib",
       "engine_module": "cex_core.engine.case_compiler.vendor_stdlib",
       "source": "main/case_compiler/vendor_stdlib.py",
@@ -237,6 +358,13 @@
       "data_root_rewrites": [
         "<root>"
       ]
+    },
+    {
+      "module": "main.case_compiler.xml_conflict_core",
+      "engine_module": "cex_core.engine.case_compiler.xml_conflict_core",
+      "source": "main/case_compiler/xml_conflict_core.py",
+      "source_sha256": "94399e26f0b99e468b1c480a299c9b60007722f917bb8b6f992bf4a7a3261295",
+      "data_root_rewrites": []
     },
     {
       "module": "main.common.engine_track_schema",
@@ -258,6 +386,15 @@
       "source": "main/common/nullable_scalar.py",
       "source_sha256": "250d3b696ab79d56e179ce299f59b857e509aceee06b21028c324694a9036adf",
       "data_root_rewrites": []
+    },
+    {
+      "module": "main.common.runtime_paths",
+      "engine_module": "cex_core.engine.common.runtime_paths",
+      "source": "main/common/runtime_paths.py",
+      "source_sha256": "588c198e03038907ec59696c323996dbe87e6a7eb9ab1cbbd71bc486377fb2d5",
+      "data_root_rewrites": [
+        "<root>"
+      ]
     },
     {
       "module": "main.common.schema_identity",
@@ -304,10 +441,24 @@
       "data_root_rewrites": []
     },
     {
+      "module": "main.ist_core.compile_engine.blocking_taxonomy",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.blocking_taxonomy",
+      "source": "main/ist_core/compile_engine/blocking_taxonomy.py",
+      "source_sha256": "956e9a537ab1cd5d96cb49458aa29c359850fc97204cacac4316c1cd0c796926",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.ist_core.compile_engine.conflict_chain",
       "engine_module": "cex_core.engine.ist_core.compile_engine.conflict_chain",
       "source": "main/ist_core/compile_engine/conflict_chain.py",
       "source_sha256": "fe878da64fb96cdb65fca2ddedacd186d0800a1c4d62bae545f407ff47ad8e9d",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.compile_engine.consistency_requirement",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.consistency_requirement",
+      "source": "main/ist_core/compile_engine/consistency_requirement.py",
+      "source_sha256": "335d3955cbfa2c92dff7beed1bad1dc3d8a30e146a8bb52e80e9a53df1f5d7e2",
       "data_root_rewrites": []
     },
     {
@@ -322,6 +473,15 @@
       "engine_module": "cex_core.engine.ist_core.compile_engine.environment_prepare",
       "source": "main/ist_core/compile_engine/environment_prepare.py",
       "source_sha256": "1dd6000da6f7d32ccfd95921bf959da3e947947d3072c4d0c399e594b7957250",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.execution_failure",
+      "source": "main/ist_core/compile_engine/execution_failure.py",
+      "source_sha256": "1dce0fb245230255ae3eb918faaec26de6f81dfd03b5a5abdf12c9db11f12d36",
       "data_root_rewrites": [
         "<root>"
       ]
@@ -357,6 +517,13 @@
       "data_root_rewrites": []
     },
     {
+      "module": "main.ist_core.compile_engine.recompose_diagnostics",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.recompose_diagnostics",
+      "source": "main/ist_core/compile_engine/recompose_diagnostics.py",
+      "source_sha256": "3e9a4a8cbb6359cf5889a879e22c2b57c39a2684df95a2896081d218c33f7197",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.ist_core.compile_engine.recompose_protocol",
       "engine_module": "cex_core.engine.ist_core.compile_engine.recompose_protocol",
       "source": "main/ist_core/compile_engine/recompose_protocol.py",
@@ -364,10 +531,31 @@
       "data_root_rewrites": []
     },
     {
+      "module": "main.ist_core.compile_engine.render",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.render",
+      "source": "main/ist_core/compile_engine/render.py",
+      "source_sha256": "a8cf9e5655593691885fc6d01d06d8c252c0aad36c921c0bb4577162b0b43138",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.ist_core.compile_engine.spec_references",
       "engine_module": "cex_core.engine.ist_core.compile_engine.spec_references",
       "source": "main/ist_core/compile_engine/spec_references.py",
       "source_sha256": "a0e25c456f1c9ebfb704254ac9cd2255c141113700e1dc51211d969facf5690d",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.terminal_credentials",
+      "source": "main/ist_core/compile_engine/terminal_credentials.py",
+      "source_sha256": "ad7d31ac9d02b624a8c0dd0390900c056e29dbdc4747999beff57bc360315251",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.compile_engine.user_text_contract",
+      "engine_module": "cex_core.engine.ist_core.compile_engine.user_text_contract",
+      "source": "main/ist_core/compile_engine/user_text_contract.py",
+      "source_sha256": "eddea5c18e79fc83a57649a36ee0035320b92b92ed3881f5e1742c250f630163",
       "data_root_rewrites": []
     },
     {
@@ -385,6 +573,87 @@
       "data_root_rewrites": []
     },
     {
+      "module": "main.ist_core.display_lexicon",
+      "engine_module": "cex_core.engine.ist_core.display_lexicon",
+      "source": "main/ist_core/display_lexicon.py",
+      "source_sha256": "1ce3eb396f2675f31b2233db264ed717c9985f04a16732beb0cab835983cc354",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.memory.footprint",
+      "engine_module": "cex_core.engine.ist_core.memory.footprint",
+      "source": "main/ist_core/memory/footprint/__init__.py",
+      "source_sha256": "12c23f878736128517d913c8bb19388d859a3348c0b2d50c83e2d0027d97678b",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.memory.footprint.extractor",
+      "engine_module": "cex_core.engine.ist_core.memory.footprint.extractor",
+      "source": "main/ist_core/memory/footprint/extractor.py",
+      "source_sha256": "bae6ebf75855898c247ff5e8f83abea25474d63870476850a033e9f782bba827",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.memory.footprint.index",
+      "engine_module": "cex_core.engine.ist_core.memory.footprint.index",
+      "source": "main/ist_core/memory/footprint/index.py",
+      "source_sha256": "8a5a4f58b2ef3900c57c4a986fe03616f27854681ddd52daeee643ee13bffa43",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.memory.footprint.merger",
+      "engine_module": "cex_core.engine.ist_core.memory.footprint.merger",
+      "source": "main/ist_core/memory/footprint/merger.py",
+      "source_sha256": "f558491f88c572871cadfe286e6a34279f256531891278e514fe40a991582bd8",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.ist_core.memory.footprint.reconcile",
+      "engine_module": "cex_core.engine.ist_core.memory.footprint.reconcile",
+      "source": "main/ist_core/memory/footprint/reconcile.py",
+      "source_sha256": "8841b5d4b163a6ce176cd86536d27a1a270cd46f9384b36201c3a7cba5ee6046",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.memory.footprint.router",
+      "engine_module": "cex_core.engine.ist_core.memory.footprint.router",
+      "source": "main/ist_core/memory/footprint/router.py",
+      "source_sha256": "8a0dec1541785d9f08a6df37db5647fbecfebcbb675dff89362c53e5f5d51efc",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.memory.footprint.schema",
+      "engine_module": "cex_core.engine.ist_core.memory.footprint.schema",
+      "source": "main/ist_core/memory/footprint/schema.py",
+      "source_sha256": "92fba4c7d7bfc46f63153390166cd6e6e08e64c8a2335fd5bc79f1f69e6a9f0b",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.security_scrub",
+      "engine_module": "cex_core.engine.ist_core.security_scrub",
+      "source": "main/ist_core/security_scrub.py",
+      "source_sha256": "03e12bd2ebe933b4111cd0e7b165adb263b4a3aae852f78117f525a2c2f194d5",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.ist_core.tools._shared.env_facts",
+      "engine_module": "cex_core.engine.ist_core.tools._shared.env_facts",
+      "source": "main/ist_core/tools/_shared/env_facts.py",
+      "source_sha256": "a68684bfa000c2c6fbf71dc234592accd164bb47a1edd85a8eabc07092aff48b",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.tools.ask_user",
+      "engine_module": "cex_core.engine.ist_core.tools.ask_user",
+      "source": "main/ist_core/tools/ask_user/__init__.py",
+      "source_sha256": "61111044ed4739aa3a1fe117c27f7c0a688b4a85c55e238cf624f071a3372a29",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.ist_core.tools.device._sealed_output",
       "engine_module": "cex_core.engine.ist_core.tools.device._sealed_output",
       "source": "main/ist_core/tools/device/_sealed_output.py",
@@ -392,10 +661,42 @@
       "data_root_rewrites": []
     },
     {
+      "module": "main.ist_core.tools.device.batch_result_protocol",
+      "engine_module": "cex_core.engine.ist_core.tools.device.batch_result_protocol",
+      "source": "main/ist_core/tools/device/batch_result_protocol.py",
+      "source_sha256": "fe306d5203f9f42133777677827f152035814a69ee5f178e8bdaf324a532ca8e",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.tools.device.compile_prep",
+      "engine_module": "cex_core.engine.ist_core.tools.device.compile_prep",
+      "source": "main/ist_core/tools/device/compile_prep.py",
+      "source_sha256": "46f1810afab16116d7ca0ab1cf0d679cbc79c3cb6226c1ad15bbdd88fba681d8",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "engine_module": "cex_core.engine.ist_core.tools.device.emit_xlsx_tool",
+      "source": "main/ist_core/tools/device/emit_xlsx_tool.py",
+      "source_sha256": "f4d92af2f9c3fd57374d558257df26f92c1911e596380a9dd8010328d2544ebd",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
       "module": "main.ist_core.tools.device.lang_query_tool",
       "engine_module": "cex_core.engine.ist_core.tools.device.lang_query_tool",
       "source": "main/ist_core/tools/device/lang_query_tool.py",
       "source_sha256": "d86fce975b5deb492db172f7bf74baa90c5e72f752f9858036c1440701bcab0a",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.ist_core.tools.device.mechanical_case_submit_tool",
+      "engine_module": "cex_core.engine.ist_core.tools.device.mechanical_case_submit_tool",
+      "source": "main/ist_core/tools/device/mechanical_case_submit_tool.py",
+      "source_sha256": "93dfff20079996d6517c61d1a47a4bde234a4dc09cadb3f1fb5d81ed5be7a2a0",
       "data_root_rewrites": []
     },
     {
@@ -427,10 +728,24 @@
       "data_root_rewrites": []
     },
     {
+      "module": "main.ist_core.worker_device_context",
+      "engine_module": "cex_core.engine.ist_core.worker_device_context",
+      "source": "main/ist_core/worker_device_context.py",
+      "source_sha256": "8275c23cf9387e3cda3f83fc150805fc15584c0f7abf6ad20bfc209fa35dcab6",
+      "data_root_rewrites": []
+    },
+    {
       "module": "main.kms.manual_catalog_store",
       "engine_module": "cex_core.engine.kms.manual_catalog_store",
       "source": "main/kms/manual_catalog_store.py",
       "source_sha256": "96444bf13421dc6a5d92c00551d053e428ddca05fd40d46e08d6300edb5fe867",
+      "data_root_rewrites": []
+    },
+    {
+      "module": "main.kms.manual_chapter_locator",
+      "engine_module": "cex_core.engine.kms.manual_chapter_locator",
+      "source": "main/kms/manual_chapter_locator.py",
+      "source_sha256": "5bdd1b2a586d7c5d2747854f666ebb54b17e5621642a9e70c34e5b463920d47f",
       "data_root_rewrites": []
     },
     {
@@ -558,6 +873,15 @@
       ]
     },
     {
+      "module": "scripts.gen_network_topology",
+      "engine_module": "cex_core.engine.scripts.gen_network_topology",
+      "source": "scripts/gen_network_topology.py",
+      "source_sha256": "7f2038fadc341ed4b79b0461b6abb168a89215d7310ea35f42e7d22c4506664f",
+      "data_root_rewrites": [
+        "<root>"
+      ]
+    },
+    {
       "module": "scripts.gen_package_advisories",
       "engine_module": "cex_core.engine.scripts.gen_package_advisories",
       "source": "scripts/gen_package_advisories.py",
@@ -624,51 +948,15 @@
       "guarded": true
     },
     {
-      "module": "main.case_compiler.blocks",
-      "function": "expand_blocks",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
-      "guarded": false
+      "module": "main.case_compiler.criterion_author_rules",
+      "function": "_non_retryable_fork_causes",
+      "target": "main.ist_core.resilience",
+      "guarded": true
     },
     {
-      "module": "main.case_compiler.blocks",
-      "function": "lower_derived_assertions",
-      "target": "main.case_compiler.membership_assertion",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.contract_entry",
-      "function": "_normalized_claim",
-      "target": "main.case_compiler.criterion_author_rules",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.contract_entry",
-      "function": "_normalized_claim",
-      "target": "main.case_compiler.criterion_normalization",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.contract_entry",
-      "function": "_public_text",
-      "target": "main.ist_core.security_scrub",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.contract_entry",
-      "function": "build_validation_cards",
-      "target": "main.case_compiler.card_lint",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.contract_entry",
-      "function": "normalize_contract",
-      "target": "main.case_compiler.rule_registry",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.contract_entry",
-      "function": "sign_card",
-      "target": "main.case_compiler.card_lint",
+      "module": "main.case_compiler.criterion_author_rules",
+      "function": "adjudicate_single_shape_with_retry",
+      "target": "main.common.typesafe_shadow",
       "guarded": false
     },
     {
@@ -678,123 +966,21 @@
       "guarded": false
     },
     {
-      "module": "main.case_compiler.device_characteristics",
-      "function": "prerequisite_finding_fact",
-      "target": "main.ist_core.display_lexicon",
+      "module": "main.case_compiler.mutation_testing",
+      "function": "_ledger_baseline_assets_current",
+      "target": "main.case_compiler.local_replay",
+      "guarded": true
+    },
+    {
+      "module": "main.case_compiler.mutation_testing",
+      "function": "compile_mutation_plan",
+      "target": "main.case_compiler.local_replay",
       "guarded": false
     },
     {
-      "module": "main.case_compiler.distribution_assertion",
-      "function": "expand_distribution_step",
-      "target": "main.case_compiler.regex_anchor_proof",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_author_ip_literals_for_submission",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_declared_causal_block_command_lines",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_gate_answerer_statement",
-      "target": "main.ist_core.tools._shared.env_facts",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_gate_author_procedure_coverage",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_gate_https_certificate_lifecycle",
-      "target": "main.case_compiler.excel_capability_samples",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_gate_https_certificate_lifecycle",
-      "target": "main.case_compiler.ssl_lifecycle_contract",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_gate_https_certificate_lifecycle",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_gate_negative_probe_path",
-      "target": "main.ist_core.tools._shared.env_facts",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_gate_paired_teardown",
-      "target": "main.case_compiler.tau_coverage",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_gate_structural_lint",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_gate_trigger_reachability",
-      "target": "main.ist_core.tools._shared.env_facts",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_gate_trigger_reachability",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_gate_unreachable_ips",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mechanical_case_gate",
-      "function": "_measurements",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mindmap_contract_projector",
-      "function": "_card_device_disclosure",
-      "target": "main.case_compiler.behaviour_classes",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mindmap_contract_projector",
-      "function": "_project_case",
-      "target": "main.case_compiler.criterion_normalization",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mindmap_contract_projector",
-      "function": "_step_structure_disclosures",
-      "target": "main.ist_core.display_lexicon",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.mindmap_contract_projector",
-      "function": "project_machine_mindmap",
-      "target": "main.ist_core.display_lexicon",
+      "module": "main.case_compiler.mutation_testing",
+      "function": "receipt_build_mismatch",
+      "target": "main.case_compiler.local_replay",
       "guarded": false
     },
     {
@@ -811,38 +997,8 @@
     },
     {
       "module": "main.case_compiler.provenance_ir",
-      "function": "_derive_rule_membership_literal_set",
-      "target": "main.case_compiler.membership_assertion",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.provenance_ir",
-      "function": "_narrow_to_bound_manual_version",
-      "target": "main.case_compiler.criterion_author_rules",
-      "guarded": true
-    },
-    {
-      "module": "main.case_compiler.provenance_ir",
       "function": "_validate_defect_spec_expected_receipt",
       "target": "main.ist_core.tools.knowledge.kb_bug_search",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.step_structure",
-      "function": "_bed_facts",
-      "target": "main.ist_core.tools._shared.env_facts",
-      "guarded": false
-    },
-    {
-      "module": "main.case_compiler.step_structure",
-      "function": "normalized_expectations_for_case",
-      "target": "main.case_compiler.criterion_normalization",
-      "guarded": true
-    },
-    {
-      "module": "main.defect_spec_source",
-      "function": "_contains_credential_material",
-      "target": "main.ist_core.security_scrub",
       "guarded": false
     },
     {
@@ -889,44 +1045,8 @@
     },
     {
       "module": "main.ist_core.compile_engine._shared",
-      "function": "_append_with_admission",
-      "target": "main.ist_core.compile_engine.terminal_credentials",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine._shared",
-      "function": "_append_with_admission",
-      "target": "main.ist_core.compile_engine.terminal_credentials",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine._shared",
-      "function": "_append_with_admission",
-      "target": "main.ist_core.compile_engine.terminal_credentials",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine._shared",
-      "function": "_append_with_admission",
-      "target": "main.ist_core.security_scrub",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine._shared",
-      "function": "_append_with_admission",
-      "target": "main.ist_core.worker_device_context",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine._shared",
       "function": "_decision_resolves_needs_decision",
       "target": "main.ist_core.compile_engine.questions",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine._shared",
-      "function": "_decision_resolves_needs_decision",
-      "target": "main.ist_core.compile_engine.terminal_credentials",
       "guarded": false
     },
     {
@@ -945,12 +1065,6 @@
       "module": "main.ist_core.compile_engine._shared",
       "function": "append",
       "target": "main.ist_core.compile_engine.engine_quarantine",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine._shared",
-      "function": "await_network_recovery",
-      "target": "main.ist_core.display_lexicon",
       "guarded": false
     },
     {
@@ -987,12 +1101,6 @@
       "module": "main.ist_core.compile_engine._shared",
       "function": "emit_dispatch_progress",
       "target": "main.ist_core.skills.loader",
-      "guarded": true
-    },
-    {
-      "module": "main.ist_core.compile_engine._shared",
-      "function": "emit_preflight_progress",
-      "target": "main.ist_core.display_lexicon",
       "guarded": true
     },
     {
@@ -1075,12 +1183,6 @@
     },
     {
       "module": "main.ist_core.compile_engine._shared",
-      "function": "probe",
-      "target": "main.ist_core.display_lexicon",
-      "guarded": true
-    },
-    {
-      "module": "main.ist_core.compile_engine._shared",
       "function": "recompile_comparison_fact",
       "target": "main.case_compiler.recompile_comparison",
       "guarded": false
@@ -1106,12 +1208,6 @@
     {
       "module": "main.ist_core.compile_engine._shared",
       "function": "subtype_first_seen_report",
-      "target": "main.ist_core.memory.footprint",
-      "guarded": true
-    },
-    {
-      "module": "main.ist_core.compile_engine._shared",
-      "function": "subtype_first_seen_report",
       "target": "main.ist_core.memory.footprint.signals",
       "guarded": true
     },
@@ -1124,12 +1220,6 @@
     {
       "module": "main.ist_core.compile_engine._shared",
       "function": "verdict_unrecognized_batch_spread",
-      "target": "main.ist_core.memory.footprint",
-      "guarded": true
-    },
-    {
-      "module": "main.ist_core.compile_engine._shared",
-      "function": "verdict_unrecognized_batch_spread",
       "target": "main.ist_core.memory.footprint.signals",
       "guarded": true
     },
@@ -1137,12 +1227,6 @@
       "module": "main.ist_core.compile_engine.authority_delivery_policy",
       "function": "_is_volume_failure_event",
       "target": "main.ist_core.compile_engine.terminal_outcomes",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.authority_delivery_policy",
-      "function": "authority_decision_confirmed",
-      "target": "main.ist_core.compile_engine.terminal_credentials",
       "guarded": false
     },
     {
@@ -1176,33 +1260,27 @@
       "guarded": false
     },
     {
-      "module": "main.ist_core.compile_engine.authority_delivery_policy",
-      "function": "verified_ready_gate",
-      "target": "main.ist_core.compile_engine.terminal_credentials",
+      "module": "main.ist_core.compile_engine.blocking_taxonomy",
+      "function": "classify_blocking",
+      "target": "main.ist_core.compile_engine.authoring_stops",
       "guarded": false
     },
     {
-      "module": "main.ist_core.compile_engine.conflict_chain",
-      "function": "batch_conflict_decision_is_current",
-      "target": "main.ist_core.tools.ask_user",
+      "module": "main.ist_core.compile_engine.blocking_taxonomy",
+      "function": "classify_blocking",
+      "target": "main.ist_core.compile_engine.contradiction_stop",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.blocking_taxonomy",
+      "function": "classify_blocking",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
       "guarded": false
     },
     {
       "module": "main.ist_core.compile_engine.engine_errors",
       "function": "_interpret_error",
       "target": "main.ist_core.compile_engine.engine_checkpoints",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.engine_errors",
-      "function": "_interpret_error",
-      "target": "main.ist_core.compile_engine.terminal_credentials",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.engine_errors",
-      "function": "_interpret_error",
-      "target": "main.ist_core.security_scrub",
       "guarded": false
     },
     {
@@ -1273,36 +1351,6 @@
     },
     {
       "module": "main.ist_core.compile_engine.environment_prepare",
-      "function": "_converge_network_topology",
-      "target": "main.ist_core.tools._shared",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.environment_prepare",
-      "function": "_converge_network_topology",
-      "target": "main.ist_core.tools._shared",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.environment_prepare",
-      "function": "_converge_network_topology",
-      "target": "main.ist_core.tools._shared.env_facts",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.environment_prepare",
-      "function": "_converge_network_topology",
-      "target": "main.ist_core.tools._shared.env_facts",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.environment_prepare",
-      "function": "_converge_network_topology",
-      "target": "scripts.gen_network_topology",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.environment_prepare",
       "function": "_deploy_candidate",
       "target": "scripts.maintenance.backup_jumphost_framework",
       "guarded": false
@@ -1353,12 +1401,6 @@
       "module": "main.ist_core.compile_engine.environment_prepare",
       "function": "_publish_bundle",
       "target": "main.case_compiler.excel_release_bundle",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.environment_prepare",
-      "function": "_run_release_and_promote",
-      "target": "main.case_compiler.excel_capability_samples",
       "guarded": false
     },
     {
@@ -1422,6 +1464,84 @@
       "guarded": false
     },
     {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "_classify_recorded_failure",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "_decision_axis_for_action",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "_recognized_failure_category",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "classify_reason_code",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "is_case_scoped_terminal_action",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "is_environment_blocked_reason_code",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "is_occupancy_reason_code",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "is_runtime_infrastructure_action",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "is_runtime_infrastructure_reason_code",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "reduce_execution_failure",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "reduce_execution_failure_facts",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "reduce_execution_failure_facts",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.execution_failure",
+      "function": "terminal_action_for_category",
+      "target": "main.ist_core.compile_engine.routing_closed_sets",
+      "guarded": false
+    },
+    {
       "module": "main.ist_core.compile_engine.facts",
       "function": "_facts_of",
       "target": "main.ist_core.compile_engine.engine_quarantine",
@@ -1441,38 +1561,14 @@
     },
     {
       "module": "main.ist_core.compile_engine.facts",
-      "function": "author_definition_gap_landing_facts",
-      "target": "main.ist_core.compile_engine.terminal_credentials",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.facts",
       "function": "authoring_round_causes",
       "target": "main.ist_core.compile_engine.authoring_stops",
       "guarded": false
     },
     {
       "module": "main.ist_core.compile_engine.facts",
-      "function": "authoring_round_causes",
-      "target": "main.ist_core.compile_engine.terminal_credentials",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.facts",
-      "function": "current_execution_prescription",
-      "target": "main.ist_core.compile_engine.terminal_credentials",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.facts",
       "function": "deesc_auto_resolution",
       "target": "main.ist_core.compile_engine.authoring_evidence",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.facts",
-      "function": "deesc_auto_resolution",
-      "target": "main.ist_core.worker_device_context",
       "guarded": false
     },
     {
@@ -1483,20 +1579,284 @@
     },
     {
       "module": "main.ist_core.compile_engine.facts",
-      "function": "engine_budget_terminal_facts",
-      "target": "main.ist_core.compile_engine.terminal_credentials",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.facts",
       "function": "next_authoring_attempt",
       "target": "main.ist_core.compile_engine.authoring_evidence",
       "guarded": false
     },
     {
-      "module": "main.ist_core.compile_engine.views",
-      "function": "_author_side_conflict_abandon",
-      "target": "main.ist_core.compile_engine.blocking_taxonomy",
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_authority_chain_error_text",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_decision_display",
+      "target": "main.ist_core.compile_engine.questions",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_decision_has_current_label",
+      "target": "main.ist_core.compile_engine.questions",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_defect_artifact_cause_cn",
+      "target": "main.ist_core.compile_engine.forced_closure",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_defect_artifact_cause_cn",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_execution_pause_narrative",
+      "target": "main.ist_core.compile_engine.contradiction_stop",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_execution_terminal_status_cn",
+      "target": "main.ist_core.compile_engine.contradiction_stop",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_is_unattributed_stop",
+      "target": "main.ist_core.compile_engine.authoring_stops",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_recompile_comparison_lines",
+      "target": "main.case_compiler.recompile_comparison",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_replay_pending_question",
+      "target": "main.ist_core.compile_engine.questions",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_scenario1_missing_fields_lines",
+      "target": "main.ist_core.compile_engine.questions",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_scenario_fidelity_lines",
+      "target": "main.case_compiler.scenario_fidelity",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_unattributed_stop_state_cn",
+      "target": "main.ist_core.compile_engine.contradiction_stop",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "_unattributed_stop_state_cn",
+      "target": "main.ist_core.compile_engine.forced_closure",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "diagnosis_text",
+      "target": "main.ist_core.compile_engine.forced_closure",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "diagnosis_text",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "project_action_owner",
+      "target": "main.ist_core.compile_engine.contradiction_stop",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "project_action_owner",
+      "target": "main.ist_core.compile_engine.forced_closure",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "remedy_text",
+      "target": "main.ist_core.compile_engine.contradiction_stop",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "remedy_text",
+      "target": "main.ist_core.compile_engine.forced_closure",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "remedy_text",
+      "target": "main.ist_core.compile_engine.questions",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "render_delivery_report",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "render_delivery_report",
+      "target": "main.ist_core.compile_engine.engine_disclosure",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "render_delivery_report",
+      "target": "main.ist_core.compile_engine.terminal_reentry_identity",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "render_engine_errors_md",
+      "target": "main.ist_core.compile_engine.engine_checkpoints",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.render",
+      "function": "render_engine_errors_md",
+      "target": "main.ist_core.compile_engine.engine_disclosure",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_build_unattributed_stop_credential",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_deterministic_verifiability_claim",
+      "target": "main.case_compiler.verifiability",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_source_conflict_blocked_fact",
+      "target": "main.ist_core.compile_engine.nodes",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_authoring_failure",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_authoring_failure",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_delivery_failure",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_delivery_failure",
+      "target": "main.ist_core.compile_engine.terminal_reentry_identity",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_engine_defect",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_engine_defect",
+      "target": "main.ist_core.compile_engine.authoring_stops",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_round_cap",
+      "target": "main.ist_core.compile_engine.authoring_stops",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_source_conflict",
+      "target": "main.ist_core.compile_engine.questions",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_suspension",
+      "target": "main.ist_core.compile_engine.forced_closure",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_unattributed_stop",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_unattributed_stop",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_unattributed_stop",
+      "target": "main.ist_core.compile_engine.contradiction_stop",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "_validate_unattributed_stop",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "build_final_volume_failure_terminal_fact",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "build_final_volume_failure_terminal_fact",
+      "target": "main.ist_core.compile_engine.terminal_reentry_identity",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "build_verified_authoring_failure_fact",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.compile_engine.terminal_credentials",
+      "function": "validate_terminal_credential",
+      "target": "main.ist_core.compile_engine.terminal_outcomes",
       "guarded": false
     },
     {
@@ -1513,45 +1873,285 @@
     },
     {
       "module": "main.ist_core.compile_engine.views",
-      "function": "active_execution_terminal",
-      "target": "main.ist_core.compile_engine.terminal_credentials",
-      "guarded": false
-    },
-    {
-      "module": "main.ist_core.compile_engine.views",
       "function": "case_status",
       "target": "main.ist_core.compile_engine.engine_quarantine",
       "guarded": false
     },
     {
+      "module": "main.ist_core.display_lexicon",
+      "function": "window_audit_summary_cn",
+      "target": "main.ist_core.tools.device.window_audit",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.memory.footprint.index",
+      "function": "_format_footprint",
+      "target": "main.ist_core.memory.footprint.catalog_join",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.memory.footprint.merger",
+      "function": "_append_behavior",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.memory.footprint.merger",
+      "function": "merge_fact",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.ask_user",
+      "function": "_emit_lifecycle",
+      "target": "main.ist_core.events",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.ask_user",
+      "function": "_recently_decided_autoids",
+      "target": "main.ist_core.compile_engine.batch_storage",
+      "guarded": true
+    },
+    {
       "module": "main.ist_core.tools.device._sealed_output",
       "function": "write_json",
       "target": "main.ist_core.compile_engine.engine_quarantine",
       "guarded": false
     },
     {
-      "module": "main.ist_core.tools.device._sealed_output",
-      "function": "write_json",
-      "target": "main.ist_core.worker_device_context",
+      "module": "main.ist_core.tools.device.compile_prep",
+      "function": "_archive_nonempty_batch_before_recreate",
+      "target": "main.ist_core.compile_engine.batch_storage",
       "guarded": false
     },
     {
-      "module": "main.ist_core.tools.device.lang_query_tool",
-      "function": "_render_complete",
-      "target": "main.ist_core.worker_device_context",
+      "module": "main.ist_core.tools.device.compile_prep",
+      "function": "_archive_nonempty_batch_before_recreate",
+      "target": "main.ist_core.compile_engine.compile_context",
       "guarded": false
     },
     {
-      "module": "main.ist_core.tools.device.lang_query_tool",
-      "function": "command_heads_result",
-      "target": "main.ist_core.worker_device_context",
+      "module": "main.ist_core.tools.device.compile_prep",
+      "function": "compile_prep",
+      "target": "main.ist_core.tools.deepagent.file_tools",
       "guarded": true
     },
     {
-      "module": "main.ist_core.tools.device.lang_query_tool",
-      "function": "command_heads_result",
-      "target": "main.ist_core.worker_device_context",
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_gate_command_existence",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_gate_records",
+      "target": "main.case_compiler.device_mcp_client",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_gate_sleep_budget",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_gate_sleep_budget",
+      "target": "main.ist_core.tools.device.batch_tools",
       "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_gate_sleep_budget",
+      "target": "main.ist_core.tools.device.verifiability_tool",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_gate_tau_coverage",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_gate_tau_coverage",
+      "target": "main.ist_core.tools.device.verifiability_tool",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_land_claims",
+      "target": "main.ist_core.tools.device.verifiability_tool",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_replay_runtime_fills_before_emit",
+      "target": "main.case_compiler.runtime_fill",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_safe_output_component",
+      "target": "main.ist_core.tools.deepagent.file_tools",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_validated_consistency_contract_identity",
+      "target": "main.ist_core.tools.device.consistency_receipt",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_write_frozen_override_ack",
+      "target": "main.ist_core.tools.device.verifiability_tool",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "_write_gate_rejections",
+      "target": "main.ist_core.compile_engine.emit_failure_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit",
+      "target": "main.case_compiler.assertion_binding",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit",
+      "target": "main.case_compiler.recompile_comparison",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit",
+      "target": "main.case_compiler.xlsx_emit",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit",
+      "target": "main.ist_core.compile_engine.emit_failure_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit",
+      "target": "main.ist_core.memory.footprint.signals",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit",
+      "target": "main.ist_core.tools.device.run_case",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit",
+      "target": "main.ist_core.tools.device.verifiability_tool",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit_merged",
+      "target": "main.case_compiler.xlsx_emit",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "compile_emit_merged",
+      "target": "main.ist_core.tools.device.package_registry_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "engine_inserted_binding_rejection",
+      "target": "main.ist_core.compile_engine.engine_checkpoints",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "mechanical_findings_for_emit",
+      "target": "main.ist_core.compile_engine.briefs",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "precheck_merge_case",
+      "target": "main.ist_core.tools.device.package_registry_tool",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.emit_xlsx_tool",
+      "function": "precheck_merge_case",
+      "target": "main.ist_core.tools.device.verifiability_tool",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.mechanical_case_submit_tool",
+      "function": "submit_mechanical_case",
+      "target": "main.ist_core.compile_engine.authoring_evidence",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.mechanical_case_submit_tool",
+      "function": "submit_mechanical_case",
+      "target": "main.ist_core.compile_engine.engine_checkpoints",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.mechanical_case_submit_tool",
+      "function": "submit_mechanical_case",
+      "target": "main.ist_core.compile_engine.engine_checkpoints",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.tools.device.mechanical_case_submit_tool",
+      "function": "submit_mechanical_case",
+      "target": "main.ist_core.compile_engine.engine_quarantine",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.tools.device.mechanical_case_submit_tool",
+      "function": "submit_mechanical_case",
+      "target": "main.ist_core.tools.device.consistency_receipt",
+      "guarded": true
     },
     {
       "module": "main.ist_core.tools.device.recompose_parts",
@@ -1560,51 +2160,87 @@
       "guarded": true
     },
     {
-      "module": "main.ist_core.tools.device.recompose_submission",
-      "function": "_projection_head_stamp",
-      "target": "main.ist_core.worker_device_context",
+      "module": "main.ist_core.worker_device_context",
+      "function": "_persistent_admission_reason",
+      "target": "main.ist_core.compile_engine.engine_quarantine",
       "guarded": false
     },
     {
-      "module": "main.ist_core.tools.device.structural_gate",
-      "function": "_check_command_allowlist",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "module": "main.ist_core.worker_device_context",
+      "function": "_record_authoring_statement",
+      "target": "main.ist_core.skills.authoring_account_supplement",
       "guarded": false
     },
     {
-      "module": "main.ist_core.tools.device.structural_gate",
-      "function": "_check_command_existence_same_source",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "module": "main.ist_core.worker_device_context",
+      "function": "_record_authoring_statement",
+      "target": "main.ist_core.tools.device.authoring_account_tools",
       "guarded": false
     },
     {
-      "module": "main.ist_core.tools.device.structural_gate",
-      "function": "_check_driver_no_declared_path",
-      "target": "main.ist_core.tools._shared.env_facts",
+      "module": "main.ist_core.worker_device_context",
+      "function": "_reject_authoring_statement",
+      "target": "main.ist_core.tools.device.authoring_account_tools",
       "guarded": false
     },
     {
-      "module": "main.ist_core.tools.device.structural_gate",
-      "function": "_check_line_anchor_assertions",
-      "target": "main.case_compiler.regex_anchor_proof",
+      "module": "main.ist_core.worker_device_context",
+      "function": "acquire_device_lease",
+      "target": "main.case_compiler.env_pool",
       "guarded": false
     },
     {
-      "module": "main.ist_core.tools.device.structural_gate",
-      "function": "_check_mutation_control_order",
-      "target": "main.case_compiler.mutation_testing",
+      "module": "main.ist_core.worker_device_context",
+      "function": "acquire_shared_environment",
+      "target": "main.case_compiler.env_pool",
       "guarded": false
     },
     {
-      "module": "main.ist_core.tools.device.structural_gate",
-      "function": "_check_no_destructive_commands",
-      "target": "main.ist_core.tools.device.emit_xlsx_tool",
+      "module": "main.ist_core.worker_device_context",
+      "function": "device_access_from_brief",
+      "target": "main.ist_core.compile_engine.worker_protocol",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.worker_device_context",
+      "function": "dispatch_identity_from_brief",
+      "target": "main.ist_core.compile_engine.worker_protocol",
+      "guarded": true
+    },
+    {
+      "module": "main.ist_core.worker_device_context",
+      "function": "observe_authoring_budget",
+      "target": "main.ist_core.middleware.authoring_account_reserve",
       "guarded": false
     },
     {
-      "module": "main.ist_core.tools.device.structural_gate",
-      "function": "_load_allowlist_prefixes",
-      "target": "main.ist_core.memory.footprint",
+      "module": "main.ist_core.worker_device_context",
+      "function": "record_admission_rejection",
+      "target": "main.ist_core.compile_engine.engine_quarantine",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.worker_device_context",
+      "function": "structural_rejection_streak",
+      "target": "main.ist_core.compile_engine.rejection_history",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.worker_device_context",
+      "function": "valid_session_admission_rejection",
+      "target": "main.ist_core.compile_engine.engine_quarantine",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.worker_device_context",
+      "function": "worker_device_scope",
+      "target": "main.ist_core.skills.authoring_account_supplement",
+      "guarded": false
+    },
+    {
+      "module": "main.ist_core.worker_device_context",
+      "function": "worker_execution_identity_from_brief",
+      "target": "main.ist_core.compile_engine.worker_protocol",
       "guarded": true
     },
     {
@@ -1614,77 +2250,79 @@
       "guarded": false
     },
     {
-      "module": "scripts.gen_blocks_schema",
-      "function": "_ssl_standard_library_kind",
-      "target": "main.case_compiler.excel_capability_samples",
+      "module": "scripts.gen_network_topology",
+      "function": "generate",
+      "target": "main.case_compiler.device_mcp_client",
       "guarded": false
     },
     {
-      "module": "scripts.gen_device_behavior_examples",
-      "function": "_ledger_receipt_rows",
-      "target": "main.ist_core.security_scrub",
+      "module": "scripts.gen_network_topology",
+      "function": "main",
+      "target": "main.langchain_env",
       "guarded": false
     }
   ],
   "boundary_targets": [
-    "main.case_compiler.behaviour_classes",
-    "main.case_compiler.card_lint",
+    "main.case_compiler.assertion_binding",
     "main.case_compiler.claim_coverage",
-    "main.case_compiler.criterion_author_rules",
-    "main.case_compiler.criterion_normalization",
     "main.case_compiler.device_mcp_client",
-    "main.case_compiler.excel_capability_samples",
+    "main.case_compiler.env_pool",
     "main.case_compiler.excel_release",
     "main.case_compiler.excel_release_bundle",
-    "main.case_compiler.membership_assertion",
-    "main.case_compiler.mutation_testing",
+    "main.case_compiler.local_replay",
     "main.case_compiler.recompile_comparison",
-    "main.case_compiler.regex_anchor_proof",
-    "main.case_compiler.rule_registry",
+    "main.case_compiler.runtime_fill",
     "main.case_compiler.scenario_fidelity",
-    "main.case_compiler.ssl_lifecycle_contract",
-    "main.case_compiler.tau_coverage",
+    "main.case_compiler.verifiability",
     "main.case_compiler.vk_derivation",
+    "main.case_compiler.xlsx_emit",
     "main.common.jev_spec_rerank",
+    "main.common.typesafe_shadow",
     "main.ist_core.agents._llm",
     "main.ist_core.compile_engine.authoring_evidence",
     "main.ist_core.compile_engine.authoring_stops",
     "main.ist_core.compile_engine.authority_decision_reentry",
     "main.ist_core.compile_engine.backstops",
+    "main.ist_core.compile_engine.batch_storage",
     "main.ist_core.compile_engine.bed",
-    "main.ist_core.compile_engine.blocking_taxonomy",
+    "main.ist_core.compile_engine.briefs",
+    "main.ist_core.compile_engine.compile_context",
+    "main.ist_core.compile_engine.contradiction_stop",
     "main.ist_core.compile_engine.emit_failure_evidence",
     "main.ist_core.compile_engine.engine_checkpoints",
     "main.ist_core.compile_engine.engine_debt",
+    "main.ist_core.compile_engine.engine_disclosure",
     "main.ist_core.compile_engine.engine_incidents",
     "main.ist_core.compile_engine.engine_quarantine",
     "main.ist_core.compile_engine.engine_tool",
     "main.ist_core.compile_engine.forced_closure",
+    "main.ist_core.compile_engine.nodes",
     "main.ist_core.compile_engine.questions",
+    "main.ist_core.compile_engine.rejection_history",
     "main.ist_core.compile_engine.routing_closed_sets",
-    "main.ist_core.compile_engine.terminal_credentials",
     "main.ist_core.compile_engine.terminal_outcomes",
-    "main.ist_core.display_lexicon",
+    "main.ist_core.compile_engine.terminal_reentry_identity",
+    "main.ist_core.compile_engine.worker_protocol",
     "main.ist_core.events",
-    "main.ist_core.memory.footprint",
+    "main.ist_core.memory.footprint.catalog_join",
     "main.ist_core.memory.footprint.signals",
+    "main.ist_core.middleware.authoring_account_reserve",
     "main.ist_core.resilience",
     "main.ist_core.run_governance",
-    "main.ist_core.security_scrub",
+    "main.ist_core.skills.authoring_account_supplement",
     "main.ist_core.skills.loader",
-    "main.ist_core.tools._shared",
-    "main.ist_core.tools._shared.env_facts",
-    "main.ist_core.tools.ask_user",
+    "main.ist_core.tools.deepagent.file_tools",
+    "main.ist_core.tools.device.authoring_account_tools",
     "main.ist_core.tools.device.batch_tools",
-    "main.ist_core.tools.device.emit_xlsx_tool",
+    "main.ist_core.tools.device.consistency_receipt",
     "main.ist_core.tools.device.package_registry_tool",
     "main.ist_core.tools.device.run_case",
+    "main.ist_core.tools.device.verifiability_tool",
+    "main.ist_core.tools.device.window_audit",
     "main.ist_core.tools.knowledge.kb_bug_search",
-    "main.ist_core.worker_device_context",
     "main.kms.webdav_sync",
     "main.langchain_env",
     "main.sync.framework_sync",
-    "scripts.gen_network_topology",
     "scripts.maintenance.backup_jumphost_framework",
     "scripts.maintenance.build_excel_contract_workbooks",
     "scripts.maintenance.emit_excel_release_evidence",
