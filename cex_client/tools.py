@@ -210,6 +210,38 @@ def cex_lang_query(args: dict[str, Any]) -> dict[str, Any]:
     return recompose.lang_query(_ws(args), args, out_name=str(args.get("out_name") or ""))
 
 
+def cex_bed_topology(args: dict[str, Any]) -> dict[str, Any]:
+    from . import bed
+
+    return bed.fetch(_ws(args), refresh=bool(args.get("refresh")))
+
+
+def cex_author_prepare(args: dict[str, Any]) -> dict[str, Any]:
+    from . import author
+
+    return author.prepare(_ws(args), str(args.get("out_name") or ""))
+
+
+def cex_criterion_record(args: dict[str, Any]) -> dict[str, Any]:
+    from . import author
+
+    return author.criterion_record(_ws(args), str(args.get("out_name") or ""),
+                                   str(args.get("shape_key") or ""), args.get("judgment"))
+
+
+def cex_author_submit_case(args: dict[str, Any]) -> dict[str, Any]:
+    from . import author
+
+    return author.submit_case(_ws(args), str(args.get("out_name") or ""),
+                              args.get("mechanical_case"))
+
+
+def cex_author_emit(args: dict[str, Any]) -> dict[str, Any]:
+    from . import author
+
+    return author.emit(_ws(args), str(args.get("out_name") or ""))
+
+
 TOOLS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "cex_init": cex_init,
     "cex_status": cex_status,
@@ -236,6 +268,11 @@ TOOLS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "cex_recompose_submit_cases": cex_recompose_submit_cases,
     "cex_recompose_seal": cex_recompose_seal,
     "cex_lang_query": cex_lang_query,
+    "cex_bed_topology": cex_bed_topology,
+    "cex_author_prepare": cex_author_prepare,
+    "cex_criterion_record": cex_criterion_record,
+    "cex_author_submit_case": cex_author_submit_case,
+    "cex_author_emit": cex_author_emit,
 }
 
 

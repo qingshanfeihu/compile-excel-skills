@@ -21,10 +21,11 @@ portal session sits in a private per-user cache. Nothing secret passes through t
 | First use in this folder | `cex_status` → `cex_init` → `cex_login_start` / `cex_login_wait` → `cex_client_config` → `cex_sync` ([workspace setup](references/workspace-setup.md)) |
 | Every session | `cex_status`; log in again only if `logged_in` is false; `cex_sync` |
 | Read a defect ticket as source | `cex_portal_login_start` → user scans → `cex_portal_login_wait` → `cex_bug_get` |
-| Recompose a mindmap before compiling | `mindmap-recompose` skill → author from its sealed `machine_mindmap.json` |
-| Look up manual text | `cex_docs_query` |
-| Ground commands against the build | `cex_cmd_check` while authoring; `scripts/cmdtree_check.py` as the gate |
-| Compile cases | You write `cases.json` → `scripts/compile_excel.py` |
+| Compile a mindmap | `mindmap-recompose` skill (seal) → `cex_bed_lease acquire` → `cex_bed_topology` → `cex_author_prepare` → one `cex_author_submit_case` per case → `cex_author_emit` ([authoring](references/authoring.md)) |
+| Type a new verdict shape | `cex_author_prepare` stops at `criterion_pending` → `cex_criterion_record` ([criterion](references/criterion.md)) |
+| Look up manual text / a command's manual line | `cex_docs_query`; `cex_lang_query` `{"kind": "param", "name": "<head>"}` |
+| Ground commands against the build | `cex_cmd_check` while authoring; `scripts/cmdtree_check.py` as the gate for hand-written cases |
+| Compile plain step text (no mindmap) | You write `cases.json` → `scripts/compile_excel.py` |
 | Static acceptance | `scripts/verify_batch.py` + `cex_scan_destructive` |
 | Run on the bed (上机) | `cex_bed_lease acquire` → `cex_env_prepare` → `scripts/run_device.py` (or `cex_case_submit` / `cex_case_status` / `cex_case_results`) |
 | Rework after a failed run (返工) | `scripts/rework_gate.py` → fix only failed cases → recompile → verify → rerun |
@@ -50,7 +51,8 @@ Results are JSON with `ok`; on `ok: false` read `error` / `problems` and relay t
 
 ## Requirements for every output
 
-1. **The only path to a workbook is `scripts/compile_excel.py`, gated by `scripts/cmdtree_check.py`.**
+1. **The only paths to a workbook are `cex_author_emit` (mindmap batches) and
+   `scripts/compile_excel.py` gated by `scripts/cmdtree_check.py` (plain step text).**
    The execution header sits at row 29 (not row 1), the contract marker and the
    `IST_EXECUTION_SHEET` defined-name must survive, and hand-rolled sheets misalign the
    C/E/F/G columns: the framework then finds no case rows and passes vacuously.
@@ -113,31 +115,40 @@ again; the tool does not retry by itself. Never ask for a portal password.
 
 Run the `mindmap-recompose` skill first. It seals
 `compile_outputs/<out_name>/machine_mindmap.json`, every case of which passed the compile
-engine's submission checks. Author from that file:
-
-- author `cases.json` **only from cases with a contract** (verbatim intent + sourced method +
-  verbatim expectation; `expectations_by_step` carries every authored expectation, with its
-  origin);
-- a case with a `scenario2` record (incomplete source) or a `consistency.verdict` of
-  `mutually_exclusive` is not compiled: report it to the user as abandoned, with the reason the
-  file records;
-- `consistency.missing_preconditions` (verdict `underdetermined`) names precondition steps you
-  add before the authored steps; `adapted_steps` is the executable form of each authored step,
-  and its `basis` goes into the report beside the original;
-- anything filed as `proposal` (e.g. 「访问成功」 traffic verdicts with no client on the bed) does not
-  become an assertion: report it to the user as un-compiled;
-- keep `exp_recipe / step_recipe / true_gap` counts in your final report.
-
-Without that skill, hold yourself to the same rule: every expectation is a verbatim substring of
-a source you can cite; whatever you would have to paraphrase or infer goes into the report as
-un-compiled, not into an assertion. Plain step-text inputs skip this stage.
+engine's submission checks. The authoring stage (5A) compiles from that sealed file; keep the
+`exp_recipe / step_recipe / true_gap` counts for your final report. Plain step-text inputs skip
+this stage and go to 5B.
 
 The synced bundle (`.compile-excel/bundle/<build>/`) carries spec and manual files when the
 server publishes them, and `cex_docs_query` searches the manuals. Both are legal verbatim
 sources, quoted as `spec:<file>:<line>` / `manual:<file>:<line>`. Sources widen the pool; they
 never license paraphrase.
 
-### 5. Author cases.json
+### 5A. Author a mindmap batch (after the seal)
+
+Read `references/authoring.md` before the first case. In short:
+
+1. `cex_bed_lease` `acquire`, then `cex_bed_topology`: the bed's devices and addresses as the
+   engine reads them (VIPs a trigger host can reach, which trigger host pairs with which VIP,
+   real server addresses). The authoring gates judge every address against these facts.
+2. `cex_author_prepare` with the batch name: the engine projects the sealed mindmap into one
+   contract card per case (the author's expectations, each typed with a criterion and the block
+   kinds / operators allowed to redeem it) and returns them with the bed summary. When it stops
+   at `criterion_pending`, type each pending shape per `references/criterion.md`
+   (`cex_criterion_record`); the cards are published after the last one.
+3. Per case, write one mechanical case in the block language and submit it with
+   `cex_author_submit_case`. Every card expectation must be redeemed by exactly one assertion —
+   traffic verdicts such as 「访问成功」「访问失败」 by `OBSERVE_EXIT` from the paired trigger host,
+   configuration/display verdicts by `OBSERVE_ASSERT` on the device. A rejection lists every
+   violation with its locus and legal form: fix them all and resubmit the complete body.
+4. `cex_author_emit` when every case is sealed: the engine expands the sealed cases into
+   `cases.json` (assertion sources included), `case.xlsx` is compiled and `verify_batch` runs.
+   Continue at step 8 (`cex_scan_destructive`) and the on-device run.
+
+A case the engine quarantines, abandons or puts under `needs_decision` in the prepare result is
+not authored: report it with the reason the result gives.
+
+### 5B. Author cases.json (plain step text only)
 
 Contract: `references/column-semantics.md` (read it the first time; it defines the
 E/F/G/H/I five-tuple and the per-object method families). Output shape:
@@ -233,8 +244,10 @@ gateway runs the same check again on submit. On failure, use `references/gotchas
    `step: confirm` with the code only after they agree. It needs admin rights on the gateway.
 7. `cex_bed_lease` with `action: release` when you are done with the bed.
 
-On fail: read each case's `detail_tail` and attribution, fix `cases.json` per
-`references/gotchas.md`, **pass the rework gate**, recompile, re-verify, re-run.
+On fail: read each case's `detail_tail` and attribution. For a mindmap batch, fix the failed
+cases' mechanical cases and resubmit them (`cex_author_submit_case`), then `cex_author_emit`;
+for hand-written cases fix `cases.json` per `references/gotchas.md`. Either way **pass the rework
+gate** on the new `cases.json`, recompile/re-emit, re-verify, re-run.
 
 ```bash
 python3 scripts/rework_gate.py --batch-dir <workspace>/compile_outputs/<batch> --cases <cases.json>
@@ -259,8 +272,9 @@ workbook and `cases.json` are never edited by backfill.
 Tell the user: batch name, case count, step / check_point counts, product path, verification
 totals (pass / fail / total), destructive-scan result, on-device totals (pass / fail / not_run)
 with attribution layers, the receipt and footprint paths (`run_receipt.md`, `footprint.jsonl`),
-the bundle id the compile used, and every un-compiled proposal. Name the stages that did not
-run (e.g. no bed lease) instead of implying they passed.
+the bundle id the compile used, every case not compiled (quarantined, abandoned, awaiting a
+user decision) with its reason, and every criterion you typed with `cex_criterion_record`. Name
+the stages that did not run (e.g. no bed lease) instead of implying they passed.
 
 ## Done when
 

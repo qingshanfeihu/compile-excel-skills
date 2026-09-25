@@ -83,7 +83,8 @@ def test_layout_places_command_tree_manuals_and_build(tmp_path):
                               .read_text(encoding="utf-8"))
     assert capabilities == {"build": "APV_10.5.0.585"}
     assert result["info"]["command_tree"] == {"projections": ["vendor_stdlib_10.5_585.json"],
-                                              "xml": ["cmdtree_585.xml"]}
+                                              "xml": ["cmdtree_585.xml"],
+                                              "store": {"status": "absent"}}
     query = result["query"]
     assert query["ok"] and query["data_root"] == str(root)
     assert "1 recorded command heads" in query["result"]
@@ -92,3 +93,107 @@ def test_layout_places_command_tree_manuals_and_build(tmp_path):
 def test_a_projection_without_its_xml_is_reported_unavailable(tmp_path):
     query = _run(tmp_path, with_xml=False)["query"]
     assert query["ok"] and "capability unknown" in query["result"]
+
+
+def test_generation_store_routed_files_mirror_topology_and_local_rules(tmp_path):
+    """发布端推导出的命令树代际按清单摆成活动代际，引擎自己的读取函数认得出；判据台账种子与
+    SSL 证据摆到引擎读的位置；派生规则指纹要读的源码按 InfoTest 模块名写回；本床拓扑与本工作区
+    的裁定记录每次 prepare 都对齐。代际由引擎自己的 publish_local_command_tree 生成（投影生成器
+    换成最小的合成投影），这样清单、代际号、投影策略身份都与客户端引擎一致。"""
+    script = f'''
+import hashlib, json, os, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, {str(REPO_ROOT)!r})
+gen_root = Path(tempfile.mkdtemp(dir={str(tmp_path)!r}))
+os.environ["CEX_ENGINE_DATA_ROOT"] = str(gen_root)
+from cex_core.engine.sync.command_tree_sync import projection_policy_identity, publish_local_command_tree
+xml = {XML!r}
+(gen_root / "in.xml").write_bytes(xml)
+projection = dict({PROJECTION!r})
+
+def builder(*, version, device_build, xml_path, output_dir, manual_version):
+    payload = dict(projection, projection_policy=projection_policy_identity())
+    payload["source"] = dict(payload["source"], sha256=hashlib.sha256(xml).hexdigest())
+    out = Path(output_dir) / f"vendor_stdlib_{{version}}_{{device_build}}.json"
+    out.write_text(json.dumps(payload), encoding="utf-8")
+    return {{"path": str(out)}}
+
+(gen_root / "cmdtree_585.xml").write_bytes(xml)
+result = publish_local_command_tree(xml_path=gen_root / "cmdtree_585.xml",
+    expected_sha256=hashlib.sha256(xml).hexdigest(),
+    full_version="Example Beta.APV-HG-K.10.5.0.585", version="10.5", projection_builder=builder,
+    store_root=gen_root / "store")
+gen = result.generation_root
+files = {{
+    "cmdtree/generation_manifest.json": (gen / "manifest.json").read_bytes(),
+    "cmdtree/cmdtree_585.xml": (gen / "cmdtree_585.xml").read_bytes(),
+    "cmdtree/vendor_stdlib_10.5_585.json": (gen / "vendor_stdlib_10.5_585.json").read_bytes(),
+    "cmdtree/source.json": json.dumps({{"schema": "cex.cmdtree-source/v2",
+        "full_version": result.full_version, "generation_id": result.generation_id,
+        "projection_sha256": result.projection_sha256,
+        "sanitization": {{"blanked_default_values": 0}}}}).encode(),
+    "projections/criterion_author_rules.jsonl": b'{{"rule_sha256": "seed"}}\\n',
+    "projections/ssl_lifecycle_contract.json": b'{{"schema": "x"}}',
+    "projections/domain_grammar.json": b"{{}}",
+    "manual/10.5.0/cli_cn.md": "# CLI\\n\\n**sdns listener** <port>\\n".encode(),
+}}
+print(json.dumps({{"files": {{k: v.hex() for k, v in files.items()}},
+                   "generation_id": result.generation_id}}))
+'''
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                          timeout=300, env={**os.environ, "IST_DEVICE_OS_BUILD": ""})
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    made = json.loads(proc.stdout.strip().splitlines()[-1])
+    blob = tmp_path / "files.json"
+    blob.write_text(json.dumps(made["files"]), encoding="utf-8")
+    ws_root = tmp_path / "ws"
+    script = f'''
+import hashlib, json, sys
+from pathlib import Path
+sys.path.insert(0, {str(REPO_ROOT)!r})
+from cex_client import engine_env, workspace as wsmod
+ws = wsmod.init(Path({str(ws_root)!r}), server="https://ces.example.test", device_build="B_1")
+files = {{k: bytes.fromhex(v) for k, v in json.loads(Path({str(blob)!r}).read_text()).items()}}
+entries = []
+for rel, data in files.items():
+    (ws.bundle_dir() / rel).parent.mkdir(parents=True, exist_ok=True)
+    (ws.bundle_dir() / rel).write_bytes(data)
+    entries.append({{"kind": rel.split("/", 1)[0], "path": rel,
+                     "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}})
+(ws.bundle_dir() / "manifest.json").write_text(json.dumps({{"bundle_id": "f" * 64, "build": "B_1",
+    "entries": entries}}), encoding="utf-8")
+topology = engine_env.topology_path(ws)
+topology.parent.mkdir(parents=True, exist_ok=True)
+topology.write_text('{{"devices": []}}\\n', encoding="utf-8")
+local = engine_env.local_rules_path(ws)
+local.parent.mkdir(parents=True, exist_ok=True)
+local.write_text('{{"rule_sha256": "seed"}}\\n{{"rule_sha256": "mine"}}\\n', encoding="utf-8")
+root, info = engine_env.prepare(ws)
+engine_env.prepare(ws)  # 再来一次：台账不重复追加，拓扑不重写
+from cex_core.engine.case_compiler import vendor_stdlib
+from cex_core.engine.sync.command_tree_sync import resolve_active_command_tree
+active = resolve_active_command_tree(product="APV", platform="HG-K", version="10.5",
+                                     device_build="585")
+loaded = vendor_stdlib.load_vendor_stdlib()
+print(json.dumps({{"root": str(root), "info": info,
+                   "active": active.generation_id if active else None,
+                   "heads": sorted((loaded or {{}}).get("heads") or {{}})}}))
+'''
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                          timeout=300, env={**os.environ, "CEX_ENGINE_DATA_ROOT": "",
+                                            "IST_DEVICE_OS_BUILD": ""})
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    result = json.loads(proc.stdout.strip().splitlines()[-1])
+    root = Path(result["root"])
+    assert result["info"]["command_tree"]["store"]["status"] == "ready"
+    assert result["active"] == made["generation_id"], "the engine resolves the active generation"
+    assert result["heads"] == ["sdns listener"], "the projection loads through the store"
+    assert (root / "scripts/maintenance/assets/ssl_lifecycle_contract.json").is_file()
+    assert not (root / "knowledge/data/compile_ref/ssl_lifecycle_contract.json").exists()
+    assert (root / "knowledge/data/compile_ref/domain_grammar.json").is_file()
+    ledger = (root / "runtime/criterion_author_rules.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line)["rule_sha256"] for line in ledger] == ["seed", "mine"]
+    assert (root / "knowledge/data/auto_env/network_topology.json").read_text() == '{"devices": []}\n'
+    mirror = (root / "main/case_compiler/provenance_ir.py").read_text(encoding="utf-8")
+    assert "from main.case_compiler." in mirror and "cex_core.engine.case_compiler" not in mirror
+    assert "cex_core.engine._root" in mirror, "the generated root helper keeps its own name"

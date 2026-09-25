@@ -298,4 +298,62 @@ export const CEX_TOOLS: CexToolSpec[] = [
 			"out_name": Type.Optional(Type.String()),
 		}, { additionalProperties: false }),
 	},
+	{
+		name: "cex_bed_topology",
+		label: "CEX bed topology",
+		description: "Fetch this bed's network facts (devices, APV interface addresses, which trigger host reaches which VIP, real server addresses) from the gateway and store them in the workspace; the authoring gates read them. Needs the lease. Returns the engine's bed summary: pick VIPs, trigger hosts and backend addresses from it.",
+		snippet: "Fetch this bed's network facts (devices, APV interface addresses, which trigger host reaches which VIP, real server addresses) from the gateway and store them in the workspace; the authoring gates read them.",
+		readOnly: true,
+		parameters: Type.Object({
+			"workspace": Type.Optional(Type.String()),
+			"refresh": Type.Optional(Type.Boolean({"description": "Re-collect on the jump host instead of reusing the gateway's cached facts."})),
+		}, { additionalProperties: false }),
+	},
+	{
+		name: "cex_author_prepare",
+		label: "CEX author prepare",
+		description: "Project a sealed machine mindmap into per-case contract cards (the engine's projection, with each expectation's criterion type and the blocks/operators allowed to redeem it) and stamp every case for authoring. When a criterion shape is not yet adjudicated it stops and lists the shapes for cex_criterion_record. Needs cex_recompose_seal and cex_bed_topology first.",
+		snippet: "Project a sealed machine mindmap into per-case contract cards (the engine's projection, with each expectation's criterion type and the blocks/operators allowed to redeem it) and stamp every case for authoring.",
+		readOnly: false,
+		parameters: Type.Object({
+			"workspace": Type.Optional(Type.String()),
+			"out_name": Type.String(),
+		}, { additionalProperties: false }),
+	},
+	{
+		name: "cex_criterion_record",
+		label: "CEX criterion record",
+		description: "Record your criterion judgement for one pending shape (read its brief_path first). judgment is one object: criterion_type copied from the brief's catalogue, rationale (English), disclosure (Chinese), optionally manual_anchor_ids / tree_context_ids / behaviour_classes. The engine re-checks it; after the last shape the contracts are published.",
+		snippet: "Record your criterion judgement for one pending shape (read its brief_path first).",
+		readOnly: false,
+		parameters: Type.Object({
+			"workspace": Type.Optional(Type.String()),
+			"out_name": Type.String(),
+			"shape_key": Type.String(),
+			"judgment": Type.Record(Type.String(), Type.Unknown(), {"description": "{criterion_type, rationale, disclosure, manual_anchor_ids?, tree_context_ids?, behaviour_classes?}"}),
+		}, { additionalProperties: false }),
+	},
+	{
+		name: "cex_author_submit_case",
+		label: "CEX author submit case",
+		description: "Submit one mechanical case (ist.mechanical-case body in the blocks language: schema, autoid, description, binding {}, init_commands, blocks, expectation_binding, escape_hatches; no seal). The engine's submission gates run (expansion, command tree, bed reachability, teardown, expectation bijection, criterion binding, provenance). A rejection lists every violation with its locus and a legal form; fix all and resubmit the complete body. Sealed cases are emitted by cex_author_emit.",
+		snippet: "Submit one mechanical case (ist.mechanical-case body in the blocks language: schema, autoid, description, binding {}, init_commands, blocks, expectation_binding, escape_hatches; no seal).",
+		readOnly: false,
+		parameters: Type.Object({
+			"workspace": Type.Optional(Type.String()),
+			"out_name": Type.String(),
+			"mechanical_case": Type.Record(Type.String(), Type.Unknown(), {"description": "The complete ist.mechanical-case submission body."}),
+		}, { additionalProperties: false }),
+	},
+	{
+		name: "cex_author_emit",
+		label: "CEX author emit",
+		description: "Expand every sealed mechanical case of the batch (the engine's own block expansion) into compile_outputs/<batch>/cases.json, compile case.xlsx and run verify_batch. Returns the workbook path, the verify summary and any case not sealed yet.",
+		snippet: "Expand every sealed mechanical case of the batch (the engine's own block expansion) into compile_outputs/<batch>/cases.json, compile case.xlsx and run verify_batch.",
+		readOnly: false,
+		parameters: Type.Object({
+			"workspace": Type.Optional(Type.String()),
+			"out_name": Type.String(),
+		}, { additionalProperties: false }),
+	},
 ];

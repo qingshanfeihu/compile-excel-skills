@@ -1,17 +1,26 @@
 """cex_core.engine 的数据根：从已同步的数据包在工作区里摆出 InfoTest 仓根的布局。
 
   .compile-excel/engine/<bundle_id 前 16 位>/
-      knowledge/data/compile_ref/…              ← 包里的 projections/…，加 cmdtree/ 的命令树投影
-                                                  （数据包带了原始 XML 就并排放）
+      knowledge/data/compile_ref/…              ← 包里的 projections/…，加 cmdtree/ 的命令树文件
       knowledge/data/manual/<版本>/…            ← manual/<版本>/{cli,app}_cn.md 与 catalog
       knowledge/data/auto_env/env_capabilities.json ← 设备 OS build（cmdtree/source.json）
+      knowledge/data/auto_env/network_topology.json ← 本床拓扑（cex_bed_topology 取回，见 place_topology）
       knowledge/data/spec/active.json           ← 由 spec/manifest.json 算出的活动指针
       knowledge/data/spec/generations/<gid>/    ← spec/{manifest.json,index.json,state.tsv,docs/…}
       knowledge/framework/mirror/…              ← framework/framework_tree.tar.gz 解开
+      knowledge/footprints/nodes_<版本>/…       ← footprints/nodes_<版本>.tar.gz 解开（包里只有一个
+                                                  版本时同时摆成 nodes/，引擎两处都读）
+      runtime/command_tree/products/…/builds/<ver>_<build>/{active.json,generations/<gid>/…}
+                                                ← cmdtree/generation_manifest.json 声明的命令树代际
+      runtime/criterion_author_rules.jsonl      ← projections/criterion_author_rules.jsonl（判据台账种子）
+                                                  + 本工作区自己裁定过的记录（见 merge_local_rules）
+      scripts/maintenance/assets/ssl_lifecycle_contract.json ← projections/ssl_lifecycle_contract.json
+      main/case_compiler/*.py                   ← 抽取副本按 InfoTest 模块名写回的源码（见 code_mirror）
 
-命令树投影要引擎认，还得有它记下的原始 XML（按文件名与哈希核对来源）；数据包只发投影时
-引擎的命令树查询（lang_query 的 param / complete、step_structure 的对象类型闭集）如实报
-不可用，命令存在性与参数个数改由 cex_cmd_check 直接读投影判（同一判定函数）。
+命令树投影要引擎认，还得有它记下的 XML（按文件名与哈希核对来源），拆卸图谱与 SSL 生命周期
+证据还要核对命令树代际。数据包里的 XML 是发布端去掉凭据默认值后的版本，代际、投影、拆卸图谱
+都由发布端用引擎自己的函数从这份 XML 重新推导（cmdtree/source.json 记着脱敏收据），这里只按
+代际清单逐文件核哈希后摆放。旧数据包只有投影时仍按平面布局摆，引擎如实报命令树不可用。
 
 一律复制（不链接）：引擎按 nofollow 读文件、代际 docs 还要求链接数为 1。包里缺规格书同步
 台账（state.tsv，旧版导入器没发）时不摆规格书代际——引擎照它自己的"规格书不可达"走
@@ -26,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import tarfile
@@ -37,9 +47,29 @@ from .errors import ClientError
 from .workspace import Workspace, safe_component, safe_relative_path
 
 DATA_ROOT_ENV = "CEX_ENGINE_DATA_ROOT"
-LAYOUT = 2  # 摆放规则变了就加一，已摆好的旧数据根会重摆
+LAYOUT = 3  # 摆放规则变了就加一，已摆好的旧数据根会重摆
 _MARKER = ".complete.json"
 _SPEC_ACTIVE_SCHEMA = "ist.spec.active"
+_COMMAND_TREE_ACTIVE_SCHEMA = "ist.command-tree.active"
+_GENERATION_MANIFEST = "cmdtree/generation_manifest.json"
+# 不进 compile_ref、摆到引擎另读的位置的包内文件
+_ROUTED_PROJECTIONS = {
+    "ssl_lifecycle_contract.json": "scripts/maintenance/assets/ssl_lifecycle_contract.json",
+    "criterion_author_rules.jsonl": "runtime/criterion_author_rules.jsonl",
+}
+_FOOTPRINT_TAR = re.compile(r"^footprints/nodes_([0-9][0-9.]*)\.tar\.gz$")
+TOPOLOGY_REL = "knowledge/data/auto_env/network_topology.json"
+TOPOLOGY_MD_REL = "knowledge/data/auto_env/network_topology_rag.md"
+RULE_LEDGER_REL = "runtime/criterion_author_rules.jsonl"
+ENGINE_DIR = Path(__file__).resolve().parents[1] / "cex_core" / "engine"
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _copy(src: Path, dst: Path) -> None:
@@ -99,6 +129,69 @@ def _spec_generation(entries: dict[str, Path], root: Path) -> dict[str, Any]:
     return {"status": "ready", "generation_id": generation_id}
 
 
+def _command_tree_store(entries: dict[str, Path], root: Path) -> dict[str, Any]:
+    """按代际清单摆命令树活动代际；清单里每个文件都要在包里且哈希一致。"""
+    manifest_path = entries.get(_GENERATION_MANIFEST)
+    if manifest_path is None:
+        return {"status": "absent"}
+    raw = manifest_path.read_bytes()
+    manifest = json.loads(raw.decode("utf-8"))
+    ids = {key: safe_component(manifest.get(key), f"command tree {key}")
+           for key in ("generation_id", "product", "platform", "version", "device_build")}
+    partition = (root / "runtime" / "command_tree" / "products" / ids["product"] / "platforms"
+                 / ids["platform"] / "builds" / f"{ids['version']}_{ids['device_build']}")
+    generation = partition / "generations" / ids["generation_id"]
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict) or not artifacts:
+        raise ClientError("the command tree generation manifest declares no artifacts; "
+                          "republish the bundle")
+    shipped: dict[str, str] = {}
+    for name, declared in sorted(artifacts.items()):
+        name = safe_component(name, "command tree artifact")
+        source = entries.get(f"cmdtree/{name}")
+        digest = str((declared or {}).get("sha256") or "") if isinstance(declared, dict) else ""
+        if source is None or _sha256(source) != digest:
+            raise ClientError(f"the synced bundle's command tree file {name} does not match its "
+                              "generation manifest; call cex_sync, or republish the bundle")
+        _copy(source, generation / name)
+        shipped[name] = digest
+    (generation / "manifest.json").write_bytes(raw)
+    active = {"schema": _COMMAND_TREE_ACTIVE_SCHEMA, "product": ids["product"],
+              "platform": ids["platform"], "version": ids["version"],
+              "device_build": ids["device_build"], "generation_id": ids["generation_id"],
+              "manifest_sha256": hashlib.sha256(raw).hexdigest()}
+    (partition / "active.json").write_text(
+        json.dumps(active, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8")
+    projection = next((digest for name, digest in shipped.items()
+                       if name.startswith("vendor_stdlib_")), "")
+    return {"status": "ready", "generation_id": ids["generation_id"],
+            "manifest_sha256": active["manifest_sha256"], "projection_sha256": projection}
+
+
+def _footprints(entries: dict[str, Path], root: Path) -> list[str]:
+    base = root / "knowledge" / "footprints"
+    versions = []
+    for rel, path in sorted(entries.items()):
+        match = _FOOTPRINT_TAR.match(rel)
+        if not match:
+            continue
+        version = safe_component(match.group(1), "footprint version")
+        versions.append(version)
+        _extract_tree(path, base / f"nodes_{version}")
+        receipt = entries.get(f"footprints/receipt_nodes_{version}.json")
+        if receipt is not None:
+            _copy(receipt, base / f".receipt_nodes_{version}.json")
+    if len(versions) == 1:
+        # 引擎的出处核对读不带版本的 nodes/；包里只有一个版本时它就是这个版本
+        version = versions[0]
+        _extract_tree(entries[f"footprints/nodes_{version}.tar.gz"], base / "nodes")
+        receipt = entries.get(f"footprints/receipt_nodes_{version}.json")
+        if receipt is not None:
+            _copy(receipt, base / ".receipt_nodes.json")
+    return versions
+
+
 def materialize(ws: Workspace) -> tuple[Path, dict[str, Any]]:
     manifest = bundle.cached_manifest(ws)
     if manifest is None:
@@ -124,12 +217,18 @@ def materialize(ws: Workspace) -> tuple[Path, dict[str, Any]]:
     compile_ref = staging / "knowledge" / "data" / "compile_ref"
     manual_root = staging / "knowledge" / "data" / "manual"
     command_tree: dict[str, Any] = {"projections": [], "xml": []}
+    routed: list[str] = []
     for rel, path in entries.items():
         if rel.startswith("projections/"):
-            _copy(path, compile_ref / rel[len("projections/"):])
-        elif rel.startswith("cmdtree/") and rel != "cmdtree/source.json":
-            # 平面布局：vendor_stdlib_<ver>_<build>.json 与（若数据包带了）cmdtree_<build>.xml
-            # 并排，引擎按投影里记的 XML 文件名与哈希核对来源
+            tail = rel[len("projections/"):]
+            if tail in _ROUTED_PROJECTIONS:
+                _copy(path, staging / _ROUTED_PROJECTIONS[tail])
+                routed.append(tail)
+            else:
+                _copy(path, compile_ref / tail)
+        elif rel.startswith("cmdtree/") and rel not in ("cmdtree/source.json", _GENERATION_MANIFEST):
+            # 平面布局：vendor_stdlib_<ver>_<build>.json 与 cmdtree_<build>.xml 并排，引擎按投影里
+            # 记的 XML 文件名与哈希核对来源（没有活动代际时引擎就读这一份）
             name = safe_component(rel[len("cmdtree/"):], "command tree file")
             _copy(path, compile_ref / name)
             command_tree["xml" if name.endswith(".xml") else "projections"].append(name)
@@ -139,10 +238,14 @@ def materialize(ws: Workspace) -> tuple[Path, dict[str, Any]]:
                 _copy(path, manual_root / ".sync_state.json")
             else:
                 _copy(path, manual_root / tail)
+    command_tree["store"] = _command_tree_store(entries, staging)
     build = str(manifest.get("build") or "")
+    source: dict[str, Any] = {}
     if "cmdtree/source.json" in entries:
         source = json.loads(entries["cmdtree/source.json"].read_text(encoding="utf-8"))
         build = str(source.get("full_version") or build)
+        if isinstance(source.get("sanitization"), dict):
+            command_tree["sanitization"] = source["sanitization"]
     if build:
         # 引擎从这里取设备 OS build（configured_device_os_build），用来选命令树分区
         capabilities = staging / "knowledge" / "data" / "auto_env" / "env_capabilities.json"
@@ -156,6 +259,9 @@ def materialize(ws: Workspace) -> tuple[Path, dict[str, Any]]:
             _copy(entries["framework/sync_meta.json"], mirror / ".sync_meta.json")
     info = {"layout": LAYOUT, "bundle_id": bundle_id, "build": manifest.get("build"),
             "device_os_build": build or None, "command_tree": command_tree,
+            "capability": {"generation_id": str(source.get("generation_id") or ""),
+                           "projection_sha256": str(source.get("projection_sha256") or "")},
+            "routed": sorted(routed), "footprints": _footprints(entries, staging),
             "spec": _spec_generation(entries, staging), "framework_files": framework_files}
     staging.mkdir(parents=True, exist_ok=True)
     (staging / _MARKER).write_text(json.dumps(info, ensure_ascii=False), encoding="utf-8")
@@ -163,6 +269,99 @@ def materialize(ws: Workspace) -> tuple[Path, dict[str, Any]]:
         shutil.rmtree(target)
     os.replace(staging, target)
     return target, info
+
+
+# ── 每次 prepare 都对齐的部分（不随数据包变） ───────────────────────────────
+
+
+def _infotest_spelling(text: str) -> str:
+    """抽取时的包改名（tools/extract_engine.py PACKAGES）倒回去；生成的 _root 助手不属 InfoTest。"""
+    text = re.sub(r"\bcex_core\.engine\.scripts\b", "scripts", text)
+    return re.sub(r"\bcex_core\.engine\b(?!\._root\b)", "main", text)
+
+
+def code_mirror(root: Path) -> int:
+    """派生规则收据要对规则逻辑取指纹：引擎按 InfoTest 路径（main/case_compiler/…）读源码。
+
+    客户端没有 InfoTest 源码；这里把正在执行的抽取副本按 InfoTest 模块名写回数据根，
+    指纹因此就是实际执行的那份逻辑。每次 prepare 都对齐（客户端升级后数据根不重摆）。
+    """
+    manifest = json.loads((ENGINE_DIR / "MANIFEST.json").read_text(encoding="utf-8"))
+    written = 0
+    for entry in manifest.get("modules") or []:
+        source = str(entry.get("source") or "")
+        if not source.startswith("main/case_compiler/") or source.endswith("/__init__.py"):
+            continue
+        rel = entry["engine_module"].split(".")[2:]
+        text = _infotest_spelling(ENGINE_DIR.joinpath(*rel).with_suffix(".py")
+                                  .read_text(encoding="utf-8"))
+        target = root / safe_relative_path(source)
+        if target.is_file() and target.read_text(encoding="utf-8") == text:
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(f".{target.name}.tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, target)
+        written += 1
+    return written
+
+
+def local_rules_path(ws: Workspace) -> Path:
+    """本工作区裁定过的判据记录：换数据包（新数据根）时要接着用。"""
+    return ws.state_dir / "criterion" / "criterion_author_rules.jsonl"
+
+
+def merge_local_rules(ws: Workspace, root: Path) -> int:
+    """把本工作区的裁定记录并进数据根的台账（按 rule_sha256 去重，追加在种子之后）。"""
+    local = local_rules_path(ws)
+    if not local.is_file():
+        return 0
+    ledger = root / RULE_LEDGER_REL
+    present: set[str] = set()
+    if ledger.is_file():
+        for line in ledger.read_text(encoding="utf-8").splitlines():
+            try:
+                present.add(str(json.loads(line).get("rule_sha256") or ""))
+            except ValueError:
+                continue
+    missing = []
+    for line in local.read_text(encoding="utf-8").splitlines():
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(record, dict) and str(record.get("rule_sha256") or "") not in present:
+            missing.append(json.dumps(record, ensure_ascii=False, sort_keys=True))
+            present.add(str(record.get("rule_sha256") or ""))
+    if missing:
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        with open(ledger, "a", encoding="utf-8") as stream:
+            stream.write("".join(line + "\n" for line in missing))
+    return len(missing)
+
+
+def topology_path(ws: Workspace) -> Path:
+    return ws.state_dir / "bed" / "network_topology.json"
+
+
+def place_topology(ws: Workspace, root: Path) -> dict[str, Any] | None:
+    """cex_bed_topology 取回的本床拓扑摆到引擎读的位置；没取过就不摆（判据照引擎报床事实不可用）。"""
+    source = topology_path(ws)
+    target = root / TOPOLOGY_REL
+    if not source.is_file():
+        if target.exists():
+            target.unlink()
+        return None
+    raw = source.read_bytes()
+    if not target.is_file() or target.read_bytes() != raw:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(f".{target.name}.tmp")
+        tmp.write_bytes(raw)
+        os.replace(tmp, target)
+    rag = source.with_name("network_topology_rag.md")
+    if rag.is_file():
+        _copy(rag, root / TOPOLOGY_MD_REL)
+    return {"path": str(target), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
 def activate(root: Path) -> Path:
@@ -178,7 +377,11 @@ def activate(root: Path) -> Path:
 
 def prepare(ws: Workspace) -> tuple[Path, dict[str, Any]]:
     root, info = materialize(ws)
+    code_mirror(root)
+    merge_local_rules(ws, root)
+    info = {**info, "topology": place_topology(ws, root)}
     return activate(root), info
 
 
-__all__ = ["DATA_ROOT_ENV", "activate", "materialize", "prepare"]
+__all__ = ["DATA_ROOT_ENV", "activate", "code_mirror", "local_rules_path", "materialize",
+           "merge_local_rules", "place_topology", "prepare", "topology_path"]
