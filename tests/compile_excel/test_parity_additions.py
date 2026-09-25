@@ -18,7 +18,7 @@ SKILL_ROOT = REPO_ROOT / "skills" / "compile-excel"
 SCRIPTS = SKILL_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from verify_batch import _tautology_family  # noqa: E402
+from verify_batch import _init_isolation_problems, _tautology_family  # noqa: E402
 from cex_client.device import attribute_fail  # noqa: E402
 
 def _run(script: str, *args: str) -> subprocess.CompletedProcess:
@@ -212,3 +212,46 @@ class ProvenanceAndReworkIT(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InitIsolationTest(unittest.TestCase):
+    """init 行在每个案之前重放：建对象会串到别的案（实验室第 1 轮 case4 的 vs10 就栽在这里）。"""
+
+    def _batch(self, init: list[str]) -> dict:
+        return {"batch": "init_iso", "init_commands": init, "cases": [
+            {"autoid": "202609259000010001", "steps": [
+                {"e": "APV_0", "f": "cmd_config", "g": 'slb virtual addrlists "a1" 10.0.0.1'},
+                {"e": "APV_0", "f": "cmd_config", "g": "show slb virtual addrlists"},
+                {"e": "check_point", "f": "found", "g": "10\\.0\\.0\\.1",
+                 "source": {"kind": "configbinding", "ref": "step:1"}}]}]}
+
+    def _check(self, init: list[str]) -> dict:
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = Path(tmp) / "cases.json"
+            cases.write_text(json.dumps(self._batch(init), ensure_ascii=False), encoding="utf-8")
+            proc = _run("compile_excel.py", "--cases", str(cases), "--out", str(Path(tmp) / "out"))
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            proc = _run("verify_batch.py", "--xlsx", str(Path(tmp) / "out" / "init_iso" / "case.xlsx"))
+            report = json.loads(proc.stdout)
+            return next(c for c in report["checks"] if c["name"].startswith("init rows"))
+
+    def test_reset_only_init_passes(self):
+        check = self._check(["configure terminal", "clear slb virtual httplist",
+                             'no slb virtual addrlists "a1" 10.0.0.1'])
+        self.assertTrue(check["ok"], check)
+
+    def test_init_that_creates_objects_is_rejected(self):
+        check = self._check(["clear slb virtual addrlists",
+                             'slb virtual addrlists "addlist1" 181.37.68.13',
+                             "slb virtual httplist vs3 addlist1 port1"])
+        self.assertFalse(check["ok"])
+        self.assertIn('slb virtual addrlists "addlist1" 181.37.68.13', check["detail"])
+        self.assertIn("slb virtual httplist vs3 addlist1 port1", check["detail"])
+
+    def test_classifier_only_looks_at_device_init_rows(self):
+        rows = [[None, None, "1", None, "APV_0", "cmds_config",
+                 "clear slb all\nslb real http r1 10.0.0.2 80\nshow slb real", None, None],
+                [None, None, "1", None, "time", "sleep", "1", None, None],
+                ["202609259000010001", None, "2", None, None, None, None, None, None],
+                [None, None, None, None, "APV_0", "cmd_config", "slb real http r2 10.0.0.3 80", None, None]]
+        self.assertEqual(_init_isolation_problems(rows), ["slb real http r1 10.0.0.2 80"])

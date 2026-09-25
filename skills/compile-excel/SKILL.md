@@ -197,7 +197,9 @@ python3 scripts/verify_batch.py --xlsx <workspace>/compile_outputs/<batch>/case.
 Then `cex_scan_destructive` with the same `xlsx`. The first is the structural gate: structure,
 layout, E/F membership, check_point coverage, autoid discipline, assertions that would match the
 command text itself, the **tautology family** (expected hitting prompt shapes / regex matching
-the empty string / not_found of a token in the feeding command), and the **provenance sidecar**.
+the empty string / not_found of a token in the feeding command), the **provenance sidecar**,
+and **init isolation**: `init_commands` replay before every case, so they may only reset state
+(`clear` / `no`, `show`, mode switches); an object a case needs is created in that case's own steps.
 The second rejects device-wide destructive commands using rules from the synced bundle; the
 gateway runs the same check again on submit. On failure, use `references/gotchas.md`, fix
 `cases.json`, recompile, re-verify.

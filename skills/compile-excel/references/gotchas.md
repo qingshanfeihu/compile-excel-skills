@@ -7,6 +7,7 @@
 
 | lint code | 根因 | 修法 |
 |---|---|---|
+| `init rows only reset state` | init_commands 在**每个案之前**重放；在 init 里建的对象会带进每个案，某案重定义同名对象时设备拒绝那一步（实测：init 里 addlist1 绑了 vs3，另一案往 addlist1 加地址被拒） | init 只留 clear/no/show/模式切换；案要用的对象写进该案自己的步骤，用完在本案收尾删掉 |
 | `dangling_assertion` | 断言读 framework result，但 result=None | 两种成因见下；保证断言**正上方**是一个**无 h** 的观察步 |
 | `dangling_assertion`（成因A） | 用了 `APV_0::cmd`——cmd 只执行不回显，不产生 observation echo | `f` 改 `cmd_config` |
 | `dangling_assertion`（成因B） | 观察步带 `h`（save_as）——捕获进变量，**不更新 framework result** | 简单断言：去掉 `h`；要比对变量：三步捕获形式（下节） |

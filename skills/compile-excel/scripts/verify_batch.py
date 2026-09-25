@@ -217,6 +217,30 @@ def _provenance_problems(xlsx: Path, data: list[list]) -> list[str]:
     return problems
 
 
+_INIT_NEUTRAL = re.compile(
+    r"^(clear|no|show)\s|^(config(ure)?\s+t(erminal)?|conf\s+t|enable|end|exit)$", re.IGNORECASE)
+
+
+def _init_isolation_problems(data: list[list]) -> list[str]:
+    """init 行（C=1）在每个案之前都会重放：只许清场（clear / no）、只读（show）和模式切换。
+
+    在 init 里建对象，等于给每个案都塞了一条隐藏前置：某案重定义同名对象或与之冲突时，
+    设备会拒绝那一步，而断言可能照样命中别的东西。案要用的对象写进该案自己的步骤。
+    """
+    problems: list[str] = []
+    for row in data:
+        if str(row[2]).strip() != "1":
+            continue
+        e = str(row[4] or "").strip()
+        if not e.startswith("APV_"):
+            continue
+        for line in str(row[6] or "").splitlines():
+            command = line.strip()
+            if command and not _INIT_NEUTRAL.search(command):
+                problems.append(command)
+    return problems
+
+
 def verify(path: Path) -> dict:
     report = Report()
     wb = load_workbook(path, data_only=True)
@@ -317,6 +341,9 @@ def verify(path: Path) -> dict:
     prov_bad = _provenance_problems(path, data)
     report.add("provenance sidecar (expected-value sources)", not prov_bad,
                f"problems={prov_bad[:4]}")
+    init_bad = _init_isolation_problems(data)
+    report.add("init rows only reset state (they replay before every case)", not init_bad,
+               f"state-creating init commands={init_bad[:4]}（放进用到它的那个案的步骤里）")
 
     wb.close()
     return report.payload(str(path))
