@@ -33,6 +33,11 @@ _KNOWN_LITERALS = {
 }
 
 
+# 抽取来的引擎里 "environment" 常作枚举值（失败归因类别、负责方）；读 InfoTest 的配置文件
+# 在引擎里只能是拼路径（root / 'environment'、_cex_data_path('environment')），引擎文件按这个查
+_ENGINE_ENV_PATH = re.compile(r"""(?:/\s*|_cex_data_path\(\s*)["']""" + "environ" + r"""ment["']""")
+
+
 def _engine_env_loader_is_outside_the_closure() -> bool:
     """引擎代码里的 langchain_env 只能是闭包外的延迟 import（调到就 ModuleNotFoundError）。"""
     manifest = json.loads((REPO_ROOT / "cex_core" / "engine" / "MANIFEST.json")
@@ -57,6 +62,8 @@ def test_code_does_not_touch_infotest_configuration():
         for pattern in _PATTERNS:
             if pattern is _PATTERNS[0] and rel.startswith("cex_core/engine/") and loader_outside:
                 continue
+            if pattern is _PATTERNS[1] and rel.startswith("cex_core/engine/"):
+                pattern = _ENGINE_ENV_PATH
             if pattern.search(text):
                 offenders.append(f"{rel}: {pattern.pattern}")
     assert offenders == []

@@ -689,6 +689,9 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
                               authored_round=1, source_manifest_ref="", source_manifest_sha256="")
     if body.get("binding") is None:
         body["binding"] = {}
+    if body.get("escape_hatches") is None:
+        # 引擎的提交工具同样把省略的 escape_hatches 当空数组（没有 STEP 块时本来就是空的）
+        body["escape_hatches"] = []
     body, violations = _stamp_engine_binding(body, contract=contract, contract_sha256=contract_sha,
                                              consistency_contract_sha256=None, session=session,
                                              project_root=root)
