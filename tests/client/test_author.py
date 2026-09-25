@@ -69,13 +69,32 @@ def _workbook_rows(xlsx: Path) -> dict[str, list[tuple[str, str, str]]]:
     return rows
 
 
-def test_client_authoring_reproduces_the_engine_delivery(tmp_path):
+def _reference_types() -> dict[str, str]:
+    """交付那批契约卡里，引擎对每个判据形状的裁定。"""
+    types: dict[str, str] = {}
+    for card in sorted((REFERENCE / "contracts").glob("*.json")):
+        for item in json.loads(card.read_text(encoding="utf-8")).get("expectations") or []:
+            claim = (item or {}).get("normalized_claim") or {}
+            if claim.get("shape_key") and claim.get("criterion_type"):
+                types[str(claim["shape_key"])] = str(claim["criterion_type"])
+    return types
+
+
+def _run_flow(tmp_path: Path, *, drop_ledger: bool) -> dict:
     bundle_dir = _publish(tmp_path)
+    if drop_ledger:
+        # 不发判据台账种子：每个判据形状都要在客户端裁定一遍
+        (bundle_dir / "projections" / "criterion_author_rules.jsonl").unlink()
+        manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+        manifest["entries"] = [e for e in manifest["entries"]
+                               if e["path"] != "projections/criterion_author_rules.jsonl"]
+        (bundle_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    types = tmp_path / "types.json"
+    types.write_text(json.dumps(_reference_types()), encoding="utf-8")
     ws_root = tmp_path / "ws"
     batch = "parity"
-    mindmap = ws_root / "mindmap.json"
     ws_root.mkdir()
-    shutil.copyfile(REFERENCE / "mindmap_source.json", mindmap)
+    shutil.copyfile(REFERENCE / "mindmap_source.json", ws_root / "mindmap.json")
     script = f'''
 import json, shutil, sys
 from pathlib import Path
@@ -91,6 +110,15 @@ cases = json.loads(Path({str(REFERENCE / "machine_mindmap.json")!r}).read_text()
 submitted = recompose.submit_cases(ws, {batch!r}, cases)
 sealed = recompose.seal(ws, {batch!r})
 cards = author.prepare(ws, {batch!r})
+types = json.loads(Path({str(types)!r}).read_text())
+recorded = []
+while cards.get("phase") == "criterion_pending" or cards.get("pending_shapes"):
+    shape = cards["pending_shapes"][0]
+    judgment = {{"criterion_type": types[shape["shape_key"]],
+                 "rationale": "The engine delivery typed this verdict shape the same way.",
+                 "disclosure": "按交付批的同一裁定归类。"}}
+    cards = author.criterion_record(ws, {batch!r}, shape["shape_key"], judgment)
+    recorded.append([shape["shape_key"], cards.get("status")])
 results = {{}}
 for aid in [c["autoid"] for c in cards.get("cases") or []]:
     body = json.loads((Path({str(REFERENCE)!r}) / "delivered" / aid / "mechanical_case.json").read_text())
@@ -102,7 +130,7 @@ try:
 except Exception as exc:
     emitted = {{"ok": False, "error": f"{{type(exc).__name__}}: {{exc}}"}}
 print(json.dumps({{"prep": prep.get("ok"), "submitted": submitted.get("status"),
-                   "sealed": sealed.get("ok"), "phase": cards.get("phase"),
+                   "sealed": sealed.get("ok"), "phase": cards.get("phase"), "recorded": recorded,
                    "cases": [c["autoid"] for c in cards.get("cases") or []],
                    "results": {{a: [r.get("status"), r.get("violations")] for a, r in results.items()}},
                    "emit": emitted}}, ensure_ascii=False))
@@ -113,7 +141,10 @@ print(json.dumps({{"prep": prep.get("ok"), "submitted": submitted.get("status"),
                           timeout=1800, check=False,
                           env={**env, "CEX_ENGINE_DATA_ROOT": "", "IST_DEVICE_OS_BUILD": ""})
     assert proc.returncode == 0, proc.stderr[-4000:]
-    result = json.loads(proc.stdout.strip().splitlines()[-1])
+    return json.loads(proc.stdout.strip().splitlines()[-1])
+
+
+def _assert_reproduces_the_delivery(result: dict) -> None:
     assert result["phase"] == "published" and result["cases"], result
     unsealed = {aid: r for aid, r in result["results"].items() if r[0] != "sealed"}
     assert unsealed == {}, json.dumps(unsealed, ensure_ascii=False)[:4000]
@@ -122,3 +153,18 @@ print(json.dumps({{"prep": prep.get("ok"), "submitted": submitted.get("status"),
     theirs = _workbook_rows(REFERENCE / "case.xlsx")
     for aid in result["cases"]:
         assert ours.get(aid) == theirs.get(aid), aid
+
+
+def test_client_authoring_reproduces_the_engine_delivery(tmp_path):
+    result = _run_flow(tmp_path, drop_ledger=False)
+    assert result["recorded"] == [], "every shape is answered by the shipped criterion ledger"
+    _assert_reproduces_the_delivery(result)
+
+
+def test_criteria_typed_through_the_client_reproduce_the_delivery(tmp_path):
+    """没有台账种子时每个形状停在 criterion_pending；按交付那批的同一裁定逐个记录，
+    引擎复核入账后发布契约卡，交付的机械用例照样逐案封存、出件逐行一致。"""
+    result = _run_flow(tmp_path, drop_ledger=True)
+    assert result["recorded"], "without the ledger seed the shapes need adjudication"
+    assert all(status == "recorded" for _key, status in result["recorded"]), result["recorded"]
+    _assert_reproduces_the_delivery(result)
