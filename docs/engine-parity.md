@@ -1,5 +1,7 @@
 # InfoTest 引擎 vs compile-excel skill 功能对账
 
+> §1–§6 是 2026-09-24 的基线快照，保留原样作对照；之后的进展看 §7–§10。
+
 > 2026-09-24 实测基线：同一脑图（slb virtual httplist 等 list 命令支持 no 和 clear），
 > 引擎最好成绩 internala-final1/httplist_qwen3 = 5/5 上机 pass；skill 路线 slb_virtual_list_0923 =
 > 5/5 pass、slb_list_noclear_full = 3/3 pass + verify_batch 11/11。**判定通道同源**
@@ -200,7 +202,7 @@
   `cex_bug_get` 读到的单子只作线索，`defect:` 出处在提交时被引擎拒收；
 - 全部案落盘后由客户端从台账密封。引擎在台账盖满时也是自己密封、不再派 fork；
   `self_check` / `orphan_notes` 两个可选字段引擎本来就不消费；
-- 契约投影（contract cards、判词裁定 fork）不在这一步：compile-excel 直接按机械脑图编写。
+- 契约投影（contract cards、判词裁定 fork）不在这一步，由编写阶段接着做（见 §10）。
 
 **测试**（`tests/client/test_recompose.py`、`test_engine_env.py`、`test_cmd_check_projection.py`）：
 - 客户端胶水与直接调 InfoTest 原模块逐项一致：同一份脑图、绑定与案，拒收回执、接收回执、
@@ -231,7 +233,7 @@ faithful 模式 15,887 例，初跑 14 例结果不同，逐条查清：
 - 安装器的依赖自检漏了 E10 加的 `pydantic`，也没有 `langchain-core`，已补，并有测试钉住
   requirements 与检查表一致。
 
-**未决**：数据包按决定只发命令树投影、不发原始 XML，而引擎读投影前要按投影里记的文件名与
+**未决（已在 §10 解决）**：数据包按决定只发命令树投影、不发原始 XML，而引擎读投影前要按投影里记的文件名与
 哈希核对那份 XML。结果是客户端里 `cex_lang_query` 的 param / complete 不可用，
 `step_structure` 的对象类型闭集（同样经 `load_vendor_stdlib`）也取不到，引擎于是对对象类型
 放行不核。实测：同一份合成投影加上它的 XML，`cex_lang_query` 就能补全；对象类型闭集在带
@@ -269,3 +271,51 @@ XML 时能否取到还依赖别的数据，本机没有真实投影，未核。�
 `langchain_env`，那是真引用，改为结构性判定——只有 MANIFEST 确认它在闭包外（调到就
 ModuleNotFoundError）才放行，哪天被抽进来守门就红。
 
+## 10. 编写阶段移到客户端（契约卡、判据裁定、块语言、床事实）
+
+**做了什么**：InfoTest 编译引擎在重组之后的那一段——recompose 节点的投影段、author 节点
+（intent 章、compile-worker 写机械用例、`submit_mechanical_case` 的提交规则闸与封存）、emit 的块
+展开——按原顺序移植成客户端的薄胶水 `cex_client/author.py`，判据一律调 `cex_core/engine`：
+
+| 工具 | 对应引擎 |
+|---|---|
+| `cex_bed_topology` | 床事实：网关 `bed_topology` 在跳板机上用 InfoTest 拓扑生成器同一套纯函数现合成 `network_topology.json`；引擎 `env_facts` 读它 |
+| `cex_author_prepare` | `fill_mechanical_fields` → 结构 / 逐字隔离 → `project_machine_mindmap` → 预检 → 发布 `contracts/` 与披露旁车 → `recompose_done` 回执 → 每案 `_stamp_intent` |
+| `cex_criterion_record` | 引擎把待裁定形状交给 criterion-adjudicator fork；这里把同一份单形状 brief 交给当前模型，`parse_engine_adjudication_result` 复核、`persist_engine_adjudications` 入台账 |
+| `cex_author_submit_case` | `submit_mechanical_case` 的判定链：冻结契约、`_stamp_engine_binding`、SSL_CERT_LOAD 标准库降级、`run_mechanical_case_gate`、豁免账、`mint_and_land_mechanical_case` |
+| `cex_author_emit` | `expand_blocks` + `lower_derived_assertions`，出 `cases.json` 后交 `compile_excel.py` 与 `verify_batch.py` |
+
+**抽取**：种子加到 62 个，闭包 112 个模块，延迟 import 221 处，指向 64 个闭包外模块，其中 56 处
+guarded。抽取器顺带修了四处闭包算法：代码写在 `__init__.py` 里、又被闭包直接取名字的包抽正文
+（只取子模块时包仍是空壳）；模块体导入时就调用的函数，里面的 import 按顶层算（`if __name__ ==
+"__main__"` 除外）；字面串的 `import_module` / `__import__` 与 import 语句同等对待；docstring 守门
+只拦会成为工具说明的函数，非工具文档串里的运行编号按批名同样替换。
+
+**数据面**：
+- 命令树：发布端（compile-excel-server `tools/publish_data_dir.py` + `tools/cmdtree_rederive.py`）
+  把凭据参数（引擎 `is_credential_argument`）的 `default_value` 置空，再用引擎自己的
+  `publish_local_command_tree` 与拆卸图谱生成器从这份 XML 重推导代际、投影、图谱与领域文法。与
+  InfoTest 已收敛的原件相比只许身份字段与读取计数不同，命令头一条不变（实测 4281 条全同），否则
+  拒绝发布。SSL 生命周期证据里的图谱身份随之改绑。客户端按代际清单逐文件核哈希后摆成活动代际；
+- 判据台账：InfoTest 的 `runtime/criterion_author_rules.jsonl` 作种子随包发，本工作区裁定的记录
+  另存一份，换数据包后接着用；
+- 派生规则收据要对规则逻辑取指纹，引擎按 InfoTest 路径读源码：客户端把正在执行的抽取副本按
+  InfoTest 模块名写回数据根（`main/case_compiler/*.py`），每次 prepare 对齐。
+
+**与引擎的差别**（只在胶水层）：不移植 worker 会话（修补轮的省略续传、重复拒收计数、准入账）；
+规格一致性裁决（scenario 1）没有移植——管辖规格书绑定时提交如实拒绝，并提示重组时用
+`spec='none'`；answerer 为 undetermined 的观察块直接返回待用户裁决，不写用户裁决账；产物根是
+工作区 `compile_outputs/`，每案目录与批目录的相对布局不变。
+
+**对拍**（2026-09-25）：
+- InfoTest 里提到新模块的测试文件 216 个、6,370 例，faithful 模式 0 例意外差异；基线 6,333 过、
+  35 跳过、2 失败。已登记 6 例：两例读源码文本匹配双引号字面、两例按路径 / git 去 grep `main/`，
+  两例按 InfoTest 模块名模拟导入失败（改 `builtins.__import__` 或 `sys.modules['main.…']`，抽取
+  副本导入的是引擎名，模拟根本不触发）。初跑的差异还查出对拍插件两处问题，已修：抽了正文的包
+  别名后找不到没抽的子模块；父包上与子模块同名的工具属性被模块覆盖；
+- 编写阶段对拍（`tests/client/test_author.py`，可选）：拿 InfoTest 已交付的一批，从发布到出件与
+  交付工作簿逐行一致；不发台账种子、逐形状经 `cex_criterion_record` 裁定时同样一致。
+
+**上机**（.100 床，设备 10.5.0 build 585）：InfoTest 的参考机械用例走客户端全链路 5/5 通过；
+circle（qwen3.8-flash）按技能从脑图走到上机，批次 `slb-list-authoring` 第一轮 5/5 通过，21 个检查点，
+流量判据是触发机上的 curl 退出码（该通时 0，作者写「访问失败」处为 7）。
