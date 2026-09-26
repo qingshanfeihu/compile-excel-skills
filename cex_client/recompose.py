@@ -423,13 +423,23 @@ def seal(ws: Workspace, out_name: str) -> dict[str, Any]:
 
 def lang_query(ws: Workspace, args: dict[str, Any], out_name: str = "") -> dict[str, Any]:
     """InfoTest lang_query 同一函数；给了批名就在那一批的派发作用域里查（引擎会把命令查询
-    记进该批的 grounding）。结果里的文件路径相对引擎数据根（data_root）。"""
+    记进该批的 grounding）。结果里的文件路径相对引擎数据根（data_root）。
+
+    批次已密封时派发作用域已关：查询照常给结果，只是不再记进这一批的 grounding——编写阶段
+    同样要查参数契约与出处，不能因为重组已封就查不了。"""
+    scope = None
+    note = None
     if out_name:
-        state, scope = _scope(ws, out_name)
+        state = _load_state(ws, out_name)
         root = Path(state["data_root"])
+        if _is_sealed(ws.outputs_dir / state["out_name"]):
+            engine_env.activate(root)
+            note = ("the recompose batch is sealed, so this lookup is not recorded in its "
+                    "grounding; the result is the same")
+        else:
+            state, scope = _scope(ws, out_name)
     else:
         root, _info = engine_env.prepare(ws)
-        scope = None
     from cex_core.engine.ist_core.tools.device.lang_query_tool import lang_query as tool
 
     kwargs = {k: args[k] for k in ("kind", "name", "domain", "query", "position") if k in args}
@@ -438,7 +448,10 @@ def lang_query(ws: Workspace, args: dict[str, Any], out_name: str = "") -> dict[
     else:
         with scope:
             result = tool.func(**kwargs)
-    return {"ok": True, "data_root": str(root), "result": result}
+    out = {"ok": True, "data_root": str(root), "result": result}
+    if note:
+        out["note"] = note
+    return out
 
 
 __all__ = ["lang_query", "prepare", "seal", "submit_cases"]

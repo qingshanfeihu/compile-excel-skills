@@ -75,3 +75,29 @@ def test_a_batch_counts_as_sealed_only_with_a_submitted_receipt_and_the_artifact
     assert recompose._is_sealed(batch)
     receipt.write_text(json.dumps({"status": "prepared"}), encoding="utf-8")
     assert not recompose._is_sealed(batch), "a reopened batch is not sealed"
+
+
+def test_lang_query_on_a_sealed_batch_answers_without_recording(tmp_path, monkeypatch):
+    """编写阶段也要查参数契约与出处：批次已密封（派发作用域已关）时照常给结果、不记进 grounding。"""
+    import sys
+    import types
+
+    from cex_client import engine_env
+
+    calls = []
+    fake = types.ModuleType("lang_query_tool")
+    fake.lang_query = types.SimpleNamespace(func=lambda **kw: calls.append(kw) or "answer")
+    monkeypatch.setitem(sys.modules, "cex_core.engine.ist_core.tools.device.lang_query_tool", fake)
+    monkeypatch.setattr(recompose, "_load_state", lambda _ws, name: {
+        "out_name": name, "data_root": str(tmp_path / "data"), "dispatch_id": "d"})
+    monkeypatch.setattr(recompose, "_is_sealed", lambda _batch: True)
+    monkeypatch.setattr(engine_env, "activate", lambda _root: None)
+
+    def closed_scope(*_a, **_k):
+        raise AssertionError("a sealed batch has no open dispatch scope to enter")
+
+    monkeypatch.setattr(recompose, "_scope", closed_scope)
+    ws = types.SimpleNamespace(outputs_dir=tmp_path)
+    out = recompose.lang_query(ws, {"kind": "usage", "name": "dig"}, out_name="demo")
+    assert out["ok"] and out["result"] == "answer" and "not recorded" in out["note"]
+    assert calls == [{"kind": "usage", "name": "dig"}]
