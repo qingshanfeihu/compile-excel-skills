@@ -56,7 +56,9 @@ falsifiable.
 For an author-penned deploy literal whose reachability this stage cannot know, judge only load-bearing-ness. Each
 `rebind_licenses[]` item has exactly `{author_literal, verdict, occurrences, constraints, reason}`; `verdict` is
 `rebindable|load_bearing`. Quote the author's original bytes in `author_literal`, including the original IP rather
-than any later bed substitution; `constraints` states shape and cross-occurrence consistency.
+than any later bed substitution; `occurrences` is a list with one step locator per place the literal appears
+(`["step:1", "step:3"]`, the same locator twice when a step holds it twice), never a count; `constraints` states
+shape and cross-occurrence consistency.
 
 Under the rewrite regime the license is disclosure, not a value channel: a `rebindable` literal is turned into a
 concrete reachable value of the same address family inside `adapted_steps` (two distinct author literals never

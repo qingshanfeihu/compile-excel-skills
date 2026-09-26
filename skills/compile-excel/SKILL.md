@@ -234,10 +234,12 @@ gateway runs the same check again on submit. On failure, use `references/gotchas
    credential literals) and refuses rather than rewriting it; a refusal lists `problems`.
 4. Verdicts come from the framework result database, bound to this task; pytest's own
    `1 passed` means nothing. `run_results.json` and `run_receipt.md` are written beside the
-   xlsx. Non-pass cases carry the framework log tail plus a mechanical first-pass attribution
-   (`G` = CLI error text in the log, `transient?` = timeout/connection suspects, `undetermined`
-   otherwise). The semantic call (expectation wrong, product defect, environment) stays with
-   you: read the `detail_tail` itself. A log marked stale predates this submission and is no
+   xlsx. Non-pass cases carry `failed_checks` (each failed check point with the output it was
+   matched against, e.g. `IST_EXIT_STATUS=56` for a traffic check), the framework log as the
+   gateway returned it (`detail_tail`), and a mechanical first-pass attribution (`G` = CLI error
+   text in the log, `transient?` = timeout/connection suspects, `undetermined` otherwise). The
+   semantic call (expectation wrong, product defect, environment) stays with you: read
+   `failed_checks` first, then the log. A log marked stale predates this submission and is no
    evidence for it.
 5. `cex_probe_show` runs one read-only `show`/`get` command when you need the device's actual
    state to understand a failure (requirement 5 still holds).
@@ -246,7 +248,7 @@ gateway runs the same check again on submit. On failure, use `references/gotchas
    `step: confirm` with the code only after they agree. It needs admin rights on the gateway.
 7. `cex_bed_lease` with `action: release` when you are done with the bed.
 
-On fail: read each case's `detail_tail` and attribution. For a mindmap batch, fix the failed
+On fail: read each case's `failed_checks`, `detail_tail` and attribution. For a mindmap batch, fix the failed
 cases' mechanical cases and resubmit them (`cex_author_submit_case`), then `cex_author_emit`;
 for hand-written cases fix `cases.json` per `references/gotchas.md`. Either way **pass the rework
 gate** on the new `cases.json`, recompile/re-emit, re-verify, re-run.
@@ -256,7 +258,9 @@ python3 scripts/rework_gate.py --batch-dir <workspace>/compile_outputs/<batch> -
 ```
 
 The redispatch set must be a subset of the prior fail set; prior-pass cases are locked (content
-change = violation; a wholesale restart needs `--force` and is recorded). Writes `rework.json`
+change = violation; a wholesale restart needs `--force` and is recorded). The gate compares
+against the check points that actually ran (`provenance_fingerprints` in `run_results.json`),
+so re-emitting before the gate does not hide a change. Writes `rework.json`
 (round, fail set, redispatch set, kept passes).
 
 ### 10. Backfill (回填)

@@ -1,7 +1,11 @@
 """上机：经网关提交工作簿、轮询、取回框架判定，并把回执写回工作簿所在目录。
 
 判定语义归框架：verdict 来自框架结果库；pytest 的 “1 passed” 不代表断言通过。
-非 pass 的 case 附框架日志作归因证据；早于投递时间的日志网关已标 stale，这里不拿它当证据。
+非 pass 的 case 附框架日志作归因证据：网关给多少留多少（失败断言的实际回显在日志中段，只留尾巴
+会切掉它），并把每个失败断言连同它当时的回显摘成 failed_checks；早于投递时间的日志网关已标
+stale，这里不拿它当证据。
+投递时把工作簿旁 provenance.json 的逐案 check_point 指纹记进任务记录，取结果时写进 run_results.json：
+返工闸以“上一轮真上机的卷面”为准比对——编写阶段的 cex_author_emit 会在过闸之前重写 provenance.json。
 回执格式沿用原 run_device（ist.excel.device-run-result）：run_results.json 机读、run_receipt.md 人读。
 """
 
@@ -11,6 +15,7 @@ import base64
 import datetime as _dt
 import hashlib
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -31,6 +36,54 @@ _TRANSIENT_MARKERS = (
     "timeout", "timed out", "read_until", "connection reset",
     "connection closed", "device_busy", "traceback", "not reachable",
 )
+
+# 框架对每个失败断言打一行 "#### Fail Num N: fail to find <模式> in:"，其后几行是被检命令与实际回显
+_FAIL_HEAD_RE = re.compile(r"#### Fail Num \d+: fail to find .* in:\s*$")
+_FAIL_CONTEXT_LINES = 8
+_RETURN_TAIL_CHARS = 600
+
+
+def failed_checks(log: str) -> list[str]:
+    """每个失败的 check_point 一段：框架的失败行加它当时比对的回显（到下一条 #### 为止）。"""
+    lines = (log or "").splitlines()
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        if not _FAIL_HEAD_RE.search(line):
+            continue
+        block = [line.strip()]
+        for follow in lines[i + 1:i + 1 + _FAIL_CONTEXT_LINES]:
+            if "####" in follow:
+                break
+            if follow.strip():
+                block.append(follow.strip())
+        out.append("\n".join(block))
+    return out
+
+
+_LOG_STAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} ")
+
+
+def check_summary(block: str) -> str:
+    """回执一格放得下的一句：期望的模式 → 实际回显的最后一行。"""
+    lines = [_LOG_STAMP_RE.sub("", ln).strip() for ln in (block or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    head = re.sub(r"^#### Fail Num \d+: ", "", lines[0])
+    return f"{head} → {lines[-1]}" if len(lines) > 1 else head
+
+
+def provenance_fingerprints(prov_path: Path) -> dict[str, str]:
+    """provenance.json 的逐案 check_point 指纹；与 rework_gate 的 _entries_fp 同一算法。"""
+    try:
+        prov = json.loads(prov_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, str] = {}
+    for autoid, entries in ((prov or {}).get("cases") or {}).items():
+        if isinstance(entries, list):
+            blob = json.dumps(entries, ensure_ascii=False, sort_keys=True)
+            out[str(autoid)] = hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    return out
 
 
 def attribute_fail(detail_tail: str) -> dict[str, str]:
@@ -76,7 +129,8 @@ def submit(ws: Workspace, xlsx: str, module: str | None = None) -> dict[str, Any
             raise ClientError("gateway staged a different workbook than the one sent")
         gateway.remember_task(ws, out["task_id"], {
             "xlsx": str(path.relative_to(ws.root)), "sha256": local_sha,
-            "submitted_at": _now(), "case_ids": out.get("case_ids", [])})
+            "submitted_at": _now(), "case_ids": out.get("case_ids", []),
+            "provenance_fp": provenance_fingerprints(path.parent / "provenance.json")})
     return out
 
 
@@ -95,10 +149,12 @@ def results(ws: Workspace, task_id: str) -> dict[str, Any]:
         verdict = str(case.get("result") or "not_run").lower()
         entry: dict[str, Any] = {"autoid": case["case_id"], "verdict": verdict}
         if verdict != "pass":
-            entry["detail_tail"] = "" if case.get("log_stale") else (case.get("log") or "")[-600:]
+            log = "" if case.get("log_stale") else str(case.get("log") or "")
+            entry["detail_tail"] = log
+            entry["failed_checks"] = failed_checks(log)
             if case.get("log_stale"):
                 entry["note"] = "框架日志早于本次投递（上一轮残留），不作本次证据"
-            entry["attribution"] = attribute_fail(entry["detail_tail"])
+            entry["attribution"] = attribute_fail(log)
         cases.append(entry)
     verdicts = [c["verdict"] for c in cases]
     totals = {"cases": len(verdicts), "pass": verdicts.count("pass"),
@@ -113,9 +169,14 @@ def results(ws: Workspace, task_id: str) -> dict[str, Any]:
             "submitted": record.get("submitted_at"), "finished": _now(), "cases": cases,
             "totals": totals,
         }
+        if record.get("provenance_fp"):
+            result["provenance_fingerprints"] = record["provenance_fp"]
         write_receipts(result, xlsx.parent)
         written = str((xlsx.parent / "run_receipt.md").relative_to(ws.root))
-    return {**out, "totals": totals, "cases": cases, "receipt": written}
+    # 整段日志只进 run_results.json；回给会话的只带失败断言和一截尾巴，免得几段日志挤占上下文
+    compact = [{**case, "detail_tail": case["detail_tail"][-_RETURN_TAIL_CHARS:]}
+               if case.get("detail_tail") else case for case in cases]
+    return {**out, "totals": totals, "cases": compact, "receipt": written}
 
 
 def write_receipts(result: dict[str, Any], out_dir: Path) -> None:
@@ -134,7 +195,9 @@ def write_receipts(result: dict[str, Any], out_dir: Path) -> None:
         "| autoid | 框架判定 | 证据摘录 |", "|---|---|---|",
     ]
     for case in result["cases"]:
-        note = (case.get("detail_tail") or case.get("note") or "").replace("\n", " ⏎ ")[:160]
+        checks = case.get("failed_checks") or []
+        evidence = check_summary(checks[0]) if checks else (case.get("detail_tail") or "")[-160:]
+        note = (evidence or case.get("note") or "").replace("\n", " ⏎ ")[:200]
         layer = (case.get("attribution") or {}).get("layer")
         if layer:
             note = f"[{layer}] {note}"

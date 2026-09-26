@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from compile_excel import _SOURCE_KINDS  # noqa: E402
+from compile_excel import _SOURCE_KINDS, _step_field  # noqa: E402
 
 REWORK_SCHEMA = "ist.excel.rework-record"
 
@@ -31,8 +31,10 @@ REWORK_SCHEMA = "ist.excel.rework-record"
 def _cp_entries(autoid: str, case: dict) -> list[dict]:
     """case 的 check_point 来源记录，与 compile_excel._build_provenance 同型。"""
     out = []
+    # 手写 cases.json 用小写 e/f/g，cex_author_emit 产出的用大写 E/F/G：两种都认，
+    # 否则编写阶段的用例一律读不到 check_point，上轮 pass 的案全被误判"内容变化"。
     for s in case.get("steps", []):
-        if str(s.get("e", "")).strip() != "check_point":
+        if str(_step_field(s, "e") or "").strip() != "check_point":
             continue
         src = s.get("source") or {}
         kind = str(src.get("kind") or "").strip().lower()
@@ -41,8 +43,8 @@ def _cp_entries(autoid: str, case: dict) -> list[dict]:
             kind, ref = "author-verbatim", f"mindmap:{autoid}"
         out.append({
             "E": "check_point",
-            "F": str(s.get("f") or ""),
-            "G": str(s.get("g") or ""),
+            "F": str(_step_field(s, "f") or ""),
+            "G": str(_step_field(s, "g") or ""),
             "source": {"kind": kind, "ref": ref},
         })
     return out
@@ -119,7 +121,10 @@ def main() -> int:
     }
     prior_fail = {a for a, v in prior_verdicts.items() if v != "pass"}
     prior_pass = {a for a, v in prior_verdicts.items() if v == "pass"}
-    prior_fp = _prior_fingerprints(prov_path)
+    # 以上一轮真上机的卷面为准：投递时记下、随结果写进 run_results.json 的指纹。
+    # 编写阶段的 cex_author_emit 会在过闸之前重写 provenance.json，拿它比只会是新比新；
+    # 旧回执没有这份指纹时才退回 provenance.json。
+    prior_fp = prior.get("provenance_fingerprints") or _prior_fingerprints(prov_path)
 
     new_cases = doc.get("cases") or []
     new_ids = {str(c.get("autoid") or "") for c in new_cases}
