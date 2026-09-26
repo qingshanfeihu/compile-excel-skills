@@ -305,6 +305,7 @@ def prepare(ws: Workspace, mindmap: str, *, out_name: str = "", spec: str = "") 
     source_sha = hashlib.sha256(raw).hexdigest()
     binding = _binding(snapshot.relative_to(ws.root).as_posix(), spec_status, defect)
     autoids = tuple(closed_mindmap_case_autoids(text.lstrip(_STRIP)))
+    was_sealed = _is_sealed(batch)
     dispatch_id = uuid.uuid4().hex
     _receipt, already = initialize_machine_mindmap_submission(
         outputs, name, dispatch_id, binding=binding, case_autoids=autoids,
@@ -327,12 +328,33 @@ def prepare(ws: Workspace, mindmap: str, *, out_name: str = "", spec: str = "") 
         "next": ("Recompose the outstanding cases and record them with "
                  "cex_recompose_submit_cases as you finish them; then call cex_recompose_seal."),
     }
+    if was_sealed:
+        # 重开会删掉已密封的 machine_mindmap.json：编写阶段据它出的契约卡随即失去出处
+        authoring = (ws.state_dir / "author" / f"{name}.json").is_file()
+        result["reopened_seal"] = True
+        result["warning"] = (
+            "This batch was sealed. Preparing it again reopened it and removed the sealed "
+            "machine_mindmap.json; recorded cases stay recorded. Seal it again with "
+            "cex_recompose_seal before any cex_author_* call"
+            + ("; authoring has started on this batch, so re-run cex_author_prepare after sealing "
+               "(authoring refuses to continue on an unsealed batch)" if authoring else "") + ".")
+        if not remaining:
+            result["next"] = "Every case is already recorded: call cex_recompose_seal now."
     if defect.get("unresolved"):
         result["defect_spec_note"] = (
             "The root title names a ticket, but this client cannot bind a DefectSpec "
             "projection; the status is resolved_absent. cex_bug_get can read the ticket for "
             "discovery only - it never becomes a contract source.")
     return result
+
+
+def _is_sealed(batch: Path) -> bool:
+    """批目录现在是否处于密封态（提交回执是 submitted 且机械脑图在）。"""
+    try:
+        receipt = json.loads((batch / ".machine_mindmap_submission.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return receipt.get("status") == "submitted" and (batch / "machine_mindmap.json").is_file()
 
 
 def _scope(ws: Workspace, out_name: str):

@@ -150,6 +150,12 @@ Read `references/authoring.md` before the first case. In short:
 A case the engine quarantines, abandons or puts under `needs_decision` in the prepare result is
 not authored: report it with the reason the result gives.
 
+The cards stand on the sealed mindmap they were projected from. `cex_recompose_prepare` on a
+sealed batch reopens it and removes `machine_mindmap.json`; from then on
+`cex_author_submit_case`, `cex_criterion_record` and `cex_author_emit` refuse until the batch is
+sealed again (`cex_recompose_seal`) and `cex_author_prepare` has re-projected the cards. A recorded recompose case cannot be replaced once every case is recorded: a changed
+concretization goes into the mechanical case and its `desc`, and into your report.
+
 ### 5B. Author cases.json (plain step text only)
 
 Contract: `references/column-semantics.md` (read it the first time; it defines the

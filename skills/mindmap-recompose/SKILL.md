@@ -58,7 +58,9 @@ when the user named the governing document themselves, and `spec='none'` only wh
 governs this mindmap; an `ambiguous` status is not a reason to ask — the engine proceeds the same way.
 Calling `cex_recompose_prepare` again with the same spec outcome resumes (recorded cases stay recorded); a
 different outcome starts the case set over, because those cases were judged against another specification.
-Either way it reopens the batch, so seal again afterwards.
+Either way it reopens the batch and removes the sealed `machine_mindmap.json`, so seal again afterwards;
+authoring (`cex_author_submit_case`, `cex_author_emit`) refuses to continue on a reopened batch until
+it is sealed again and `cex_author_prepare` has run.
 
 ## The one rule that outranks everything
 

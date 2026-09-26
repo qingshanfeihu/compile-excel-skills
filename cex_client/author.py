@@ -98,6 +98,38 @@ def _sealed_batch(ws: Workspace, out_name: str) -> tuple[dict[str, Any], Path]:
     return rstate, ws.outputs_dir / rstate["out_name"]
 
 
+def _current_seal_sha(ws: Workspace, out_name: str) -> str:
+    """重组批次当前的密封：没密封（或已被 cex_recompose_prepare 重开）就抛错，否则给出机械脑图的 sha。"""
+    _rstate, batch = _sealed_batch(ws, out_name)
+    from cex_core.engine.case_compiler.mindmap_contract_projector import (
+        load_machine_mindmap,
+    )
+
+    _data, sha = load_machine_mindmap(batch / "machine_mindmap.json")
+    return sha
+
+
+def _require_current_seal(ws: Workspace, state: dict[str, Any]) -> None:
+    """编写阶段每一步都以 cex_author_prepare 时那份密封为准。重组批次被重开（cex_recompose_prepare
+    会删掉 machine_mindmap.json、回执退回 prepared）或按别的内容重新密封后，契约卡就没了出处——
+    接着写出来的卷面对不上交付链里的机械脑图，这里拒绝，而不是让它悄悄出件。"""
+    out_name = state["out_name"]
+    try:
+        current = _current_seal_sha(ws, out_name)
+    except ClientError as exc:
+        raise ClientError(
+            f"authoring {out_name!r} needs its recompose batch sealed, and it is not: {exc}. "
+            "cex_recompose_prepare reopens a sealed batch and removes machine_mindmap.json; call "
+            "cex_recompose_seal, then cex_author_prepare, then continue") from None
+    expected = str((state.get("receipt") or {}).get("machine_mindmap_sha256") or "")
+    if current != expected:
+        raise ClientError(
+            f"the recompose batch {out_name!r} was sealed again since cex_author_prepare (the "
+            f"contract cards come from machine mindmap {expected[:12]}, the seal is now "
+            f"{current[:12]}); call cex_author_prepare to re-project the contract cards, then "
+            "continue")
+
+
 def _status(batch: Path, name: str) -> tuple[dict[str, Any], bytes]:
     raw = (batch / name).read_bytes()
     return json.loads(raw.decode("utf-8")), raw
@@ -560,6 +592,7 @@ def prepare(ws: Workspace, out_name: str) -> dict[str, Any]:
 
 def criterion_record(ws: Workspace, out_name: str, shape_key: str, judgment: Any) -> dict[str, Any]:
     state = _load_state(ws, out_name)
+    _require_current_seal(ws, state)
     _root, info = engine_env.prepare(ws)
     brief = (state.get("pending") or {}).get(str(shape_key or ""))
     if brief is None:
@@ -626,6 +659,7 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
     if state.get("phase") != "published":
         raise ClientError("contracts are not published yet; finish cex_author_prepare "
                           "(and any cex_criterion_record) first")
+    _require_current_seal(ws, state)
     root, _info = engine_env.prepare(ws)
     if isinstance(mechanical_case, str):
         try:
@@ -810,6 +844,7 @@ def expand_case(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
 
 def emit(ws: Workspace, out_name: str) -> dict[str, Any]:
     state = _load_state(ws, out_name)
+    _require_current_seal(ws, state)
     engine_env.prepare(ws)
     receipt = state.get("receipt") or {}
     sealed = state.get("sealed") or {}
