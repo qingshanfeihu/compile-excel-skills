@@ -106,3 +106,26 @@ def test_lang_query_on_a_sealed_batch_answers_without_recording(tmp_path, monkey
     out = recompose.lang_query(ws, {"kind": "usage", "name": "dig"}, out_name="demo")
     assert out["ok"] and out["result"] == "answer" and "not recorded" in out["note"]
     assert calls == [{"kind": "usage", "name": "dig"}]
+
+
+def test_criterion_adjudication_goes_on_before_any_receipt_exists(tmp_path, monkeypatch):
+    """prepare 停在 criterion_pending 时状态里还没有 receipt：裁定不能被密封核对误拦。"""
+    monkeypatch.delenv("CEX_WORKSPACE", raising=False)
+    ws = wsmod.init(tmp_path, server="https://ces.example.test", device_build="B_1")
+    author._save_state(ws, {"out_name": "demo", "phase": "criterion_pending",
+                            "pending": {"shape-1": {}}, "brief": {}, "brief_paths": {},
+                            "projected_machine_mindmap_sha256": SEALED})
+
+    class PastTheGuard(Exception):
+        pass
+
+    def next_step(_ws):
+        raise PastTheGuard
+
+    monkeypatch.setattr(author, "_current_seal_sha", lambda _ws, _name: SEALED)
+    monkeypatch.setattr(author.engine_env, "prepare", next_step)
+    with pytest.raises(PastTheGuard):
+        author.criterion_record(ws, "demo", "shape-1", {})
+    monkeypatch.setattr(author, "_current_seal_sha", lambda _ws, _name: "b" * 64)
+    with pytest.raises(ClientError, match="sealed again since cex_author_prepare"):
+        author.criterion_record(ws, "demo", "shape-1", {})

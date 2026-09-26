@@ -122,7 +122,12 @@ def _require_current_seal(ws: Workspace, state: dict[str, Any]) -> None:
             f"authoring {out_name!r} needs its recompose batch sealed, and it is not: {exc}. "
             "cex_recompose_prepare reopens a sealed batch and removes machine_mindmap.json; call "
             "cex_recompose_seal, then cex_author_prepare, then continue") from None
-    expected = str((state.get("receipt") or {}).get("machine_mindmap_sha256") or "")
+    # 判据待裁定时还没有 receipt：以投影时记下的那份为准（旧状态退回 receipt 里的）
+    expected = str(state.get("projected_machine_mindmap_sha256")
+                   or (state.get("receipt") or {}).get("machine_mindmap_sha256") or "")
+    if not expected:
+        raise ClientError(f"the authoring state of {out_name!r} does not say which sealed machine "
+                          "mindmap it was projected from; call cex_author_prepare again")
     if current != expected:
         raise ClientError(
             f"the recompose batch {out_name!r} was sealed again since cex_author_prepare (the "
@@ -509,6 +514,7 @@ def _project_and_publish(ws: Workspace, state: dict[str, Any]) -> dict[str, Any]
     sealed = {aid: record for aid, record in (state.get("sealed") or {}).items()
               if contracts.get(aid) == record.get("contract_sha256")}
     state.update({"phase": "published", "receipt": receipt, "cases": stamped, "pending": {},
+                  "projected_machine_mindmap_sha256": summary["machine_mindmap_sha256"],
                   "data_root": str(root), "bundle_id": info.get("bundle_id"),
                   "capability": capability, "sealed": sealed})
     _save_state(ws, state)
@@ -566,7 +572,8 @@ def _stop_for_criteria(ws: Workspace, state: dict[str, Any], projected: dict[str
         path.write_text(serialize_engine_adjudication_brief(shape_brief), encoding="utf-8")
         pending[key], paths[key] = shape_brief, str(path)
     state.update({"phase": "criterion_pending", "pending": pending, "brief": brief,
-                  "brief_paths": paths})
+                  "brief_paths": paths,
+                  "projected_machine_mindmap_sha256": projected["machine_mindmap_sha256"]})
     _save_state(ws, state)
     return {"ok": True, "out_name": state["out_name"], "phase": "criterion_pending",
             "pending_shapes": _pending_view(state),
