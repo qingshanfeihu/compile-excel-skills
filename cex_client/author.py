@@ -100,6 +100,7 @@ def _sealed_batch(ws: Workspace, out_name: str) -> tuple[dict[str, Any], Path]:
 
 def _current_seal_sha(ws: Workspace, out_name: str) -> str:
     """重组批次当前的密封：没密封（或已被 cex_recompose_prepare 重开）就抛错，否则给出机械脑图的 sha。"""
+    engine_env.prepare(ws)  # 核对密封要用引擎（数据根、领域文法）；每个工具调用是新进程，先接好
     _rstate, batch = _sealed_batch(ws, out_name)
     from cex_core.engine.case_compiler.mindmap_contract_projector import (
         load_machine_mindmap,

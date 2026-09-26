@@ -33,15 +33,20 @@ def _calls(ws):
 
 def test_authoring_refuses_a_reopened_batch(tmp_path, monkeypatch):
     ws = _workspace(tmp_path, monkeypatch)
+    order = []
 
     def reopened(_ws, name):
+        order.append("seal check")
         raise ClientError(f"the machine mindmap of {name!r} is not sealed (receipt is prepared); "
                           "call cex_recompose_seal first")
 
+    monkeypatch.setattr(author.engine_env, "prepare", lambda _ws: order.append("engine") or (None, {}))
     monkeypatch.setattr(author, "_sealed_batch", reopened)
     for call in _calls(ws):
         with pytest.raises(ClientError, match="cex_recompose_seal, then cex_author_prepare"):
             call()
+    # 每个工具调用是新进程：核对密封前必须先接好引擎（数据根），否则连领域文法都读不到
+    assert order[:2] == ["engine", "seal check"]
 
 
 def test_authoring_refuses_a_different_seal_and_goes_on_with_the_same_one(tmp_path, monkeypatch):
