@@ -100,3 +100,69 @@ def test_shipped_example_compiles_and_passes_static_verification(tmp_path):
                               capture_output=True, text=True, timeout=120)
     report = json.loads(verified.stdout)
     assert report["fail"] == 0, report.get("failures")
+
+
+def _reference(name: str) -> str:
+    return (SKILL / "references" / name).read_text(encoding="utf-8")
+
+
+def test_authoring_slot_table_is_the_gates_table():
+    """authoring.md 的「判据类型 → allowed_slots」表与提交规则闸用的那张表逐项一致；
+    表漂了，模型就会照着一张闸不认的表写断言。"""
+    from cex_core.engine.case_compiler.criterion_carriers import CRITERION_TYPE_ALLOWED_SLOTS
+
+    documented = {}
+    for ctype, cell in re.findall(r"^\| `(\w+)` \| (`\[.*\]`) \|$", _reference("authoring.md"), re.MULTILINE):
+        documented[ctype] = {(kind, "" if op == '""' else op)
+                             for kind, op in re.findall(r"`\[(\w+), (\"\"|\w+)\]`", cell)}
+    assert documented == {ctype: set(pairs) for ctype, pairs in CRITERION_TYPE_ALLOWED_SLOTS.items()}
+
+
+def test_card_fields_in_authoring_are_fields_the_client_returns():
+    section = _reference("authoring.md").split("## Read the card first", 1)[1].split("A slot is", 1)[0]
+    names = {name for pair in re.findall(r"^\| `(\w+)`(?:, `(\w+)`)? \|", section, re.MULTILINE)
+             for name in pair if name}
+    source = (REPO_ROOT / "cex_client" / "author.py").read_text(encoding="utf-8")
+    assert names and [name for name in sorted(names) if f'"{name}"' not in source] == []
+
+
+def test_documented_transport_failure_codes_are_the_domain_grammars():
+    from conftest import INFOTEST_ROOT
+
+    grammar = INFOTEST_ROOT / "knowledge" / "data" / "compile_ref" / "domain_grammar.json"
+    if not grammar.is_file():
+        pytest.skip(f"InfoTest 检出里没有 domain_grammar.json（INFOTEST_ROOT={INFOTEST_ROOT}）")
+    table = json.loads(grammar.read_text(encoding="utf-8"))["probe_tools"]["transport_failure_exit_codes"]
+    documented = {}
+    for first, second, codes in re.findall(r"^\s*\| `(\w+)`(?:, `(\w+)`)? \| ([\d, ]+) \|",
+                                           _reference("authoring.md"), re.MULTILINE):
+        for tool in filter(None, (first, second)):
+            documented[tool] = sorted(int(code) for code in codes.split(","))
+    assert documented == {tool: sorted(row["codes"]) for tool, row in table.items()}
+
+
+def test_shipped_example_passes_the_command_tree_gate():
+    """示例只教这个 build 上真有的命令（init 与多行 cmds_config 也逐行过树）。"""
+    from conftest import INFOTEST_ROOT
+
+    projection = INFOTEST_ROOT / "knowledge" / "data" / "compile_ref" / "vendor_stdlib_10.5_585.json"
+    if not projection.is_file():
+        pytest.skip(f"InfoTest 检出里没有 585 命令树投影（INFOTEST_ROOT={INFOTEST_ROOT}）")
+    proc = subprocess.run(
+        [sys.executable, str(SKILL / "scripts" / "cmdtree_check.py"), "--cases",
+         str(SKILL / "examples" / "slb_cases.json"), "--projection", str(projection)],
+        capture_output=True, text=True, timeout=120, check=False)
+    report = json.loads(proc.stdout)
+    assert proc.returncode == 0, report.get("unknown")
+    assert report["checked"] > 0 and report["warnings"] == []
+
+
+def test_criterion_labels_are_the_engines():
+    """criterion.md 的类型表：类型名是闸认的那几个，标签是引擎给用户看的那一份。"""
+    from cex_core.engine.case_compiler.criterion_carriers import CRITERION_TYPE_ALLOWED_SLOTS
+    from cex_core.engine.case_compiler.mindmap_contract_projector import _CRITERION_VERBAL_ZH
+
+    rows = dict(re.findall(r"^\| `(\w+)` \| ([^|`]+?) \|", _reference("criterion.md"), re.MULTILINE))
+    rows.pop("criterion_type", None)  # 表头
+    assert set(rows) == set(CRITERION_TYPE_ALLOWED_SLOTS)
+    assert rows == {ctype: _CRITERION_VERBAL_ZH[ctype] for ctype in rows}

@@ -32,18 +32,22 @@ Every tool takes `workspace` (the project folder). Progress checklist:
 
 ```
 - [ ] 1. cex_status; the workspace is logged in and synced
-- [ ] 2. cex_recompose_prepare(mindmap=<path inside the workspace>)
-- [ ] 3. Read mindmap_snapshot once; build the decoded atom map (R23, R41)
-- [ ] 4. Per outstanding case: steps 1–5 below, then cex_recompose_submit_cases(out_name, cases=[case])
-- [ ] 5. outstanding_autoids is empty → cex_recompose_seal(out_name)
-- [ ] 6. Chinese report to the user (§7)
+- [ ] 2. cex_recompose_prepare(mindmap=<path inside the workspace>, out_name=<short batch name>)
+- [ ] 3. governing_spec.status is `bound` and the batch is to be compiled? This client cannot author against a
+        bound spec: ask the user before re-preparing with spec='none' (see below)
+- [ ] 4. Read mindmap_snapshot once; build the decoded atom map (R23, R41)
+- [ ] 5. Per outstanding case: steps 1–5 below, then cex_recompose_submit_cases(out_name, cases=[case])
+- [ ] 6. outstanding_autoids is empty → cex_recompose_seal(out_name)
+- [ ] 7. Chinese report to the user (§7)
 ```
 
 `cex_recompose_prepare` returns what the engine would put in the dispatch brief:
 
 - `mindmap_snapshot` — the sealed source. [R36] Read exactly this file; never the original input path or a
   sibling path.
-- `out_name` — the batch name every later call takes.
+- `out_name` — the batch name every later call takes, and the folder under `compile_outputs/`. Pass a short
+  ASCII name yourself (letters, digits, `.`, `_`, `-`); without one the tool derives it from the file name (its
+  ASCII part plus a short digest) and says in `note` which name to pass from then on.
 - `case_autoids`, `outstanding_autoids`, `already_recorded` — the dispatched case set in source order. Skip
   `already_recorded` (a previous run recorded them).
 - `governing_spec` — `status` is `bound` (read `path`; its `name` is the file in `spec:` origins),
@@ -61,6 +65,14 @@ different outcome starts the case set over, because those cases were judged agai
 Either way it reopens the batch and removes the sealed `machine_mindmap.json`, so seal again afterwards;
 authoring (`cex_author_submit_case`, `cex_author_emit`) refuses to continue on a reopened batch until
 it is sealed again and `cex_author_prepare` has run.
+
+A `bound` governing spec blocks compiling in this client. The engine requires a case-versus-specification
+consistency verdict before it accepts any mechanical case; that stage is not part of this client, so every
+`cex_author_submit_case` of the batch is rejected (`consistency_stage_unavailable`). When the batch is meant to be
+compiled, tell the user which spec was bound (`governing_spec.name`) before recomposing, and ask whether to compile
+without it. Only when they agree (that is the user's word `spec='none'` needs), call `cex_recompose_prepare` again
+with `spec='none'`: that starts the case set over, with no `spec:` atoms and no `consistency` judgement. When they want the specification honoured, recompose
+against it and say in the report that this client cannot author the batch.
 
 ## The one rule that outranks everything
 
@@ -265,7 +277,9 @@ variants.
 ### 7. Record, seal, report
 
 [R34] Record each finished case with `cex_recompose_submit_cases(out_name, cases=[...])` as a native array of case
-objects before moving to the next; resubmitting an autoid replaces its earlier record. A rejected payload records
+objects before moving to the next. While other cases are still outstanding, resubmitting an autoid replaces its
+earlier record; once every dispatched case is recorded the submission closes (`case_set_complete`): the only legal
+next action is `cex_recompose_seal`, and a recorded case can no longer be replaced. A rejected payload records
 nothing and names the next legal action. Do not repeat unchanged rejected arguments; if a receipt reports an empty
 or unparseable payload, re-issue once as a compact native array (trim free-form prose, keep every verbatim atom
 exact). [R38] Use this skill's case shape as the only template; do not copy a `machine_mindmap.json` from another

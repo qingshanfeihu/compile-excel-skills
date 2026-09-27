@@ -65,21 +65,25 @@ skills/compile-excel/         # skill 本体（安装时整份拷进 harness 的
 ├── SKILL.md                  # 加载入口：任务表 + 硬性要求 + 工作流 + Done when
 ├── scripts/
 │   ├── _cex_path.py          # 找发行根（CEX_HOME / .cex_home / 上溯 / ~/.local/share/compile-excel）；直接运行打印发行根
-│   ├── compile_excel.py      # 用例 JSON → FileIR → emit_xlsx（唯一出盘通道；cex_author_emit 也走它）
-│   ├── cmdtree_check.py      # 编译期命令判定：读数据包里的命令树投影，与引擎同一判定函数
-│   ├── verify_batch.py       # 产物验收报告（pass/fail/totals）
+│   ├── compile_excel.py      # 用例 JSON → FileIR → emit_xlsx（唯一出盘通道；cex_author_emit 也走它；
+│   │                         #   命令行拒绝 cex_author_emit 出件的 cases.json，除非 --allow-edited-emit）
+│   ├── cmdtree_check.py      # 编译期命令判定：读数据包里的命令树投影，与引擎同一判定函数（init、
+│   │                         #   多行 cmds_config 逐行、大小写键都查；root shell 的 cmd 不查）
+│   ├── verify_batch.py       # 产物验收报告（pass/fail/totals；含悬空断言、恒真族、出处边车、init 隔离）
 │   ├── run_device.py         # 经网关上机：提交 → 等待 → 取结果，写 run_results.json / run_receipt.md
-│   ├── rework_gate.py        # 返工闸：重派集 ⊆ fail 集，pass 案锁卷面
-│   └── backfill.py           # 上机结果追加进 footprint.jsonl
+│   │                         #   （投递即打 task_id；退出码分开拒收 2 / 超时 3 / 取结果失败 4）
+│   ├── rework_gate.py        # 返工闸：比上机时记下的逐案全行指纹（含 init_commands），重派集 ⊆ fail 集，
+│   │                         #   pass 案锁卷面；--force 必带 --reason，闸通过才写 rework.json
+│   └── backfill.py           # 上机结果追加进 footprint.jsonl（运行身份取自 run_results.json，一次运行只记一次）
 ├── references/               # 按需加载：SKILL.md 里有明确指针
 │   ├── workspace-setup.md    # 工作区、登录、数据包同步、门户会话与排错
-│   ├── authoring.md          # 编写阶段：契约卡、块语言（CONFIG / OBSERVE_EXIT / OBSERVE_ASSERT /
-│   │                         #   SSL_CERT_LOAD / SLEEP / STEP）、期望绑定、拆卸、拒收码对照
+│   ├── authoring.md          # 编写阶段：契约卡（allowed_slots、concretizations）、床事实与服务清单、
+│   │                         #   12 种块、answerer、流量判据与失败臂、期望绑定、拆卸、advisory 与拒收码对照
 │   ├── criterion.md          # 判据裁定：待裁形状的 brief 怎么读、cex_criterion_record 怎么答
 │   ├── column-semantics.md   # E/F/G/H/I 列语义与 cases JSON 契约
 │   ├── excel-contract.md     # 契约 + 模板身份 + 与 InfoTest 的三处行为差异
 │   └── gotchas.md            # 上机必炸写法与 lint 反馈→修法对照表
-└── examples/slb_cases.json   # 样例：2 条 SLB 用例
+└── examples/slb_cases.json   # 样例：2 条 SLB 用例（命令全在 585 命令树里，建的对象本案收尾删掉）
 skills/mindmap-recompose/     # 人工脑图 → 机械脑图（零发明；规则移植自 InfoTest 重组孔，[Rn] 编号不变）
 ├── SKILL.md                  # 工作流、来源纪律、XMind 结构事实、分类与自检
 └── references/               # 字段契约、step_structure、一致性判定、适配、命令接地、输出形状
@@ -99,6 +103,7 @@ cex_client/                   # 客户端（标准库；脑图重组与编写阶
 ├── workspace.py              # 唯一路径解析器：<文件夹>/.compile-excel/
 ├── auth.py / bundle.py       # 设备流登录与令牌轮换；数据包同步
 ├── gateway.py / device.py    # 网关 MCP 客户端、租约；提交、状态、结果与回执
+├── fingerprints.py           # 用例卷面逐案指纹（投递时记进 run_results.json，返工闸用同一份算法比对）
 ├── portal.py / bugs.py       # 门户扫码登录；按单号取缺陷单
 ├── engine_env.py             # 从数据包摆出引擎数据根（InfoTest 仓根布局，一律复制）：命令树活动代际、
 │                             #   判据台账种子、SSL 生命周期证据、足迹；每次对齐本床拓扑、本工作区裁定记录

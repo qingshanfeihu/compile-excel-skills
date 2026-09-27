@@ -77,15 +77,16 @@ class CmdtreeCheckUsesProjectionTest(unittest.TestCase):
             projection.write_text(_json.dumps({"version": "9.9", "heads": {
                 "show version": {"src": "xml", "pmax": 0},
                 "slb real http": {"src": "xml", "args": [
-                    {"type": "STRING"}, {"type": "IPADDR"}, {"type": "U16"}]}}}),
+                    {"type": "STRING"}, {"type": "IPADDR"}, {"type": "U16"}]},
+                "no slb real http": {"src": "xml", "args": [{"type": "STRING"}]}}}),
                 encoding="utf-8")
             cases = tmp_path / "cases.json"
             cases.write_text(_json.dumps({"cases": [{"autoid": "1", "steps": [
-                {"e": "APV_1", "f": "cmd", "g": "show version"},
+                {"e": "APV_1", "f": "cmd_enable", "g": "show version"},
                 {"e": "APV_1", "f": "cmd_config", "g": "slb real http r1 10.0.0.1 80"},
-                {"e": "APV_1", "f": "cmd_config", "g": "no slb real http r1 10.0.0.1 80"},
+                {"e": "APV_1", "f": "cmd_config", "g": "no slb real http r1"},
                 {"e": "APV_1", "f": "cmd_config", "g": "slb real http r1 bad 80"},
-                {"e": "APV_1", "f": "cmd", "g": "shwo version"}]}]}), encoding="utf-8")
+                {"e": "APV_1", "f": "cmd_config", "g": "shwo version"}]}]}), encoding="utf-8")
             (tmp_path / "cmdtree_decoy.xml").write_text("<cmdtree/>", encoding="utf-8")
             env = {k: v for k, v in os.environ.items() if k != "CEX_WORKSPACE"}
             env["HOME"] = str(tmp_path)

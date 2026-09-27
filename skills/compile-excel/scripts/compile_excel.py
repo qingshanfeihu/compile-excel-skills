@@ -11,7 +11,13 @@ fd 级原子写盘），内容由调用方（agent）决定。上游对齐：
 行为差异声明见 reference/excel-contract.md。
 
 用法：
-    python compile_excel.py --cases cases.json [--out DIR] [--no-sentinel]
+    python compile_excel.py --cases cases.json [--out DIR] [--no-sentinel] [--allow-edited-emit]
+
+脑图批的 cases.json 是 cex_author_emit 从引擎封存的机械用例展开的（顶层带 `_generated` 标记），
+cex_author_emit 自己调本模块的 compile_excel() 出件。命令行拿这样一份文件来编译，多半是手改过
+出件——那会绕过引擎的全部提交规则闸（命令树、床可达性、拆卸、期望双射、判据绑定、出处），
+所以命令行默认拒绝；脑图批的修改走 cex_author_submit_case + cex_author_emit。用户明确要编译
+改过的出件时才加 --allow-edited-emit（stderr 打警告，产物不再是引擎封存的卷面）。
 
 cases.json 契约：
     {
@@ -261,13 +267,41 @@ def compile_excel(cases_path: str, out_dir: str, *, sentinel: bool = True) -> di
     return stats
 
 
+EMIT_MARKER = "_generated"  # cex_author_emit 写进 cases.json 顶层的出件标记
+
+
+def _emit_marker(cases_path: str) -> str | None:
+    """cases.json 是 cex_author_emit 出件的就返回它的标记；读不了交给 compile_excel 报错。"""
+    try:
+        doc = json.loads(Path(cases_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if isinstance(doc, dict) and EMIT_MARKER in doc:
+        return str(doc.get(EMIT_MARKER) or EMIT_MARKER)
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="compile_excel: 用例 JSON → case.xlsx")
     parser.add_argument("--cases", required=True, help="cases JSON 路径")
     parser.add_argument("--out", default="compile_outputs", help="产物根目录")
     parser.add_argument("--no-sentinel", action="store_true",
                         help="不垫末尾哨兵 case（默认垫，对齐 InfoTest emit 行为）")
+    parser.add_argument("--allow-edited-emit", action="store_true",
+                        help="cases.json 带 cex_author_emit 的出件标记时照样编译（用户明确同意时才用）")
     args = parser.parse_args()
+
+    marker = _emit_marker(args.cases)
+    if marker and not args.allow_edited_emit:
+        print(json.dumps({"ok": False, "error": (
+            f"{args.cases} 是 cex_author_emit 出件的 cases.json（{EMIT_MARKER}: {marker}）。脑图批只经 "
+            "cex_author_submit_case 重交用例、再 cex_author_emit 出件；手改出件后直接编译会绕过引擎的"
+            "全部提交规则闸。用户明确要编译改过的出件时才加 --allow-edited-emit，并在报告里说明")},
+            ensure_ascii=False))
+        return 1
+    if marker:
+        print(f"警告：{args.cases} 是 cex_author_emit 出件的 cases.json；按 --allow-edited-emit 编译，"
+              "产物不再是引擎封存的卷面，没有经过引擎的提交规则闸", file=sys.stderr)
 
     try:
         result = compile_excel(args.cases, args.out, sentinel=not args.no_sentinel)

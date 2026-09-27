@@ -10,7 +10,8 @@ Read this the first time a project folder is set up, or when a `cex_*` setup too
     config.json                   server URL, device_build, channel
     token.json                    OAuth token (0600) - the only credential in the folder
     client_config.json            organisation constants published by the server
-    lease.json                    current bed lease (0600), while you hold one
+    lease.json                    current bed lease (0600), while you hold one; its fencing token
+                                  is never shown in a tool result
     bundle/<build>/manifest.json  synced compile data; entries sit beside it by bundle path
   compile_outputs/<batch>/        cases.json, case.xlsx, provenance.json, run receipts, footprint
   defects/<backend>/<ticket>.json scrubbed defect tickets from cex_bug_get
@@ -74,6 +75,7 @@ forgets the session.
 | not logged in / session expired / rejected the session | no usable token | `cex_login_start` again |
 | login failed: access_denied / expired_token | the user denied or the code expired | start the login again |
 | no gateway address | client config not fetched or not published | `cex_client_config`; if still missing, the server has no gateway configured: tell the user |
+| the cached organisation config came from another server | `server` changed since `cex_client_config` | `cex_client_config` again |
 | no command tree projection / no domain grammar | bundle not synced or the build has none | `cex_sync`; if still missing, the server has not published it for this build: tell the user |
 | SHA256 mismatch | a downloaded file differs from the manifest | report it; do not retry around it |
 | server unreachable (sync) | offline | the cached bundle is used; tell the user its `note` |

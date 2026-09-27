@@ -6,7 +6,8 @@
 2. 布局检查（Author 行/init 行/步骤行/空行分隔/哨兵）；
 3. E/F 合法集检查——**从冻结模板 K-P 列自举**（模板第 2 行自述分组）；
 4. 逐 case check_point≥1、found_times 的 G/H/I 硬契约、autoid 唯一；
-5. 断言不得命中上一条命令原文（否则是恒真或恒假）。
+5. 断言不得命中上一条命令原文（否则是恒真或恒假）；
+6. 断言读得到观察回显（悬空断言在设备上让整卷崩掉，见 _dangling_assertions）。
 
 本脚本就是验收。不要再调用 InfoTest 引擎。
 用法：python verify_batch.py --xlsx <case.xlsx>
@@ -217,6 +218,54 @@ def _provenance_problems(xlsx: Path, data: list[list]) -> list[str]:
     return problems
 
 
+# 产生可供断言读取的回显的方法（引擎 structural_gate._is_observation_step 同一口径）：
+# test_env 探针、CLI 的 cmd_config、设备 Linux root shell 的 cmd；execute 引擎只认有返回值的动作，
+# 这里一律放行，由引擎的结构闸细判。
+_OBSERVATION_METHODS = frozenset({"cmd", "cmd_config", "execute"})
+
+
+def _dangling_assertions(data: list[list]) -> list[str]:
+    """悬空断言：check_point 读框架 result，而 result 只由本案最近一条不带 H 的步骤给出。
+
+    镜像引擎 structural_gate._check_dangling_assertions 与框架 test_xlsx 的 preflight：
+    - 本案在它之前没有一条不带 H 的步骤（案首就是断言，或前面每步都带 H——H 只把输出存进寄存器，
+      不更新 result）：框架 preflight 报「check_point 前没有可用的本案 observation result」，整卷碰设备前就拒跑；
+    - 最近那条不带 H 的步骤不是观察：cmds_config、time::sleep 返回 None（check_point 不允许比较 None，
+      运行到这里抛错，后面的案都不跑），cmd_enable 等引擎同样判 dangling_assertion。
+    带 I 的断言读寄存器、不读 result，不在此列；found_times 永远读 result。
+    """
+    bad: list[str] = []
+    autoid, in_case, has_result, observe, last = "", False, False, False, ""
+    for row in data:
+        a = str(row[0]).strip() if row[0] is not None else ""
+        c = str(row[2]).strip() if row[2] is not None else ""
+        if a and c not in ("0", "1", "None") and a != EXECUTION_HEADERS[0]:
+            autoid, in_case, has_result, observe, last = a, True, False, False, ""
+        if not in_case:
+            continue
+        e = str(row[4] or "").strip()
+        f = str(row[5] or "").strip()
+        h = str(row[7] or "").strip()
+        i_col = str(row[8] or "").strip()
+        if not e:
+            continue
+        if e == "check_point":
+            if i_col and f != "found_times":
+                continue
+            what = f"{f} {str(row[6] or '')[:40]!r}"
+            if not has_result:
+                bad.append(f"{autoid}: {what} 之前本案没有不带 H 的观察步（框架 preflight 整卷拒跑）")
+            elif not observe:
+                bad.append(f"{autoid}: {what} 读的是 {last} 的返回，不是观察回显")
+            continue
+        if h:
+            continue
+        has_result = True
+        observe = e == "test_env" or f in _OBSERVATION_METHODS
+        last = f"{e}::{f}"
+    return bad
+
+
 _INIT_NEUTRAL = re.compile(
     r"^(clear|no|show)\s|^(config(ure)?\s+t(erminal)?|conf\s+t|enable|end|exit)$", re.IGNORECASE)
 
@@ -332,6 +381,9 @@ def verify(path: Path) -> dict:
     report.add("autoid >= 12 digits (framework boundary)", not bad_ids,
                f"bad={bad_ids}（生产惯例 18 位）")
     report.add("case count", True, f"cases={len(autoids)} autoids={autoids}")
+    dangling = _dangling_assertions(data)
+    report.add("every assertion reads an observation echo (no dangling check_point)", not dangling,
+               f"dangling={dangling[:4]}")
     echo_bad = _command_echo_hits(data)
     report.add("assertion does not match the command text", not echo_bad,
                f"hits={echo_bad[:4]}")

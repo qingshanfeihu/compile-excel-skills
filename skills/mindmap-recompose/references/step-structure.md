@@ -9,7 +9,10 @@ cannot state still carries its entry with empty arrays, which makes the gap visi
 - [R28] `objects[]` is `{kind, role, count}` for what the step brings into being, configures, watches, deletes, or
   only names. `kind` is the command-tree path of the head that creates or configures that object, with the
   leading operator word and the trailing action segment dropped: a head recorded at `global/<a>/<b>/<leaf>` gives
-  `<a>/<b>`. `role` is one of created, configured, observed, deleted, referenced. `count` is the number the step
+  `<a>/<b>`. `slb virtual addrlists` (`src` `…:global/slb/virtual/addrlists`) is an object of kind `slb/virtual`,
+  not `slb/virtual/addrlists`; `no slb real http` and `show slb real http` (`global/no/slb/real/http`,
+  `global/show/slb/real/http`) both give `slb/real`. `role` is one of created, configured, observed, deleted,
+  referenced. `count` is the number the step
   states, or JSON null where it states none. A step that only watches, or that removes something and then samples,
   is the step an observation belongs to; a step that builds or configures is not.
 - [R29] `operations[]` is `{head, ref}`, and `head` must already appear in this case's `command_check`. An

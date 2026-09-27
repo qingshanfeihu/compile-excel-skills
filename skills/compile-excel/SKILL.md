@@ -25,10 +25,11 @@ portal session sits in a private per-user cache. Nothing secret passes through t
 | Type a new verdict shape | `cex_author_prepare` stops at `criterion_pending` → `cex_criterion_record` ([criterion](references/criterion.md)) |
 | Look up manual text / a command's manual line | `cex_docs_query`; `cex_lang_query` `{"kind": "param", "name": "<head>"}` |
 | Ground commands against the build | `cex_cmd_check` while authoring; `scripts/cmdtree_check.py` as the gate for hand-written cases |
-| Compile plain step text (no mindmap) | You write `cases.json` → `scripts/compile_excel.py` |
+| Compile plain step text (no mindmap) | You write `compile_outputs/<batch>/cases.json` → `scripts/cmdtree_check.py` → `scripts/compile_excel.py` |
 | Static acceptance | `scripts/verify_batch.py` + `cex_scan_destructive` |
-| Run on the bed (上机) | `cex_bed_lease acquire` → `cex_env_prepare` → `scripts/run_device.py` (or `cex_case_submit` / `cex_case_status` / `cex_case_results`) |
-| Rework after a failed run (返工) | `scripts/rework_gate.py` → fix only failed cases → recompile → verify → rerun |
+| Run on the bed (上机) | `cex_bed_lease acquire` → `cex_env_prepare` → `scripts/run_device.py` (or `cex_case_submit` / `cex_case_status` / `cex_case_results`) → `cex_bed_lease release` |
+| Rework a mindmap batch (返工) | `cex_author_submit_case` for the failed cases → `cex_author_emit` → `scripts/rework_gate.py` on the emitted `cases.json` → `cex_scan_destructive` → rerun |
+| Rework plain step text (返工) | fix the failed cases in `cases.json` → `scripts/rework_gate.py` → compile → verify → `cex_scan_destructive` → rerun |
 | Backfill results (回填) | `scripts/backfill.py` → `footprint.jsonl` |
 | Verification failed | `references/gotchas.md` feedback → fix table |
 
@@ -43,6 +44,7 @@ harness exposes none of them, call the same tools from a shell:
 CEX_HOME="$(python3 scripts/_cex_path.py)"          # prints the distribution root
 python3 "$CEX_HOME/bin/cex_tool" list                 # tool names and argument schemas
 python3 "$CEX_HOME/bin/cex_tool" cex_status '{"workspace": "<project folder>"}'
+python3 "$CEX_HOME/bin/cex_tool" cex_author_submit_case - < args.json   # argument object via stdin
 ```
 
 Every tool takes `workspace` (the project folder); when it is omitted the tool uses
@@ -55,26 +57,42 @@ Results are JSON with `ok`; on `ok: false` read `error` / `problems` and relay t
    `scripts/compile_excel.py` gated by `scripts/cmdtree_check.py` (plain step text).**
    The execution header sits at row 29 (not row 1), the contract marker and the
    `IST_EXECUTION_SHEET` defined-name must survive, and hand-rolled sheets misalign the
-   C/E/F/G columns: the framework then finds no case rows and passes vacuously.
-2. **Every case carries at least one check_point that can pass.** The framework counts
-   pass as `success > 0`; an assertion-free case is guaranteed to fail on the device.
+   C/E/F/G columns: the framework then finds no case rows and passes vacuously. A mindmap
+   batch's `cases.json` is the engine's expansion of its sealed cases: it changes only through
+   `cex_author_submit_case` + `cex_author_emit`. `compile_excel.py` refuses it (it carries the
+   `_generated` marker) unless the user asks for `--allow-edited-emit`, and then the product is no
+   longer the engine-sealed batch; say so in the report.
+2. **Every case carries at least one check_point that can pass.** The framework passes a case
+   only when none of its check points failed and at least one passed (`fail == 0` and
+   `success > 0`); an assertion-free case is guaranteed to fail on the device.
 3. **autoid is 12-24 digits** (production convention: 18). Shorter ids are not recognized
    as case boundaries by the framework, so verdicts get attributed to the wrong case.
-4. **An assertion reads the echo of the observation step right above it.** `cmd` produces
-   no echo, and a step with `h` (save_as) does not update the framework result. Either way
-   the following `found` is dangling and crashes the whole file on the device.
-   See `references/gotchas.md` before choosing methods.
+4. **An assertion reads the result of the nearest step above it in the same case that has no
+   `h`.** Only an observation leaves a result to read: `cmd_config` (the device CLI), a
+   `test_env` probe, and `cmd` (which runs in the device's Linux root shell, not the CLI). A step
+   with `h` (save_as) stores its output in a register and leaves the result alone; `cmds_config`
+   and `time::sleep` return nothing. An assertion with no un-`h` step before it, or whose nearest
+   one is not an observation, is dangling: `verify_batch.py` fails it and the engine rejects it
+   (`dangling_assertion`); on the device a missing result makes the framework reject the file or
+   raise at that row, and no later case runs. See `references/gotchas.md` before choosing methods.
 5. **Expected values come from sources, never from the device.** A check_point's expectation
    is author text, spec, manual, defect ticket, config binding or capability XML, cited in its
    `source`. Output from `cex_probe_show` or a failed run is the *actual* side: use it to
    understand a failure, never copy it into an expectation to make a case pass.
 6. **A product ships only when** `verify_batch.py` fails 0, `cex_scan_destructive` finds
    nothing, and the on-device run has fail 0 and not_run 0.
-7. **Rework goes through `scripts/rework_gate.py`**: the redispatch set is a subset of the prior
-   fail set and prior-pass cases are locked. Never recompile a passing case away silently.
-8. **The bed is shared.** Hold the lease only while you use it, `heartbeat` during long work,
-   `release` when done. When `acquire` reports the bed is leased by someone else, tell the user
-   who holds it and for how long, and wait for their call instead of retrying in a loop.
+7. **Rework goes through `scripts/rework_gate.py`**: the cases you rerun must come from the prior
+   fail set, and prior-pass cases are locked: every row of them, and the shared `init_commands`,
+   must stay exactly as they ran. Never recompile a passing case away silently; a wholesale
+   restart needs `--force --reason "<why>"` and is recorded.
+8. **The bed is shared.** Take the lease when you need the bed or its facts (`cex_bed_topology`,
+   `cex_env_prepare`, the run, `cex_probe_show`, `cex_init_device`) and release it as soon as that
+   work is done: authoring reads the stored bed facts and needs no lease, so release it after
+   `cex_bed_topology` when writing the cases will take long and acquire it again for the run.
+   `heartbeat` during long work (`run_device.py` does so while it waits); the lease lapses after
+   the `expires_in_s` that `acquire` reports. When `acquire` reports the bed is leased by someone
+   else, tell the user who holds it and for how long, and wait for their call instead of retrying
+   in a loop.
 
 ## Workflow
 
@@ -117,7 +135,9 @@ Run the `mindmap-recompose` skill first. It seals
 `compile_outputs/<out_name>/machine_mindmap.json`, every case of which passed the compile
 engine's submission checks. The authoring stage (5A) compiles from that sealed file; keep the
 `exp_recipe / step_recipe / true_gap` counts for your final report. Plain step-text inputs skip
-this stage and go to 5B.
+this stage and go to 5B. A batch whose governing spec is `bound` cannot be authored in this
+client (every `cex_author_submit_case` is rejected with `consistency_stage_unavailable`): the
+recompose skill asks the user before anything is recomposed against it.
 
 The synced bundle (`.compile-excel/bundle/<build>/`) carries spec and manual files when the
 server publishes them, and `cex_docs_query` searches the manuals. Both are legal verbatim
@@ -130,22 +150,40 @@ Read `references/authoring.md` before the first case. In short:
 
 1. `cex_bed_lease` `acquire`, then `cex_bed_topology`: the bed's devices and addresses as the
    engine reads them (VIPs a trigger host can reach, which trigger host pairs with which VIP,
-   real server addresses). The authoring gates judge every address against these facts.
+   backend addresses) and `services`, the backend services declared for this bed
+   (`host`, `ip`, `proto`, `port`, `note`). The authoring gates judge every address against these
+   facts. Pick backends only from `services` for the protocol you need; when none is listed, do
+   not guess an address: tell the user which service is missing. The facts are stored in the
+   workspace, so the lease can go back until the run when writing the cases will take long
+   (requirement 8).
 2. `cex_author_prepare` with the batch name: the engine projects the sealed mindmap into one
-   contract card per case (the author's expectations, each typed with a criterion and the block
-   kinds / operators allowed to redeem it) and returns them with the bed summary. When it stops
-   at `criterion_pending`, type each pending shape per `references/criterion.md`
+   contract card per case (the author's expectations, each typed with a criterion and the exact
+   `allowed_slots` that may redeem it, plus the recompose `concretizations`) and returns them with
+   the bed view and `blocks_schema`, the path of the block-language field reference. When it
+   stops at `criterion_pending`, type each pending shape per `references/criterion.md`
    (`cex_criterion_record`); the cards are published after the last one. The user-facing
    disclosures (how each verdict was typed, recompose proposals) are written to
-   `compile_outputs/<batch>/author_disclosures.json` for your final report.
+   `compile_outputs/<batch>/author_disclosures.json` for your final report. No tool vetoes a
+   typed criterion in this client: when the user disagrees with one, put the objection in the
+   report.
 3. Per case, write one mechanical case in the block language and submit it with
-   `cex_author_submit_case`. Every card expectation must be redeemed by exactly one assertion —
-   traffic verdicts such as 「访问成功」「访问失败」 by `OBSERVE_EXIT` from the paired trigger host,
-   configuration/display verdicts by `OBSERVE_ASSERT` on the device. A rejection lists every
-   violation with its locus and legal form: fix them all and resubmit the complete body.
+   `cex_author_submit_case`. Every card expectation must be redeemed and every assertion must
+   redeem a card expectation. An expectation over several objects (分别 / 各 / 每 / 三个 …) gets one
+   assertion per object, each with its own `expectation_binding` entry carrying the same
+   `expectation_id`. Traffic verdicts such as 「访问成功」「访问失败」「使用原有协议访问失败」 are
+   redeemed by `OBSERVE_EXIT` from the paired trigger host even when the card types them
+   `status_value`, and a failing arm must fail because of the authored difference (whatever the
+   author did not change — address, port, trigger host, backend — stays as in its success arm).
+   Configuration/display verdicts go to `OBSERVE_ASSERT` on the device. A rejection lists every
+   violation with its locus and legal form: fix them all and resubmit the complete body. A sealed
+   result may still carry `advisories`: resolve each one, or disclose it in the report with the
+   reason it stays.
 4. `cex_author_emit` when every case is sealed: the engine expands the sealed cases into
    `cases.json` (assertion sources included), `case.xlsx` is compiled and `verify_batch` runs.
-   Continue at step 8 (`cex_scan_destructive`) and the on-device run.
+   It returns `ok: false` when a contracted case is not sealed (`not_sealed_autoids`) or its
+   sealed file was replaced (`not_emitted`): do not run that workbook; submit those cases and
+   emit again, or tell the user which cases are missing. Continue at step 8
+   (`cex_scan_destructive`) and the on-device run.
 
 A case the engine quarantines, abandons or puts under `needs_decision` in the prepare result is
 not authored: report it with the reason the result gives.
@@ -153,7 +191,8 @@ not authored: report it with the reason the result gives.
 The cards stand on the sealed mindmap they were projected from. `cex_recompose_prepare` on a
 sealed batch reopens it and removes `machine_mindmap.json`; from then on
 `cex_author_submit_case`, `cex_criterion_record` and `cex_author_emit` refuse until the batch is
-sealed again (`cex_recompose_seal`) and `cex_author_prepare` has re-projected the cards. A recorded recompose case cannot be replaced once every case is recorded: a changed
+sealed again (`cex_recompose_seal`) and `cex_author_prepare` has re-projected the cards. A
+recorded recompose case cannot be replaced once every case is recorded: a changed
 concretization goes into the mechanical case and its `desc`, and into your report.
 
 ### 5B. Author cases.json (plain step text only)
@@ -172,21 +211,28 @@ E/F/G/H/I five-tuple and the per-object method families). Output shape:
 
 You decide the content (which commands, which assertions, which expectations); the script
 guarantees the structure. A sentinel case is appended automatically; do not add one. Keep
-`cases.json` inside the workspace, e.g. `compile_outputs/<batch>/cases.json`.
+`cases.json` at `compile_outputs/<batch>/cases.json`, next to the workbook the compile writes:
+the on-device run fingerprints the `cases.json` beside the workbook, and the rework gate compares
+the next round against those fingerprints.
 
 ### 6. Command grounding (compile-time, mandatory)
 
 While authoring, `cex_cmd_check` answers "does this command exist on this build, and do its
-parameters fit" for a list of candidate commands. Before compiling, run the gate:
+parameters fit" for a list of candidate commands (at most 200 per call). Before compiling, run
+the gate:
 
 ```bash
 python3 scripts/cmdtree_check.py --cases <workspace>/compile_outputs/<batch>/cases.json
 ```
 
-Whether a command exists on this build is decided by the command-tree projection alone. An
-unknown head or a parameter outside the recorded contract (arity, type, value domain) is fixed
-**before** compiling, never discovered as `% invalid` on the device. Exit 1 = fix `cases.json`
-first (init rows included). Exit 2 = no projection yet: run `cex_sync`.
+Whether a command exists on this build is decided by the command-tree projection alone. The gate
+checks every device CLI line: `init_commands`, and every `APV_*` step whose method is
+`cmd_config`, `cmds_config` or `cmd_enable` (each line of a multi-line `cmds_config` on its own;
+lowercase and uppercase keys alike). `cmd` runs in the device's root shell and is not judged
+against the CLI tree; a CLI command given to `cmd` is reported as a warning. An unknown head or a
+parameter outside the recorded contract (arity, type, value domain) is fixed **before**
+compiling, never discovered as `% invalid` on the device. Exit 1 = fix `cases.json` first (init
+rows included). Exit 2 = no projection yet: run `cex_sync`.
 
 ### 7. Compile
 
@@ -198,7 +244,8 @@ python3 scripts/compile_excel.py --cases <workspace>/compile_outputs/<batch>/cas
 Output is a stats JSON (path / case_count / check_point_count / template identity, plus
 `sources_defaulted`: how many check_points fell back to author-verbatim). A non-zero exit with
 `{"ok": false, "error": ...}` means `cases.json` violated a hard requirement: fix the JSON,
-never work around the script.
+never work around the script. A `cases.json` emitted by `cex_author_emit` is refused here
+(requirement 1).
 
 Every compile also writes `provenance.json` beside the xlsx: the per-case expected-value
 sources. check_point steps may carry `"source": {"kind": ..., "ref": ...}` (kinds:
@@ -214,14 +261,16 @@ python3 scripts/verify_batch.py --xlsx <workspace>/compile_outputs/<batch>/case.
 ```
 
 Then `cex_scan_destructive` with the same `xlsx`. The first is the structural gate: structure,
-layout, E/F membership, check_point coverage, autoid discipline, assertions that would match the
-command text itself, the **tautology family** (expected hitting prompt shapes / regex matching
-the empty string / not_found of a token in the feeding command), the **provenance sidecar**,
-and **init isolation**: `init_commands` replay before every case, so they may only reset state
-(`clear` / `no`, `show`, mode switches); an object a case needs is created in that case's own steps.
-The second rejects device-wide destructive commands using rules from the synced bundle; the
-gateway runs the same check again on submit. On failure, use `references/gotchas.md`, fix
-`cases.json`, recompile, re-verify.
+layout, E/F membership, check_point coverage, autoid discipline, **dangling assertions**
+(requirement 4), assertions that would match the command text itself, the **tautology family**
+(expected hitting prompt shapes / regex matching the empty string / not_found of a token in the
+feeding command), the **provenance sidecar**, and **init isolation**: `init_commands` replay
+before every case, so they may only reset state (`clear` / `no`, `show`, mode switches); an
+object a case needs is created in that case's own steps. The second rejects device-wide
+destructive commands using rules from the synced bundle; the gateway runs the same check again
+on submit. On failure, use `references/gotchas.md`. A mindmap batch is fixed in its mechanical
+cases (`cex_author_submit_case`, then `cex_author_emit`), never in the emitted `cases.json`;
+plain step text is fixed in `cases.json`, then recompiled and re-verified.
 
 ### 9. On-device run (上机)
 
@@ -234,19 +283,24 @@ gateway runs the same check again on submit. On failure, use `references/gotchas
    python3 scripts/run_device.py --xlsx <workspace>/compile_outputs/<batch>/case.xlsx
    ```
 
-   It submits through the gateway, polls until the run ends and fetches the verdicts; the
+   It submits through the gateway, prints `task_id` to stderr as soon as the gateway accepts the
+   workbook, polls until the run ends (renewing the lease) and fetches the verdicts; the
    step-by-step equivalent is `cex_case_submit` → `cex_case_status` (until `done`) →
    `cex_case_results`. The gateway re-checks the workbook (Excel contract, destructive commands,
-   credential literals) and refuses rather than rewriting it; a refusal lists `problems`.
+   credential literals) and refuses rather than rewriting it; a refusal lists `problems`. Exit
+   codes: 0 every case passed; 1 the run finished with fail or not_run; 2 not submitted (refused,
+   or the submit call failed); 3 still running after `--max-s`; 4 submitted, but polling or
+   fetching the results failed. On 3 and 4 continue with `cex_case_status` / `cex_case_results`
+   for the printed `task_id`; do not resubmit, which runs the whole workbook again.
 4. Verdicts come from the framework result database, bound to this task; pytest's own
    `1 passed` means nothing. `run_results.json` and `run_receipt.md` are written beside the
-   xlsx. Non-pass cases carry `failed_checks` (each failed check point with the output it was
-   matched against, e.g. `IST_EXIT_STATUS=56` for a traffic check), the framework log as the
-   gateway returned it (`detail_tail`), and a mechanical first-pass attribution (`G` = CLI error
-   text in the log, `transient?` = timeout/connection suspects, `undetermined` otherwise). The
-   semantic call (expectation wrong, product defect, environment) stays with you: read
-   `failed_checks` first, then the log. A log marked stale predates this submission and is no
-   evidence for it.
+   xlsx (only for the latest submission of that workbook). Non-pass cases carry `failed_checks`
+   (each failed check point with the output it was matched against, e.g. `IST_EXIT_STATUS=56`
+   for a traffic check), the framework log as the gateway returned it (`detail_tail`), and a
+   mechanical first-pass attribution (`G` = CLI error text in the log, `transient?` =
+   timeout/connection suspects, `undetermined` otherwise). The semantic call (expectation wrong,
+   product defect, environment) stays with you: read `failed_checks` first, then the log. A log
+   marked stale predates this submission and is no evidence for it.
 5. `cex_probe_show` runs one read-only `show`/`get` command when you need the device's actual
    state to understand a failure (requirement 5 still holds).
 6. `cex_init_device` wipes and re-baselines devices. Use it only when the user asks for it:
@@ -254,20 +308,31 @@ gateway runs the same check again on submit. On failure, use `references/gotchas
    `step: confirm` with the code only after they agree. It needs admin rights on the gateway.
 7. `cex_bed_lease` with `action: release` when you are done with the bed.
 
-On fail: read each case's `failed_checks`, `detail_tail` and attribution. For a mindmap batch, fix the failed
-cases' mechanical cases and resubmit them (`cex_author_submit_case`), then `cex_author_emit`;
-for hand-written cases fix `cases.json` per `references/gotchas.md`. Either way **pass the rework
-gate** on the new `cases.json`, recompile/re-emit, re-verify, re-run.
+On fail: read each case's `failed_checks`, `detail_tail` and attribution, then rework only the
+failed cases, in this order:
+
+- **Mindmap batch:** fix the failed cases' mechanical cases and resubmit them
+  (`cex_author_submit_case`) → `cex_author_emit` → the rework gate on the emitted
+  `compile_outputs/<batch>/cases.json` → `cex_scan_destructive` → rerun.
+- **Plain step text:** fix the failed cases in `cases.json` per `references/gotchas.md` → the
+  rework gate → compile → `verify_batch.py` → `cex_scan_destructive` → rerun.
 
 ```bash
-python3 scripts/rework_gate.py --batch-dir <workspace>/compile_outputs/<batch> --cases <cases.json>
+python3 scripts/rework_gate.py --batch-dir <workspace>/compile_outputs/<batch> \
+    --cases <workspace>/compile_outputs/<batch>/cases.json
 ```
 
-The redispatch set must be a subset of the prior fail set; prior-pass cases are locked (content
-change = violation; a wholesale restart needs `--force` and is recorded). The gate compares
-against the check points that actually ran (`provenance_fingerprints` in `run_results.json`),
-so re-emitting before the gate does not hide a change. Writes `rework.json`
-(round, fail set, redispatch set, kept passes).
+The gate compares the new `cases.json` with what actually ran: the per-case fingerprints of
+every row (its E/F/G/H/I and source) and of the shared `init_commands` that `run_results.json`
+carries as `case_fingerprints`. A prior-pass case whose rows changed, a changed `init_commands` (they replay
+before every case, so every prior-pass case changed with them), a prior-pass case that
+disappeared and a case the prior run did not have are violations; changed and unchanged fail
+cases may be rerun. Results from an older client carry no `case_fingerprints`: the gate then
+compares check points only and says so in `baseline` / `baseline_note`. Exit 0 writes
+`rework.json` (round, prior fail set, redispatch set, kept passes, violations); exit 1 lists the
+violations and writes nothing; exit 2 is bad input. A wholesale restart the user asked for
+(e.g. a pass that rested on a false observation) is `--force --reason "<why>"`: the violations
+stay listed as overridden and the reason is recorded in `rework.json`.
 
 ### 10. Backfill (回填)
 
@@ -275,9 +340,11 @@ so re-emitting before the gate does not hide a change. Writes `rework.json`
 python3 scripts/backfill.py --results <workspace>/compile_outputs/<batch>/run_results.json
 ```
 
-Appends every case verdict to `footprint.jsonl` (append-only; run identity = xlsx SHA-256 +
-timestamps). True PASSes are the writeback record; fails stay open for the rework loop. The
-workbook and `cases.json` are never edited by backfill.
+Appends every case verdict of the run to `footprint.jsonl` (append-only; once per `task_id`).
+Each line carries the run identity from `run_results.json`: the workbook SHA-256 the gateway
+staged, `task_id`, submit and finish times, the result channel, plus the case's `failed_checks`.
+True PASSes are the writeback record; fails stay open for the rework loop. The workbook and
+`cases.json` are never edited by backfill.
 
 ## Report
 
@@ -285,8 +352,10 @@ Tell the user: batch name, case count, step / check_point counts, product path, 
 totals (pass / fail / total), destructive-scan result, on-device totals (pass / fail / not_run)
 with attribution layers, the receipt and footprint paths (`run_receipt.md`, `footprint.jsonl`),
 the bundle id the compile used, every case not compiled (quarantined, abandoned, awaiting a
-user decision) with its reason, and every criterion you typed with `cex_criterion_record`. Name
-the stages that did not run (e.g. no bed lease) instead of implying they passed.
+user decision) with its reason, every criterion you typed with `cex_criterion_record` and every
+objection the user raised to a typed criterion, every advisory you left in place with its reason,
+and for a rework round the `rework.json` round and any `--force` reason. Name the stages that did
+not run (e.g. no bed lease) instead of implying they passed.
 
 ## Done when
 
@@ -299,9 +368,10 @@ the stages that did not run (e.g. no bed lease) instead of implying they passed.
 
 ## Gotchas that bite hardest (details in references/gotchas.md)
 
-- `cmd` produces no echo; only `cmd_config`'s output can feed the next assertion.
+- `cmd` runs its G in the device's Linux root shell, not the CLI: CLI commands (`show …`,
+  `slb …`) go through `cmd_config`.
 - A step with `h` captures into a variable **and does not update the framework result**;
-  a bare `found` after it is dangling (crashes the whole file on the device).
+  a bare `found` right after it reads an older result, or none (then it is dangling).
 - Capture-compare needs the three-step form: observe (`h=v1`) → observe (no `h`) →
   check_point (`h=v1`, auto-normalized to `abs_found`).
 - `found` treats G as a **regex**; expected text containing `.` `+` `@` needs

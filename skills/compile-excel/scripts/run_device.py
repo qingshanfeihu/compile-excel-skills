@@ -6,14 +6,22 @@
     → 框架结果库记录每个 check_point 的判定 → 本脚本轮询任务终态，取回每个 autoid 的判定。
 
 判定语义归框架：verdict 来自结果库；pytest 的 “1 passed” 不代表断言通过。
-凭据：本机只有工作区 OAuth 令牌；跳板机与设备口令只在网关。需要先 cex_bed_lease acquire。
+凭据：本机只有工作区 OAuth 令牌；跳板机与设备口令只在网关。需要先 cex_bed_lease acquire；
+轮询期间每 --heartbeat-s 秒续一次租约。
+
+一投递成功就先往 stderr 打一行 task_id：脚本中途被打断、或等超时了，拿它接着
+cex_case_status / cex_case_results，不要重投（重投会再跑一遍整卷）。投递之后的每个失败输出都带 task_id。
 
 用法：
   python3 scripts/run_device.py --xlsx compile_outputs/<batch>/case.xlsx [--module sdns]
-      [--max-s 2400] [--poll-s 10]
+      [--max-s 2400] [--poll-s 10] [--heartbeat-s 300]
 
 产出（写在 xlsx 同目录）：run_results.json（机读）、run_receipt.md（人读）。
-退出码：0 = 全部真实 case pass；1 = 存在 fail/not_run；2 = 递交/协议层失败。
+退出码：0 = 跑完且全部真实 case pass（fail 0、not_run 0）；
+        1 = 跑完但有 fail / not_run（或没有任何 case 判定）；
+        2 = 没投递上：网关拒收这份工作簿（problems 列出原因）或投递调用本身失败；
+        3 = 已投递、--max-s 内没跑完：任务还在跑，按 task_id 轮询 cex_case_status，结束后 cex_case_results；
+        4 = 已投递，但轮询或取结果失败：按 task_id 重试 cex_case_status / cex_case_results。
 """
 
 from __future__ import annotations
@@ -21,41 +29,83 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _cex_path  # noqa: F401,E402 — 发行根进 sys.path
 
-from cex_client import device, workspace  # noqa: E402
+from cex_client import device, gateway, workspace  # noqa: E402
 from cex_client.errors import ClientError  # noqa: E402
 
+EXIT_PASS, EXIT_FAIL, EXIT_REFUSED, EXIT_TIMEOUT, EXIT_FETCH_FAILED = 0, 1, 2, 3, 4
 
-def main() -> int:
+
+def _emit(payload: dict) -> None:
+    print(json.dumps(payload, ensure_ascii=False))
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="case.xlsx 上机（经跳板机网关，框架真跑）")
     ap.add_argument("--xlsx", required=True)
     ap.add_argument("--module", default="")
-    ap.add_argument("--max-s", type=int, default=2400)
+    ap.add_argument("--max-s", type=float, default=2400)
     ap.add_argument("--poll-s", type=float, default=10)
-    args = ap.parse_args()
+    ap.add_argument("--heartbeat-s", type=float, default=300)
+    args = ap.parse_args(argv)
     xlsx = Path(args.xlsx).expanduser().resolve()
+
     try:
         ws = workspace.require(xlsx.parent)
-        out = device.run_and_wait(ws, str(xlsx), module=args.module or None,
-                                  poll_s=args.poll_s, max_s=args.max_s)
+        submitted = device.submit(ws, str(xlsx), args.module or None)
     except ClientError as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
-        return 2
+        _emit({"ok": False, "stage": "submit", "error": str(exc)})
+        return EXIT_REFUSED
+    if not submitted.get("ok") or not submitted.get("task_id"):
+        _emit({"ok": False, "stage": "submit",
+               **{k: submitted.get(k) for k in ("error", "problems") if submitted.get(k)}})
+        return EXIT_REFUSED
+    task_id = str(submitted["task_id"])
+    print(f"run_device: submitted task_id={task_id} (if this script stops, continue with "
+          "cex_case_status / cex_case_results for this task_id; do not resubmit)",
+          file=sys.stderr, flush=True)
+
+    deadline = time.monotonic() + max(args.max_s, 0)
+    last_beat = time.monotonic()
+    finished = False
+    try:
+        while time.monotonic() < deadline:
+            if device.status(ws, task_id).get("state") == "done":
+                finished = True
+                break
+            if time.monotonic() - last_beat > args.heartbeat_s:
+                gateway.lease(ws, "heartbeat")
+                last_beat = time.monotonic()
+            time.sleep(args.poll_s)
+    except ClientError as exc:
+        _emit({"ok": False, "stage": "status", "task_id": task_id, "error": str(exc)})
+        return EXIT_FETCH_FAILED
+    if not finished:
+        _emit({"ok": False, "stage": "wait", "task_id": task_id,
+               "error": (f"the run did not finish within {int(args.max_s)}s and is still going; poll "
+                         "cex_case_status with this task_id, then cex_case_results")})
+        return EXIT_TIMEOUT
+
+    try:
+        out = device.results(ws, task_id)
+    except ClientError as exc:
+        _emit({"ok": False, "stage": "results", "task_id": task_id, "error": str(exc)})
+        return EXIT_FETCH_FAILED
     if not out.get("ok") or "totals" not in out:
-        print(json.dumps({"ok": False, **{k: out.get(k) for k in ("error", "problems", "task_id")
-                                          if out.get(k)}}, ensure_ascii=False))
-        return 2
+        _emit({"ok": False, "stage": "results", "task_id": task_id,
+               **{k: out.get(k) for k in ("error", "problems", "channel") if out.get(k)}})
+        return EXIT_FETCH_FAILED
     t = out["totals"]
     ok = t["fail"] == 0 and t["not_run"] == 0 and t["cases"] > 0
-    print(json.dumps({"ok": ok, "totals": t, "task_id": out.get("task_id"),
-                      "result_channel": out.get("channel"), "receipt": out.get("receipt")},
-                     ensure_ascii=False))
-    return 0 if ok else 1
+    _emit({"ok": ok, "totals": t, "task_id": task_id,
+           "result_channel": out.get("channel"), "receipt": out.get("receipt")})
+    return EXIT_PASS if ok else EXIT_FAIL
 
 
 if __name__ == "__main__":

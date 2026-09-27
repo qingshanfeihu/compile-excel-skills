@@ -22,7 +22,7 @@
 
 | E | F 方法族 |
 |---|---|
-| `APV_0` / `APV_1`（被测设备） | `cmd` `cmd_config`（单条）`cmd_enable` `cmds_config`（多条，换行分隔）`execute` `activeCert` `importCert` `importKey` `importRootCA` `ha_default` |
+| `APV_0` / `APV_1`（被测设备） | `cmd`（设备 Linux root shell，不是 CLI）`cmd_config`（CLI 单条）`cmd_enable` `cmds_config`（CLI 多条，换行分隔）`execute` `activeCert` `importCert` `importKey` `importRootCA` `ha_default` |
 | `check_point`（断言） | `found`（正则 DOTALL）`abs_found`（字面）`not_found` `found_times`（I 列=正整数次数，H 必空） |
 | `routera` `server213` `server231` `server232`（邻接主机） | `cmd` `execute` |
 | `test_env`（测试环境主机） | F=网络事实源里的主机名（如 `clientc`/`console`/`routera`，框架按 `getattr(env, F)` 分派，**必须小写**） |
@@ -32,13 +32,13 @@
 
 - 配置类（APV/cmd 族）：`cmd_config` 的 G = 单条命令裸文本；`cmds_config` 的 G = 换行分隔的多条命令裸文本
 - `check_point::found/not_found`：G = 正则；`abs_found`：G = 字面文本
-- check_point 检查的是**上一个非 check_point 步骤**的输出，输出型步骤（show 等）必须在前
+- check_point 检查的是本案里**最近一条不带 H 的非 check_point 步骤**的返回（带 I 的读 I 引用的寄存器）：`cmd_config` / `test_env` 的回显、`cmd` 的 root shell 输出；`cmds_config`、`time::sleep` 返回 None，断言跟在它们后面就悬空（见 gotchas.md）。观察步（show 等）必须在前
 
 ## H/I 捕获比对与自动归一（脚本保证）
 
 - H 捕获的变量，后续 check_point 比对同值时脚本自动 `found`→`abs_found`（捕获值含正则元字符，字面匹配才判得对）
 - check_point 把已捕获变量名误写进 G 列时，脚本自动移到 H 列（寄存器查找语义）
-- 每条用例必须至少一个 check_point（否则上机必失败：pass 要求 success>0），缺则拒绝出盘
+- 每条用例必须至少一个 check_point（否则上机必失败：pass 要求 fail=0 且 success>0），缺则拒绝出盘
 
 ## 文件级前置命令
 

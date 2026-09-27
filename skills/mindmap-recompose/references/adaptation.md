@@ -45,11 +45,34 @@ points when choosing an open slot.
 `command_tree` or `manual` and `author_text` is a span of the authored steps the engine grounds with whitespace
 runs normalized. `reason` ties the witness to the expected contrast.
 
-[R10] When the authored expectation contrasts two outcomes that differ only by the value you choose, the witness has
-to be one under which the negative arm can actually be observed to fail. A value that makes the negative arm
-succeed by construction still satisfies the command tree while destroying the test point, and the run then reads
-on-device as the device contradicting the author. Say in `reason` why the chosen witness keeps the contrast
-falsifiable.
+[R10] When the authored expectation contrasts two outcomes (「使用对应协议访问可成功，使用原有协议访问失败」,
+「使用原portlist访问失败，使用新port访问成功」), the witness has to let the negative arm fail **because of the authored
+difference**, observed the way the compile stage observes it:
+
+- Everything the author did not change stays equal between the two arms (address, port, trigger host, backend);
+  only the authored difference varies (the protocol, the portlist, the deleted object). A witness under which the
+  negative arm fails for a reason the author did not write fails by construction and verifies nothing: the
+  recreated object placed on another port or address although the author changed only its protocol. When the port
+  is the authored difference (「使用原portlist访问失败」), the old port going silent is the test point.
+- Traffic verdicts — 「访问成功」「访问失败」, including 「使用原有协议访问失败」「使用原portlist访问失败」 — are observed as a
+  probe's exit status (OBSERVE_EXIT at the compile stage), also when the contract card types them `status_value`.
+  「访问失败」 is a transport-level failure: the engine accepts only the probe tool's documented transport-failure exit
+  codes (domain grammar `probe_tools.transport_failure_exit_codes`: curl 7 and 28, wget 4, nc and ncat 1, ping 1,
+  dig 9). An answered refusal is reachability: an HTTP error, or an empty reply or TLS alert after a service accepted
+  the connection (an HTTP request sent to an HTTPS listener), can never be the failing arm.
+- So the witness is a value under which the authored change itself leaves the original request unanswered at the
+  transport level, everything else kept (for a protocol change: a replacement type that no longer accepts the
+  original transport on that address and port), while the request of the new arm is answered.
+
+A value that makes the negative arm succeed by construction, or fail for a reason other than the authored
+difference, still satisfies the command tree while destroying the test point, and the run then reads on-device as
+the device contradicting the author (or passes without testing anything). Say in `reason` why the chosen witness
+keeps the contrast falsifiable and caused by the authored difference. When no supported witness can do that, record
+a `proposal` instead of a witness (R9).
+
+The compile stage receives these witnesses on each contract card (`concretizations`) and builds the mechanical case
+with them. Once every dispatched case is recorded, submission closes and a recorded case cannot be replaced, so
+choose each witness for its contrast before recording the case.
 
 ## `rebind_licenses`
 
