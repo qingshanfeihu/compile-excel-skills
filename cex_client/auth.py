@@ -11,6 +11,7 @@ access 过期时用 refresh 换新；服务端每次都轮换 refresh（旧的�
 from __future__ import annotations
 
 import json
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -48,7 +49,21 @@ def http(method: str, url: str, *, data: bytes | None = None,
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read()
     except (urllib.error.URLError, OSError, TimeoutError) as exc:
-        raise ServerUnreachable(f"server unreachable ({type(exc).__name__})") from None
+        raise ServerUnreachable(_unreachable(exc)) from None
+
+
+def _unreachable(exc: BaseException) -> str:
+    """连不上的原因要说清楚：最常见的是证书不受信任（组织 CA 没进宿主进程的 SSL_CERT_FILE），
+    只报异常类名的话，会话只会以为服务端挂了。"""
+    reason = getattr(exc, "reason", exc)
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return (f"server unreachable (TLS certificate not trusted: "
+                f"{reason.verify_message or reason}); if the server uses an organization CA, the "
+                "harness process must run with SSL_CERT_FILE pointing at a bundle that includes it")
+    if isinstance(reason, ssl.SSLError):
+        return f"server unreachable (TLS error: {reason.reason or reason})"
+    detail = str(reason).strip()
+    return f"server unreachable ({type(exc).__name__}{': ' + detail[:160] if detail else ''})"
 
 
 def refuse_redirect(status: int, what: str) -> None:
