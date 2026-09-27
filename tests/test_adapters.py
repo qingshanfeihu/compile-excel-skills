@@ -174,6 +174,74 @@ def test_circle_extension_registers_the_spec_tools_and_reports_failures(tmp_path
         api.tools["cex_sync"]["execute"]({"workspace": str(project)})
 
 
+def _recording_cex_tool(root: Path) -> Path:
+    """假发行根：bin/cex_tool 把收到的 argv 与 stdin 长度原样回显。"""
+    (root / "bin").mkdir(parents=True)
+    (root / "bin" / "cex_tool").write_text(
+        "import json, sys\n"
+        "data = sys.stdin.read()\n"
+        "print(json.dumps({'ok': True, 'argv': sys.argv[1:], 'stdin': len(data),\n"
+        "                  'keys': sorted(json.loads(data or '{}'))}))\n", encoding="utf-8")
+    return root
+
+
+def test_circle_passes_arguments_on_stdin_and_reports_a_missing_interpreter(tmp_path, monkeypatch):
+    """整批用例这类大参数经 stdin 传（Linux 单个命令行参数上限 128 KiB）；解释器起不来报成
+    ToolError，而不是把 OSError 漏给宿主。"""
+    root = _recording_cex_tool(tmp_path / "dist")
+    monkeypatch.setenv("CEX_PYTHON", sys.executable)
+    module = _load_circle_extension()
+    execute = module.make_executor(root, "cex_recompose_submit_cases", _FakeCircleApi.ToolError)
+    big = {"out_name": "b1", "cases": [{"autoid": str(i), "text": "x" * 1000} for i in range(300)]}
+    out = execute(big)
+    assert out["argv"] == ["cex_recompose_submit_cases", "-"]
+    assert out["stdin"] > 300_000 and out["keys"] == ["cases", "out_name"]
+    monkeypatch.setenv("CEX_PYTHON", str(tmp_path / "no-such-python"))
+    broken = module.make_executor(root, "cex_status", _FakeCircleApi.ToolError)
+    with pytest.raises(_FakeCircleApi.ToolError, match="could not start"):
+        broken({})
+
+
+def test_cex_tool_reads_large_arguments_from_stdin(tmp_path):
+    ws_dir = tmp_path / "project"
+    ws_dir.mkdir()
+    args = {"workspace": str(ws_dir), "server": "http://127.0.0.1:9", "device_build": "B_1",
+            "channel": "stable"}
+    proc = subprocess.run([sys.executable, str(REPO_ROOT / "bin" / "cex_tool"), "cex_init", "-"],
+                          input=json.dumps(args), capture_output=True, text=True, timeout=60,
+                          env=_env_without_workspace())
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["workspace"] == str(ws_dir.resolve())
+    big = json.dumps({"workspace": str(ws_dir), "commands": ["show version"] * 20000})
+    proc = subprocess.run([sys.executable, str(REPO_ROOT / "bin" / "cex_tool"), "cex_cmd_check", "-"],
+                          input=big, capture_output=True, text=True, timeout=60,
+                          env=_env_without_workspace())
+    reply = json.loads(proc.stdout)
+    assert len(big) > 200_000 and reply["ok"] is False and "20000" in reply["error"]
+    bad = subprocess.run([sys.executable, str(REPO_ROOT / "bin" / "cex_tool"), "cex_status", "-"],
+                         input="{not json", capture_output=True, text=True, timeout=60)
+    assert bad.returncode == 2 and "bad arguments" in bad.stdout
+
+
+def test_the_claude_plugin_launcher_honours_cex_python(tmp_path):
+    """插件清单不写死 python3：MCP 入口按 CEX_PYTHON 选解释器。"""
+    plugin = json.loads((REPO_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    server = plugin["mcpServers"]["compile-excel"]
+    assert "python" not in server["command"]
+    launcher = REPO_ROOT / server["args"][0].removeprefix("${CLAUDE_PLUGIN_ROOT}/")
+    fake = tmp_path / "fake-python"
+    fake.write_text("#!/bin/sh\necho \"chosen $1\"\n", encoding="utf-8")
+    fake.chmod(0o755)
+    proc = subprocess.run([server["command"], str(launcher)], capture_output=True, text=True,
+                          timeout=60, env={**os.environ, "CEX_PYTHON": str(fake)})
+    assert proc.stdout.strip() == f"chosen {launcher.parent / 'cex_mcp_proxy.py'}"
+    message = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    proc = subprocess.run([server["command"], str(launcher)], input=message + "\n",
+                          capture_output=True, text=True, timeout=60,
+                          env={**os.environ, "CEX_PYTHON": sys.executable})
+    assert json.loads(proc.stdout)["result"]["serverInfo"]["name"] == "compile-excel"
+
+
 def test_circle_extension_through_the_real_circle_host(tmp_path, monkeypatch):
     """有同级 circle 检出时，用 circle 真实的扩展宿主加载本仓扩展（不再只靠假 api）。"""
     if not (CIRCLE_ROOT / "circle" / "extensions.py").is_file():

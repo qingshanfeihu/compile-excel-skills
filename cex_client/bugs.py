@@ -18,7 +18,7 @@ from typing import Any
 
 from . import portal
 from .errors import ClientError
-from .workspace import Workspace, read_private_json
+from .workspace import Workspace, read_private_json, safe_component, write_file_safely
 
 MIN_INTERVAL_S = 1.0
 
@@ -107,8 +107,10 @@ def get_ticket(ws: Workspace, backend: str, ticket: str) -> dict[str, Any]:
         parsed = parse_ticket_html(backend, canonical, body)
     except DefectParseError as exc:
         raise ClientError(f"defect page could not be used: {exc}") from None
-    target = ws.root / "defects" / backend / f"{canonical}.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(parsed, ensure_ascii=False, indent=1), encoding="utf-8")
+    target = (ws.root / "defects" / safe_component(backend, "backend")
+              / f"{safe_component(canonical, 'ticket')}.json")
+    # 落在用户文件夹里：不跟随预先放好的符号链接（defects/ 或目标文件本身）
+    write_file_safely(ws.root, target,
+                      json.dumps(parsed, ensure_ascii=False, indent=1).encode("utf-8"))
     return {"ticket": parsed, "saved": str(target.relative_to(ws.root)),
             "source": urllib.parse.urlsplit(url).path}

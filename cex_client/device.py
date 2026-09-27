@@ -4,9 +4,12 @@
 非 pass 的 case 附框架日志作归因证据：网关给多少留多少（失败断言的实际回显在日志中段，只留尾巴
 会切掉它），并把每个失败断言连同它当时的回显摘成 failed_checks；早于投递时间的日志网关已标
 stale，这里不拿它当证据。
-投递时把工作簿旁 provenance.json 的逐案 check_point 指纹记进任务记录，取结果时写进 run_results.json：
-返工闸以“上一轮真上机的卷面”为准比对——编写阶段的 cex_author_emit 会在过闸之前重写 provenance.json。
+投递时把工作簿旁 provenance.json 的逐案 check_point 指纹、以及旁边 cases.json 的逐案卷面指纹
+（fingerprints.case_fingerprints）记进任务记录，取结果时写进 run_results.json：返工闸以“上一轮真上机
+的卷面”为准比对——编写阶段的 cex_author_emit 会在过闸之前重写 provenance.json 与 cases.json。
 回执格式沿用原 run_device（ist.excel.device-run-result）：run_results.json 机读、run_receipt.md 人读。
+同一工作簿投过多次时，只有最近那次的结果写回执；取较早那次的结果照常返回，但不覆盖回执
+（receipt 为 null 并说明），免得旧结果盖掉返工闸要看的最新一轮。回执不跟随符号链接写。
 """
 
 from __future__ import annotations
@@ -22,7 +25,8 @@ from typing import Any
 
 from . import gateway
 from .errors import ClientError
-from .workspace import Workspace
+from .fingerprints import case_fingerprints
+from .workspace import Workspace, write_file_safely
 
 RESULT_SCHEMA = "ist.excel.device-run-result"
 MAX_XLSX_BYTES = 32 * 1024 * 1024
@@ -103,6 +107,15 @@ def _now() -> str:
     return _dt.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def cases_fingerprints(cases_path: Path) -> dict[str, str]:
+    """工作簿旁 cases.json 的逐案卷面指纹；没有或读不了就是空表。"""
+    try:
+        doc = json.loads(cases_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return case_fingerprints(doc) if isinstance(doc, dict) else {}
+
+
 def resolve_xlsx(ws: Workspace, xlsx: str) -> Path:
     path = Path(str(xlsx or "")).expanduser()
     if not path.is_absolute():
@@ -128,9 +141,10 @@ def submit(ws: Workspace, xlsx: str, module: str | None = None) -> dict[str, Any
         if out.get("sha256") != local_sha:
             raise ClientError("gateway staged a different workbook than the one sent")
         gateway.remember_task(ws, out["task_id"], {
-            "xlsx": str(path.relative_to(ws.root)), "sha256": local_sha,
+            "xlsx": path.relative_to(ws.root).as_posix(), "sha256": local_sha,
             "submitted_at": _now(), "case_ids": out.get("case_ids", []),
-            "provenance_fp": provenance_fingerprints(path.parent / "provenance.json")})
+            "provenance_fp": provenance_fingerprints(path.parent / "provenance.json"),
+            "case_fingerprints": cases_fingerprints(path.parent / "cases.json")})
     return out
 
 
@@ -161,7 +175,12 @@ def results(ws: Workspace, task_id: str) -> dict[str, Any]:
               "fail": verdicts.count("fail"),
               "not_run": sum(1 for v in verdicts if v not in ("pass", "fail"))}
     written = None
-    if record.get("xlsx"):
+    note = None
+    newer = gateway.newer_submissions(ws, task_id) if record.get("xlsx") else []
+    if record.get("xlsx") and newer:
+        note = (f"{record['xlsx']} was submitted again after this run (task {newer[-1]}); these "
+                "are the older run's results, so the batch receipt was not overwritten")
+    elif record.get("xlsx"):
         xlsx = ws.root / record["xlsx"]
         result = {
             "schema": RESULT_SCHEMA, "xlsx": record["xlsx"], "xlsx_sha256": out.get("xlsx_sha256"),
@@ -171,18 +190,27 @@ def results(ws: Workspace, task_id: str) -> dict[str, Any]:
         }
         if record.get("provenance_fp"):
             result["provenance_fingerprints"] = record["provenance_fp"]
-        write_receipts(result, xlsx.parent)
-        written = str((xlsx.parent / "run_receipt.md").relative_to(ws.root))
+        if record.get("case_fingerprints"):
+            result["case_fingerprints"] = record["case_fingerprints"]
+        write_receipts(result, xlsx.parent, ws.root)
+        written = (xlsx.parent / "run_receipt.md").relative_to(ws.root).as_posix()
     # 整段日志只进 run_results.json；回给会话的只带失败断言和一截尾巴，免得几段日志挤占上下文
     compact = [{**case, "detail_tail": case["detail_tail"][-_RETURN_TAIL_CHARS:]}
                if case.get("detail_tail") else case for case in cases]
-    return {**out, "totals": totals, "cases": compact, "receipt": written}
+    reply = {**out, "totals": totals, "cases": compact, "receipt": written}
+    if note:
+        reply["note"] = note
+    return reply
 
 
-def write_receipts(result: dict[str, Any], out_dir: Path) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "run_results.json").write_text(json.dumps(result, ensure_ascii=False, indent=1),
-                                              encoding="utf-8")
+def write_receipts(result: dict[str, Any], out_dir: Path, root: Path | None = None) -> None:
+    """run_results.json + run_receipt.md；root（工作区根）之下原子写、不跟随符号链接。"""
+    root = Path(root) if root is not None else Path(out_dir)
+
+    def put(name: str, text: str) -> None:
+        write_file_safely(root, Path(out_dir) / name, text.encode("utf-8"))
+
+    put("run_results.json", json.dumps(result, ensure_ascii=False, indent=1))
     t = result["totals"]
     lines = [
         "# 上机回执（run_receipt）", "",
@@ -202,7 +230,7 @@ def write_receipts(result: dict[str, Any], out_dir: Path) -> None:
         if layer:
             note = f"[{layer}] {note}"
         lines.append(f"| {case['autoid']} | {case['verdict']} | {note or '-'} |")
-    (out_dir / "run_receipt.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    put("run_receipt.md", "\n".join(lines) + "\n")
 
 
 def run_and_wait(ws: Workspace, xlsx: str, *, module: str | None = None, poll_s: float = 10,

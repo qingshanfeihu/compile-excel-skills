@@ -15,7 +15,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_init",
 		label: "CEX init",
-		description: "Create or update the compile-excel workspace in a project folder. Stores the server URL and device build in <folder>/.compile-excel/config.json. Run once per folder before logging in.",
+		description: "Create or update the compile-excel workspace in a project folder. Stores the server URL and device build in <folder>/.compile-excel/config.json. Run once per folder before logging in. Pointing an existing workspace at another server drops the old session, the cached organisation config and any bed lease.",
 		snippet: "Create or update the compile-excel workspace in a project folder.",
 		readOnly: false,
 		parameters: Type.Object({
@@ -39,7 +39,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_login_start",
 		label: "CEX login start",
-		description: "Start the OAuth device login. Returns a URL and a user code; show both to the user, who signs in with their username and access code in a browser. Then call cex_login_wait.",
+		description: "Start the OAuth device login. Returns a URL and a user code; show both to the user, who signs in with their username and access code in a browser. Then call cex_login_wait. The login asks for every permission the tools use (including jumphost:admin for cex_init_device); the server grants only those the account holds.",
 		snippet: "Start the OAuth device login.",
 		readOnly: false,
 		parameters: Type.Object({
@@ -81,7 +81,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_client_config",
 		label: "CEX client config",
-		description: "Fetch the organisation constants published by the server (portal, defect tracker and gateway addresses) and cache them in the workspace.",
+		description: "Fetch the organisation constants published by the server (portal, defect tracker and gateway addresses) and cache them in the workspace. The gateway address is taken only from this cache, so call it again after switching servers.",
 		snippet: "Fetch the organisation constants published by the server (portal, defect tracker and gateway addresses) and cache them in the workspace.",
 		readOnly: false,
 		parameters: Type.Object({
@@ -103,7 +103,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_cmd_check",
 		label: "CEX cmd check",
-		description: "Check device commands against the synced command-tree projection: whether each command exists on this build and whether its parameters fit the recorded contract. This is the same judgment the engine uses; a miss means the command will not run on the device. Each result carries the resolved head and its command-tree path (src).",
+		description: "Check device commands against the synced command-tree projection: whether each command exists on this build and whether its parameters fit the recorded contract. This is the same judgment the engine uses; a miss means the command will not run on the device. Each result carries the resolved head and its command-tree path (src). At most 200 commands per call; a longer list is refused (not truncated), so split it.",
 		snippet: "Check device commands against the synced command-tree projection: whether each command exists on this build and whether its parameters fit the recorded contract.",
 		readOnly: true,
 		parameters: Type.Object({
@@ -114,8 +114,8 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_scan_destructive",
 		label: "CEX scan destructive",
-		description: "Scan a compiled case workbook for device-wide destructive commands (whole-config wipes, factory restore, reboot/shutdown). Rules come from the synced domain grammar; any finding means the workbook must not run on a shared bed.",
-		snippet: "Scan a compiled case workbook for device-wide destructive commands (whole-config wipes, factory restore, reboot/shutdown).",
+		description: "Scan a compiled case workbook for device-wide destructive commands (whole-config wipes, factory restore, reboot/shutdown) with the rules from the synced domain grammar. Every row is scanned, including those after the 999999999999999 pseudo case; formula cells are findings (the framework runs their cached values); a finding may carry executed, the string the framework actually sends. Any finding means the workbook must not run on a shared bed.",
+		snippet: "Scan a compiled case workbook for device-wide destructive commands (whole-config wipes, factory restore, reboot/shutdown) with the rules from the synced domain grammar.",
 		readOnly: true,
 		parameters: Type.Object({
 			"workspace": Type.Optional(Type.String()),
@@ -125,7 +125,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_bed_lease",
 		label: "CEX bed lease",
-		description: "Manage your lease on the test bed through the jumphost gateway. acquire before any device work, heartbeat during long sessions, release when done, status to see who holds it. The lease is kept in the workspace; other device tools use it automatically.",
+		description: "Manage your lease on the test bed through the jumphost gateway. acquire before any device work, heartbeat during long sessions, release when done, status to see who holds it. The lease (including its fencing token, which is never shown) is kept in the workspace; other device tools use it automatically.",
 		snippet: "Manage your lease on the test bed through the jumphost gateway.",
 		readOnly: false,
 		parameters: Type.Object({
@@ -136,7 +136,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_env_prepare",
 		label: "CEX env prepare",
-		description: "Check the bed before running cases: framework present, devices reachable, device build matches the bundle build, safety rules available. Needs the lease.",
+		description: "Check the bed before running cases: framework present, devices reachable, device build matches the bundle build, safety rules available. Sends the workspace's device build so the gateway checks the device against it. Needs the lease.",
 		snippet: "Check the bed before running cases: framework present, devices reachable, device build matches the bundle build, safety rules available.",
 		readOnly: true,
 		parameters: Type.Object({
@@ -169,7 +169,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_case_results",
 		label: "CEX case results",
-		description: "Per-case framework verdicts of a finished run. Writes run_results.json and run_receipt.md next to the workbook. Logs from earlier runs are marked and not used as evidence.",
+		description: "Per-case framework verdicts of a finished run. Writes run_results.json and run_receipt.md next to the workbook, but only for the latest submission of that workbook: results of an older run are returned with receipt null and a note, and the receipt is left alone. Logs from earlier runs are marked and not used as evidence.",
 		snippet: "Per-case framework verdicts of a finished run.",
 		readOnly: false,
 		parameters: Type.Object({
@@ -249,13 +249,13 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_recompose_prepare",
 		label: "CEX recompose prepare",
-		description: "Start recomposing a human mindmap (XMind JSON export inside the workspace) into a machine mindmap. Seals a snapshot, locates the governing spec in the synced spec generation, and opens a submission. Returns the case autoids, the governing spec (bound: a file path you can read; ambiguous: reference slices with zero signing power; no_governing_spec), the defect-spec status, and consistency_source_atoms. Pass spec=<file> when the user names the governing spec, or spec='none' when the user says no spec governs it. Calling it again for the same mindmap and the same spec outcome resumes: already recorded cases are listed.",
+		description: "Start recomposing a human mindmap (XMind JSON export inside the workspace) into a machine mindmap. Seals a snapshot, locates the governing spec in the synced spec generation, and opens a submission. Returns the case autoids, the governing spec (bound: a file path you can read; ambiguous: reference slices with zero signing power; no_governing_spec), the defect-spec status, and consistency_source_atoms. Pass spec=<file> when the user names the governing spec, or spec='none' when the user says no spec governs it. Calling it again for the same mindmap and the same spec outcome resumes: already recorded cases are listed. Without out_name the batch is named after the file (reduced to a safe name when the file name has spaces or non-ASCII characters; the result says which).",
 		snippet: "Start recomposing a human mindmap (XMind JSON export inside the workspace) into a machine mindmap.",
 		readOnly: false,
 		parameters: Type.Object({
 			"workspace": Type.Optional(Type.String()),
 			"mindmap": Type.String({"description": "Path of the XMind JSON export, relative to the workspace."}),
-			"out_name": Type.Optional(Type.String({"description": "Batch name for the outputs; defaults to the file name."})),
+			"out_name": Type.Optional(Type.String({"description": "Batch name for the outputs; defaults to a safe name derived from the file name."})),
 			"spec": Type.Optional(Type.String({"description": "Governing spec file name the user named, or 'none' when the user says no spec governs it."})),
 		}, { additionalProperties: false }),
 	},
@@ -301,8 +301,8 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_bed_topology",
 		label: "CEX bed topology",
-		description: "Fetch this bed's network facts (devices, APV interface addresses, which trigger host reaches which VIP, real server addresses) from the gateway and store them in the workspace; the authoring gates read them. Needs the lease. Returns the engine's bed summary: pick VIPs, trigger hosts and backend addresses from it.",
-		snippet: "Fetch this bed's network facts (devices, APV interface addresses, which trigger host reaches which VIP, real server addresses) from the gateway and store them in the workspace; the authoring gates read them.",
+		description: "Fetch this bed's network facts and its service list (services: host, ip, proto, port, note) from the gateway and store them in the workspace; the authoring gates read them. Needs the lease. Pick VIPs and trigger hosts from the returned summary and backends from services (matching protocol and port); never guess an address.",
+		snippet: "Fetch this bed's network facts and its service list (services: host, ip, proto, port, note) from the gateway and store them in the workspace; the authoring gates read them.",
 		readOnly: true,
 		parameters: Type.Object({
 			"workspace": Type.Optional(Type.String()),
@@ -312,8 +312,8 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_author_prepare",
 		label: "CEX author prepare",
-		description: "Project a sealed machine mindmap into per-case contract cards (the engine's projection, with each expectation's criterion type and the blocks/operators allowed to redeem it) and stamp every case for authoring. When a criterion shape is not yet adjudicated it stops and lists the shapes for cex_criterion_record. Needs cex_recompose_seal and cex_bed_topology first.",
-		snippet: "Project a sealed machine mindmap into per-case contract cards (the engine's projection, with each expectation's criterion type and the blocks/operators allowed to redeem it) and stamp every case for authoring.",
+		description: "Project a sealed machine mindmap into per-case contract cards and stamp every case for authoring. Each expectation carries its criterion type and allowed_slots: the exact [block_kind, operator] pairs the submission gate accepts (slot_rule explains how a binding is matched). Each card carries the case's concretizations (what step_structure refs point at). When a criterion shape is not yet adjudicated it stops and lists the shapes for cex_criterion_record. Needs cex_recompose_seal and cex_bed_topology first.",
+		snippet: "Project a sealed machine mindmap into per-case contract cards and stamp every case for authoring.",
 		readOnly: false,
 		parameters: Type.Object({
 			"workspace": Type.Optional(Type.String()),
@@ -348,7 +348,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_author_emit",
 		label: "CEX author emit",
-		description: "Expand every sealed mechanical case of the batch (the engine's own block expansion) into compile_outputs/<batch>/cases.json, compile case.xlsx and run verify_batch. Returns the workbook path, the verify summary and any case not sealed yet.",
+		description: "Expand every sealed mechanical case of the batch (the engine's own block expansion) into compile_outputs/<batch>/cases.json, compile case.xlsx and run verify_batch. Returns ok:false with error when a contracted case is not sealed (not_sealed_autoids) or its sealed file changed since sealing (not_emitted); the workbook then holds only the other cases.",
 		snippet: "Expand every sealed mechanical case of the batch (the engine's own block expansion) into compile_outputs/<batch>/cases.json, compile case.xlsx and run verify_batch.",
 		readOnly: false,
 		parameters: Type.Object({

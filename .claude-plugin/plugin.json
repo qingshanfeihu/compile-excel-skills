@@ -14,9 +14,9 @@
   ],
   "mcpServers": {
     "compile-excel": {
-      "command": "python3",
+      "command": "sh",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/bin/cex_mcp_proxy.py"
+        "${CLAUDE_PLUGIN_ROOT}/bin/cex_mcp"
       ]
     }
   }

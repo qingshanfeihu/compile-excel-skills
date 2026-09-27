@@ -2,6 +2,8 @@
 """cex_tool：命令行调用 compile-excel 工具（pi 扩展与人工调试用）。
 
   cex_tool list                      列出工具与参数 schema
+  cex_tool <工具名> -                 参数（JSON）从 stdin 读：适配器都走这个，大参数不受
+                                     命令行长度限制（Linux 单个参数上限 128 KiB）
   cex_tool <工具名> ['<JSON 参数>']    调用工具，结果以 JSON 打印到 stdout
   cex_tool <工具名> --args-file F     参数从文件读（避免参数进 shell 历史）
 
@@ -28,12 +30,14 @@ def main(argv: list[str]) -> int:
     try:
         if rest[:1] == ["--args-file"] and len(rest) == 2:
             args = json.loads(Path(rest[1]).read_text(encoding="utf-8"))
+        elif rest == ["-"]:
+            args = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
         elif len(rest) == 1:
             args = json.loads(rest[0])
         elif not rest:
             args = {}
         else:
-            print("usage: cex_tool <name> ['<json>'] | --args-file F", file=sys.stderr)
+            print("usage: cex_tool <name> - | ['<json>'] | --args-file F", file=sys.stderr)
             return 2
     except (OSError, ValueError) as exc:
         print(json.dumps({"ok": False, "error": f"bad arguments: {exc}"}))

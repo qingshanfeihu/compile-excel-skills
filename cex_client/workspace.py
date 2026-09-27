@@ -9,15 +9,24 @@
       bundle/<build>/manifest.json   已同步的数据包清单；条目按包内路径落在同目录下
   <文件夹>/compile_outputs/            编译产物（脑图、用例、xlsx）
 
-找工作区：环境变量 CEX_WORKSPACE → 从当前目录往上找第一个含 .compile-excel/config.json 的目录。
+找工作区：显式给的起点（工具参数 workspace）往上找 → 没给起点时用环境变量 CEX_WORKSPACE →
+从当前目录往上找第一个含 .compile-excel/config.json 的目录。
+
+状态文件里记的路径一律相对工作区根（to_state_path / from_state_path），文件夹改名、挪位置后照样能用；
+旧版记下的绝对路径按其中的 .compile-excel / compile_outputs 段换算到当前工作区。
 """
 
 from __future__ import annotations
 
+import fcntl
+import hashlib
 import ipaddress
 import json
 import os
 import re
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,6 +35,7 @@ from urllib.parse import urlsplit
 from .errors import ClientError
 
 STATE_DIR = ".compile-excel"
+OUTPUTS_DIR = "compile_outputs"
 CONFIG_SCHEMA = "cex.workspace/v1"
 _SAFE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _BAD_COMPONENT_CHARS = set('\\:*?"<>|')
@@ -99,8 +109,12 @@ class Workspace:
         return self.state_dir / "client_config.json"
 
     @property
+    def lease_path(self) -> Path:
+        return self.state_dir / "lease.json"
+
+    @property
     def outputs_dir(self) -> Path:
-        return self.root / "compile_outputs"
+        return self.root / OUTPUTS_DIR
 
     def config(self) -> dict[str, Any]:
         try:
@@ -176,12 +190,98 @@ def read_private_json(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def write_file_safely(root: Path, path: Path, data: bytes, *, mode: int = 0o644) -> None:
+    """在 root 之下原子写一个文件：路径上任何一级（含目标本身）是符号链接、或落到 root 之外
+    就拒绝；先写同目录的随机临时文件（O_EXCL，不跟随预先放好的链接）再改名。
+    回执、cases.json、缺陷单、脑图快照这类落在用户文件夹里的产物都走这里。"""
+    root, path = Path(root), Path(path)
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        raise ClientError(f"{path} is outside {root}; refusing to write") from None
+    if not rel.parts or any(part in ("", ".", "..") for part in rel.parts):
+        raise ClientError(f"{path} is not a file path under {root}")
+    current = root
+    for part in rel.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ClientError(f"{current} is a symlink; refusing to write through it")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+@contextmanager
+def state_lock(ws: Workspace, kind: str, key: str = "", *, shared: bool = False) -> Iterator[None]:
+    """工作区内跨进程的互斥（fcntl.flock，随文件描述符释放）。每个工具调用可能是独立进程，
+    同时跑的调用对同一份状态做"读—改—写"时先拿锁；锁文件在 .compile-excel/locks/ 下。"""
+    name = safe_component(kind, "lock kind")
+    if key:
+        name += "." + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+    directory = ws.state_dir / "locks"
+    directory.mkdir(parents=True, exist_ok=True)
+    fd = os.open(directory / f"{name}.lock",
+                 os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def to_state_path(ws: Workspace, path: Path | str) -> str:
+    """状态文件里记路径：工作区内的一律记相对工作区根的 posix 路径。"""
+    path = Path(path)
+    try:
+        return path.relative_to(ws.root).as_posix()
+    except ValueError:
+        pass
+    try:
+        return path.resolve().relative_to(ws.root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return str(path)
+
+
+def from_state_path(ws: Workspace, value: Any) -> Path:
+    """状态文件里的路径 → 当前工作区里的路径。相对路径接在工作区根下；旧版记的绝对路径
+    （文件夹改名、挪位置后已失效）按最后一个 .compile-excel / compile_outputs 段换算过来，
+    不去读别的文件夹里的同名文件。"""
+    text = str(value or "")
+    if not text:
+        raise ClientError("the workspace state records an empty path")
+    path = Path(text)
+    if not path.is_absolute():
+        return ws.root / path
+    root = ws.root.resolve()
+    if path == ws.root or ws.root in path.parents or root in path.parents:
+        return path
+    parts = path.parts
+    for index in range(len(parts) - 1, 0, -1):
+        if parts[index] in (STATE_DIR, OUTPUTS_DIR):
+            return ws.root.joinpath(*parts[index:])
+    return path
+
+
 def find(start: Path | None = None) -> Workspace | None:
-    explicit = os.environ.get("CEX_WORKSPACE")
-    if explicit:
-        root = Path(explicit).expanduser().resolve()
-        return Workspace(root) if (root / STATE_DIR / "config.json").is_file() else None
-    here = (start or Path.cwd()).resolve()
+    """显式起点优先（工具参数里的 workspace 不被环境变量盖掉）；没给起点才看 CEX_WORKSPACE。"""
+    if start is None:
+        explicit = os.environ.get("CEX_WORKSPACE")
+        if explicit:
+            root = Path(explicit).expanduser().resolve()
+            return Workspace(root) if (root / STATE_DIR / "config.json").is_file() else None
+    here = (start or Path.cwd()).expanduser().resolve()
     for candidate in (here, *here.parents):
         if (candidate / STATE_DIR / "config.json").is_file():
             return Workspace(candidate)
@@ -212,9 +312,10 @@ def init(root: Path, *, server: str, device_build: str, channel: str = "stable",
             previous = ws.config()
         except ClientError:
             previous = {}
-    if previous and previous.get("server") != server.rstrip("/") and ws.token_path.exists():
-        # 换服务端：旧令牌属于旧服务端，丢掉
-        ws.token_path.unlink()
+    if previous and previous.get("server") != server.rstrip("/"):
+        # 换服务端：令牌、服务端下发的组织常量（网关地址等）、租约、进行中的登录都属于旧服务端，丢掉
+        for stale in (ws.token_path, ws.client_config_path, ws.lease_path, ws.pending_login_path):
+            stale.unlink(missing_ok=True)
     ws.save_config({"server": server.rstrip("/"), "device_build": device_build,
                     "channel": channel, "allow_insecure_http": bool(insecure_lan)})
     return ws

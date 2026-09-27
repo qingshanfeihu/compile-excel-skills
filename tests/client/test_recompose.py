@@ -253,6 +253,9 @@ call("cex_recompose_seal", out_name="mm")
 ''')
     ws_root = tmp_path / "ws"
     state = json.loads((ws_root / ".compile-excel" / "recompose" / "mm.json").read_text(encoding="utf-8"))
+    # 状态里的数据根相对工作区根记（文件夹改名、挪位置后照样能用）
+    assert state["data_root"].startswith(".compile-excel/engine/"), state["data_root"]
+    state["data_root"] = str(ws_root.resolve() / state["data_root"])
     script = f'''
 import json, sys
 from pathlib import Path
@@ -360,3 +363,59 @@ call("cex_recompose_submit_cases", out_name="mm", cases={[case]!r})
     assert prepared["defect_spec_status"] == "no_ticket_reference"
     assert recorded["ok"] is True, json.dumps(recorded["violations"], ensure_ascii=False)
     assert recorded["outstanding_autoids"] == [A1]
+
+
+def test_a_chinese_file_name_gets_a_safe_default_batch_name(tmp_path):
+    """没给 out_name 时用文件名；中文、空格放不进路径段，就取其中的 ASCII 部分加文件名摘要。"""
+    prepared, again = _run(tmp_path, '''
+import shutil
+shutil.copy(ws.root / "mm.json", ws.root / "slb virtual httplist等list命令支持no和clear.json")
+call("cex_recompose_prepare", mindmap="slb virtual httplist等list命令支持no和clear.json")
+call("cex_recompose_prepare", mindmap="slb virtual httplist等list命令支持no和clear.json")
+''')
+    assert prepared["ok"], prepared
+    name = prepared["out_name"]
+    assert name.startswith("slb-virtual-httplist-list-no-clear-"), name
+    assert again["out_name"] == name, "the same file name always gives the same batch"
+    assert f"out_name={name!r}" in prepared["note"]
+
+
+def test_recording_the_last_case_points_at_the_client_seal_tool(tmp_path):
+    """引擎说"调 submit_machine_mindmap 封存"：客户端里对应的是 cex_recompose_seal。"""
+    first, second = _contract_case(A1), _contract_case(A2)
+    _prepared, done, again = _run(tmp_path, f'''
+call("cex_recompose_prepare", mindmap="mm.json")
+call("cex_recompose_submit_cases", out_name="mm", cases={[first, second]!r})
+call("cex_recompose_submit_cases", out_name="mm", cases={[first]!r})
+''')
+    assert done["ok"] and done["outstanding_autoids"] == [], done
+    assert "cex_recompose_seal" in done["next"] and "submit_machine_mindmap" not in done["next"]
+    assert again["ok"] is False
+    detail = json.dumps(again, ensure_ascii=False)
+    assert "cex_recompose_seal" in detail and "submit_machine_mindmap" not in detail
+
+
+def test_a_renamed_workspace_folder_keeps_its_batches(tmp_path):
+    """状态里的路径相对工作区根记：文件夹改名后接着提交、密封照常。"""
+    import shutil
+
+    good = _contract_case(A1)
+    _run(tmp_path, 'call("cex_recompose_prepare", mindmap="mm.json")')
+    renamed = tmp_path / "renamed"
+    shutil.move(str(tmp_path / "ws"), str(renamed))
+    script = f'''
+import json, sys
+sys.path.insert(0, {str(REPO_ROOT)!r})
+from cex_client import tools
+for name, args in (("cex_recompose_submit_cases", {{"cases": {[good]!r}}}),
+                   ("cex_recompose_seal", {{}})):
+    print(json.dumps(tools.call(name, {{"workspace": {str(renamed)!r}, "out_name": "mm", **args}}),
+                     ensure_ascii=False))
+'''
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                          timeout=300, env={**os.environ, "CEX_ENGINE_DATA_ROOT": ""})
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    submitted, sealed = [json.loads(line) for line in proc.stdout.splitlines() if line.startswith("{")]
+    assert submitted["ok"], submitted
+    assert sealed["ok"] and sealed["sealed_case_count"] == 1, sealed
+    assert Path(sealed["artifact"]).is_relative_to(renamed.resolve())

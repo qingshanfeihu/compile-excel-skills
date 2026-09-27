@@ -7,6 +7,7 @@ circle 按 `register(api)` 加载扩展。这里用到的接口：
 
 工具说明与参数 schema 直接读 cex_client/tool_specs.json；执行时用子进程调发行根的 bin/cex_tool，
 与 pi 扩展、Claude Code 插件走同一个解释器和同一份依赖，circle 自己的进程里不加载 cex_* 代码。
+参数经 stdin 传（`cex_tool <名> -`）：大参数（整批用例）不受命令行长度上限影响。
 cex_tool 退出码：0 成功（含 pending）；1 工具返回 ok:false；2 用法错误。
 """
 
@@ -40,10 +41,15 @@ def make_executor(root: Path, name: str, tool_error: type[Exception]) -> Callabl
 
     def execute(args: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
-            proc = subprocess.run([python, cex_tool, name, json.dumps(args or {}, ensure_ascii=False)],
-                                  capture_output=True, text=True, timeout=TIMEOUT_S)
+            proc = subprocess.run([python, cex_tool, name, "-"],
+                                  input=json.dumps(args or {}, ensure_ascii=False),
+                                  capture_output=True, text=True, encoding="utf-8",
+                                  timeout=TIMEOUT_S)
         except subprocess.TimeoutExpired:
             raise tool_error(f"{name} timed out after {TIMEOUT_S}s") from None
+        except OSError as exc:
+            # 解释器不在（CEX_PYTHON 指错）、没有执行权限之类：照样报成这次调用失败
+            raise tool_error(f"{name} could not start {python!r}: {exc}") from None
         try:
             payload = json.loads(proc.stdout)
         except ValueError:

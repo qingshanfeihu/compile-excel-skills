@@ -2,7 +2,10 @@
 
 设备流拆成两步，方便在工具调用里用：`start_login` 拿到授权网址和设备码交给用户，
 `wait_login` 轮询到用户在浏览器里授权完成（每次调用有时限，没完成就返回 pending）。
-access 过期时用 refresh 换新；服务端每次都轮换 refresh，新的立刻落盘。
+access 过期时用 refresh 换新；服务端每次都轮换 refresh（旧的再用一次整族吊销），所以换新在
+工作区锁里做：同时跑的几个工具调用只有一个真去换，其余的在锁里重读 token.json 用换好的。
+只有服务端明说这张 refresh 失效（invalid_grant）才删令牌；网络故障、5xx 保留令牌，下次再试。
+带令牌的请求一律不跟随重定向：令牌只发给工作区配置的那个服务端。
 """
 
 from __future__ import annotations
@@ -15,12 +18,24 @@ import urllib.request
 from typing import Any
 
 from .errors import ClientError, NotLoggedIn, ServerUnreachable
-from .workspace import Workspace, read_private_json, write_private_json
+from .workspace import Workspace, read_private_json, state_lock, write_private_json
 
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 CLIENT_ID = "compile-excel-skill"
-DEFAULT_SCOPES = "artifacts:read docs:query bundles:read config:read jumphost:run"
+# 服务端按"申请 ∩ 账号拥有"授予：没有 jumphost:admin 的账号申请它也只拿到自己有的那几项
+BASE_SCOPES = "artifacts:read docs:query bundles:read config:read jumphost:run"
+DEFAULT_SCOPES = BASE_SCOPES + " jumphost:admin"
 USER_AGENT = "cex-client/1"
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """3xx 原样当应答交回（HTTPError），不带着 Authorization 跟到别的源、也不从 https 降到 http。"""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 def http(method: str, url: str, *, data: bytes | None = None,
@@ -28,12 +43,19 @@ def http(method: str, url: str, *, data: bytes | None = None,
     req = urllib.request.Request(url, data=data, method=method,
                                  headers={"User-Agent": USER_AGENT, **(headers or {})})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _OPENER.open(req, timeout=timeout) as resp:
             return resp.status, resp.read()
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read()
     except (urllib.error.URLError, OSError, TimeoutError) as exc:
         raise ServerUnreachable(f"server unreachable ({type(exc).__name__})") from None
+
+
+def refuse_redirect(status: int, what: str) -> None:
+    if 300 <= status < 400:
+        raise ClientError(f"{what} answered with a redirect (HTTP {status}); the client does not "
+                          "follow redirects with credentials. Check the configured address (the "
+                          "https URL itself, not one that forwards)")
 
 
 def _form(values: dict[str, str]) -> tuple[bytes, dict[str, str]]:
@@ -53,6 +75,12 @@ def start_login(ws: Workspace, scope: str = DEFAULT_SCOPES) -> dict[str, Any]:
     body, headers = _form({"client_id": CLIENT_ID, "scope": scope})
     status, raw = http("POST", ws.server + "/device_authorize", data=body, headers=headers)
     payload = _json(raw)
+    if (status == 400 and payload.get("error") == "invalid_scope" and scope == DEFAULT_SCOPES):
+        # 不认识 jumphost:admin 的旧服务端：退回基本权限（设备初始化用不了，其余照常）
+        body, headers = _form({"client_id": CLIENT_ID, "scope": BASE_SCOPES})
+        status, raw = http("POST", ws.server + "/device_authorize", data=body, headers=headers)
+        payload = _json(raw)
+    refuse_redirect(status, "the server")
     if status != 200 or "device_code" not in payload:
         raise ClientError(f"device authorization failed (HTTP {status}, "
                           f"{payload.get('error', 'no detail')})")
@@ -97,7 +125,8 @@ def wait_login(ws: Workspace, timeout_s: float = 60.0) -> dict[str, Any]:
         status, raw = http("POST", ws.server + "/token", data=body, headers=headers)
         payload = _json(raw)
         if status == 200 and "access_token" in payload:
-            _store_tokens(ws, payload, None)
+            with state_lock(ws, "token"):
+                _store_tokens(ws, payload, None)
             ws.pending_login_path.unlink(missing_ok=True)
             return {"ok": True, "scope": payload.get("scope", "")}
         error = payload.get("error", f"HTTP {status}")
@@ -124,30 +153,45 @@ def load_token(ws: Workspace) -> dict[str, Any]:
     return token
 
 
-def _refresh(ws: Workspace, token: dict[str, Any]) -> dict[str, Any]:
-    if not token.get("refresh_token"):
-        raise NotLoggedIn("session expired; log in again")
-    body, headers = _form({"grant_type": "refresh_token",
-                           "refresh_token": token["refresh_token"], "client_id": CLIENT_ID})
-    status, raw = http("POST", ws.server + "/token", data=body, headers=headers)
-    payload = _json(raw)
-    if status != 200 or "access_token" not in payload:
-        ws.token_path.unlink(missing_ok=True)
-        raise NotLoggedIn("session expired or was revoked; log in again")
-    _store_tokens(ws, payload, token)
-    return load_token(ws)
+def _refresh(ws: Workspace, stale: dict[str, Any]) -> dict[str, Any]:
+    """stale 是调用方手里那张（快过期、或刚被 401 拒掉的）令牌。锁内重读 token.json：别的调用
+    已经换好就直接用；否则拿文件里现在那张 refresh 去换。"""
+    with state_lock(ws, "token"):
+        current = read_private_json(ws.token_path)
+        if not current or not current.get("access_token") or current.get("server") != ws.server:
+            raise NotLoggedIn("not logged in; call cex_login_start")
+        if (current.get("access_token") != stale.get("access_token")
+                and int(current.get("expires_at") or 0) >= time.time() + 30):
+            return current
+        presented = str(current.get("refresh_token") or "")
+        if not presented:
+            raise NotLoggedIn("session expired; log in again (cex_login_start)")
+        body, headers = _form({"grant_type": "refresh_token", "refresh_token": presented,
+                               "client_id": CLIENT_ID})
+        status, raw = http("POST", ws.server + "/token", data=body, headers=headers)
+        payload = _json(raw)
+        if status == 200 and "access_token" in payload:
+            _store_tokens(ws, payload, current)
+            return load_token(ws)
+        if payload.get("error") == "invalid_grant":
+            # 服务端判定这张 refresh 失效：锁内 token.json 还是它才删（不会删掉别人刚换好的）
+            latest = read_private_json(ws.token_path) or {}
+            if latest.get("refresh_token") == presented:
+                ws.token_path.unlink(missing_ok=True)
+            raise NotLoggedIn("session expired or was revoked; log in again (cex_login_start)")
+    raise ClientError(f"token refresh failed (HTTP {status}); the session is kept, try again")
 
 
 def request(ws: Workspace, method: str, path: str, *, data: bytes | None = None,
-            headers: dict[str, str] | None = None, timeout: float = 120.0,
-            stream_to: Any = None) -> tuple[int, bytes]:
-    """带令牌的请求；access 过期或 401 时换新一次再试。"""
+            headers: dict[str, str] | None = None, timeout: float = 120.0) -> tuple[int, bytes]:
+    """带令牌的请求；access 过期或 401 时换新一次再试。不跟随重定向。"""
     token = load_token(ws)
     if int(token.get("expires_at") or 0) < time.time() + 30:
         token = _refresh(ws, token)
     for attempt in (0, 1):
         auth = {"Authorization": f"Bearer {token['access_token']}", **(headers or {})}
         status, raw = http(method, ws.server + path, data=data, headers=auth, timeout=timeout)
+        refuse_redirect(status, "the server")
         if status != 401:
             return status, raw
         if attempt == 0:
@@ -165,15 +209,16 @@ def request_json(ws: Workspace, method: str, path: str, **kwargs: Any) -> dict[s
 
 
 def logout(ws: Workspace) -> dict[str, Any]:
-    token = read_private_json(ws.token_path) or {}
-    revoked = False
-    if token.get("refresh_token") and token.get("server") == ws.server:
-        body, headers = _form({"token": token["refresh_token"]})
-        try:
-            status, _ = http("POST", ws.server + "/revoke", data=body, headers=headers)
-            revoked = status == 200
-        except ServerUnreachable:
-            revoked = False
-    ws.token_path.unlink(missing_ok=True)
-    ws.pending_login_path.unlink(missing_ok=True)
+    with state_lock(ws, "token"):
+        token = read_private_json(ws.token_path) or {}
+        revoked = False
+        if token.get("refresh_token") and token.get("server") == ws.server:
+            body, headers = _form({"token": token["refresh_token"]})
+            try:
+                status, _ = http("POST", ws.server + "/revoke", data=body, headers=headers)
+                revoked = status == 200
+            except ServerUnreachable:
+                revoked = False
+        ws.token_path.unlink(missing_ok=True)
+        ws.pending_login_path.unlink(missing_ok=True)
     return {"ok": True, "revoked_on_server": revoked}

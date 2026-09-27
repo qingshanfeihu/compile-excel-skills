@@ -57,3 +57,13 @@ def test_overlapping_tables_are_refused(tmp_path):
     path.write_text(json.dumps(bad), encoding="utf-8")
     with pytest.raises(ValueError, match="同名"):
         load_projection(path)
+
+
+def test_more_commands_than_the_limit_are_refused_not_silently_truncated(tmp_path):
+    ws = _workspace(tmp_path, PROJECTION)
+    over = tools.call("cex_cmd_check", {"workspace": str(ws.root),
+                                        "commands": ["sdns listener 53"] * 201})
+    assert over["ok"] is False and "201" in over["error"] and "split" in over["error"]
+    full = tools.call("cex_cmd_check", {"workspace": str(ws.root),
+                                        "commands": ["sdns listener 53"] * 200})
+    assert full["ok"] and full["checked"] == 200 and len(full["results"]) == 200

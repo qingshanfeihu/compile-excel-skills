@@ -27,7 +27,14 @@
 no_governing_spec，而不是拿一个校验不过的代际去碰运气。
 
 引擎模块在导入时就按数据根算常量，所以 ``activate`` 必须在第一次 import cex_core.engine
-之前调用；同一进程里换数据根会被拒绝（circle 这类长驻宿主换工作区要重启）。
+之前调用；同一进程里换数据根、或引擎在数据根设好之前就被导入过，都会被拒绝（circle 这类
+长驻宿主换工作区要重启）。激活时去掉进程环境里的 IST_* 变量：引擎会读它们（设备 build、
+命令清单版本、多租户……），从 shell 继承来的值不能盖过数据包里的事实。
+
+摆放在工作区锁里做，先摆进同目录的独立临时目录（每个进程一个），摆齐、记下文件清单
+（.inventory.json）再整体换上；复用已摆好的数据根前逐个核清单里的文件都在，缺了就重摆。
+重组/编写批次记住它开始时用的数据根（工作区相对路径），后续调用都回到那一个（pinned_root）：
+中途 cex_sync 换了数据包也不会悄悄换数据根；那个数据根没了就如实报错，让重新准备这一批。
 """
 
 from __future__ import annotations
@@ -37,18 +44,30 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 import tarfile
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from . import bundle
 from .errors import ClientError
-from .workspace import Workspace, safe_component, safe_relative_path
+from .workspace import (
+    Workspace,
+    from_state_path,
+    safe_component,
+    safe_relative_path,
+    state_lock,
+    to_state_path,
+)
 
 DATA_ROOT_ENV = "CEX_ENGINE_DATA_ROOT"
-LAYOUT = 3  # 摆放规则变了就加一，已摆好的旧数据根会重摆
+LAYOUT = 4  # 摆放规则变了就加一，已摆好的旧数据根会重摆（4：带文件清单，复用前核文件在不在）
 _MARKER = ".complete.json"
+_INVENTORY = ".inventory.json"
+_ENGINE_PREFIX = "cex_core.engine."
+_ROOT_MODULE = "cex_core.engine._root"
 _SPEC_ACTIVE_SCHEMA = "ist.spec.active"
 _COMMAND_TREE_ACTIVE_SCHEMA = "ist.command-tree.active"
 _GENERATION_MANIFEST = "cmdtree/generation_manifest.json"
@@ -192,28 +211,102 @@ def _footprints(entries: dict[str, Path], root: Path) -> list[str]:
     return versions
 
 
-def materialize(ws: Workspace) -> tuple[Path, dict[str, Any]]:
-    manifest = bundle.cached_manifest(ws)
-    if manifest is None:
-        raise ClientError("no synced compile data; call cex_sync first")
+def root_for(ws: Workspace, manifest: dict[str, Any]) -> Path:
     bundle_id = str(manifest.get("bundle_id") or "")
-    target = ws.state_dir / "engine" / safe_component(bundle_id[:16] or "bundle", "bundle id")
-    marker = target / _MARKER
-    if marker.is_file():
-        done = json.loads(marker.read_text(encoding="utf-8"))
-        if done.get("layout") == LAYOUT:
+    return ws.state_dir / "engine" / safe_component(bundle_id[:16] or "bundle", "bundle id")
+
+
+def _reusable(target: Path) -> dict[str, Any] | None:
+    """已摆好的数据根能不能直接用：标记是当前布局、文件清单没被改、清单里的文件一个不少。
+    （引擎运行时会往数据根里添文件、续写台账，所以只核"在不在"，不核内容。）"""
+    try:
+        done = json.loads((target / _MARKER).read_text(encoding="utf-8"))
+        raw = (target / _INVENTORY).read_bytes()
+    except (OSError, ValueError):
+        return None
+    if not isinstance(done, dict) or done.get("layout") != LAYOUT \
+            or hashlib.sha256(raw).hexdigest() != done.get("inventory_sha256"):
+        return None
+    try:
+        files = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, ValueError):
+        return None
+    if not isinstance(files, list) or len(files) != done.get("files"):
+        return None
+    for rel in files:
+        try:
+            if not stat.S_ISREG(os.lstat(target / str(rel)).st_mode):
+                return None
+        except OSError:
+            return None
+    return done
+
+
+def materialize(ws: Workspace) -> tuple[Path, dict[str, Any]]:
+    with bundle.locked(ws, shared=True):
+        manifest = bundle.cached_manifest(ws)
+        if manifest is None:
+            raise ClientError("no synced compile data; call cex_sync first")
+        target = root_for(ws, manifest)
+        done = _reusable(target)
+        if done is not None:
             return target, done
-    staging = target.with_name(target.name + ".tmp")
-    if staging.exists():
-        shutil.rmtree(staging)
-    root_dir = ws.bundle_dir()
+        with state_lock(ws, "engine", target.name):
+            done = _reusable(target)  # 等锁期间别的调用可能已经摆好
+            if done is not None:
+                return target, done
+            return _build(ws, manifest, target)
+
+
+def _build(ws: Workspace, manifest: dict[str, Any], target: Path) -> tuple[Path, dict[str, Any]]:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    legacy = target.with_name(target.name + ".tmp")  # 旧版客户端的固定暂存名
+    if legacy.is_dir() and not legacy.is_symlink():
+        shutil.rmtree(legacy, ignore_errors=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{target.name}.", suffix=".staging",
+                                    dir=target.parent))
+    try:
+        info = _populate(ws, manifest, staging)
+        files = sorted(path.relative_to(staging).as_posix() for path in staging.rglob("*")
+                       if path.is_file() and not path.is_symlink())
+        inventory = json.dumps(files, ensure_ascii=False).encode("utf-8")
+        (staging / _INVENTORY).write_bytes(inventory)
+        info.update(files=len(files), inventory_sha256=hashlib.sha256(inventory).hexdigest())
+        (staging / _MARKER).write_text(json.dumps(info, ensure_ascii=False), encoding="utf-8")
+        bundle.swap_directory(staging, target)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return target, info
+
+
+def pinned_root(ws: Workspace, recorded: Any) -> tuple[Path, dict[str, Any]]:
+    """批次开始时用的数据根：还在且完整就用它；缺了文件而数据包没换就原地重摆；数据包已经
+    换了（那一版的包已不在工作区里）就如实报错，让这一批在当前数据上重新准备。"""
+    root = from_state_path(ws, recorded)
+    if root.parent != ws.state_dir / "engine" or not root.name:
+        raise ClientError(f"the batch state names {recorded!r}, which is not a compile data root "
+                          "of this workspace; prepare the batch again")
+    done = _reusable(root)
+    if done is not None:
+        return root, done
+    manifest = bundle.cached_manifest(ws)
+    if manifest is not None and root_for(ws, manifest) == root:
+        return materialize(ws)
+    current = str((manifest or {}).get("bundle_id") or "")[:16] or "none"
+    raise ClientError(
+        f"this batch was prepared on compile data {root.name}, which is no longer complete in this "
+        f"workspace (the synced bundle is now {current}). Prepare the batch again on the current "
+        "data: cex_recompose_prepare (same mindmap and out_name; recorded cases stay recorded), "
+        "cex_recompose_seal, then cex_author_prepare")
+
+
+def _populate(ws: Workspace, manifest: dict[str, Any], staging: Path) -> dict[str, Any]:
+    bundle_id = str(manifest.get("bundle_id") or "")
     entries: dict[str, Path] = {}
     for entry in manifest.get("entries") or []:
-        rel = safe_relative_path(entry.get("path"))
-        path = root_dir / rel
-        if not path.is_file():
-            raise ClientError(f"synced bundle is missing {rel}; call cex_sync")
-        entries[rel] = path
+        # 每个文件按清单 SHA 核过再摆：中断的同步、被改过的文件都不会进数据根
+        entries[safe_relative_path(entry.get("path"))] = bundle.verified_file(ws, entry)
     compile_ref = staging / "knowledge" / "data" / "compile_ref"
     manual_root = staging / "knowledge" / "data" / "manual"
     command_tree: dict[str, Any] = {"projections": [], "xml": []}
@@ -263,12 +356,7 @@ def materialize(ws: Workspace) -> tuple[Path, dict[str, Any]]:
                            "projection_sha256": str(source.get("projection_sha256") or "")},
             "routed": sorted(routed), "footprints": _footprints(entries, staging),
             "spec": _spec_generation(entries, staging), "framework_files": framework_files}
-    staging.mkdir(parents=True, exist_ok=True)
-    (staging / _MARKER).write_text(json.dumps(info, ensure_ascii=False), encoding="utf-8")
-    if target.exists():
-        shutil.rmtree(target)
-    os.replace(staging, target)
-    return target, info
+    return info
 
 
 # ── 每次 prepare 都对齐的部分（不随数据包变） ───────────────────────────────
@@ -364,24 +452,59 @@ def place_topology(ws: Workspace, root: Path) -> dict[str, Any] | None:
     return {"path": str(target), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
+def _loaded_engine_modules() -> list[str]:
+    return sorted(name for name in sys.modules
+                  if name.startswith(_ENGINE_PREFIX) and name != _ROOT_MODULE)
+
+
+def _bound_while_unset() -> tuple[str, ...]:
+    """引擎自己记下的"数据根没设时就算过路径"的模块（cex_core.engine.modules_bound_while_unset）。"""
+    if _ROOT_MODULE not in sys.modules:
+        return ()
+    from cex_core.engine import _root
+
+    return tuple(getattr(_root, "modules_bound_while_unset", lambda: ())())
+
+
 def activate(root: Path) -> Path:
-    """设数据根；引擎已经按另一个数据根导入过就拒绝。"""
+    """设数据根；引擎已经按另一个数据根导入过、或在数据根设好之前就被导入过（它按"未设"算好了
+    常量），都拒绝。两道判定都做：引擎自己记下的"未设时算过路径"的模块（之后再设环境变量也
+    改不过来），和"引擎模块已导入而数据根还没设"。同时清掉进程环境里的 IST_* 变量。"""
     root = Path(root).resolve()
     current = os.environ.get(DATA_ROOT_ENV, "").strip()
-    if "cex_core.engine._root" in sys.modules and current and Path(current).resolve() != root:
-        raise ClientError("the compile engine is already loaded for another workspace in this "
-                          "process; restart the harness to switch workspaces")
+    bound = _bound_while_unset()
+    if bound:
+        raise ClientError(
+            f"the compile engine ({bound[0]}) computed its data paths in this process before its "
+            "data root was set, so it holds no compile data; restart the harness")
+    loaded = _loaded_engine_modules()
+    if loaded:
+        from cex_core.engine import _root
+
+        if not _root.data_root_configured():
+            raise ClientError(
+                f"the compile engine ({loaded[0]}) was imported in this process before its data "
+                "root was set, so it holds no compile data; restart the harness")
+        if Path(current).expanduser().resolve() != root:
+            raise ClientError("the compile engine is already loaded for another workspace or "
+                              "batch data in this process; restart the harness to switch")
+    for name in [key for key in os.environ if key.startswith("IST_")]:
+        del os.environ[name]
     os.environ[DATA_ROOT_ENV] = str(root)
     return root
 
 
-def prepare(ws: Workspace) -> tuple[Path, dict[str, Any]]:
-    root, info = materialize(ws)
-    code_mirror(root)
-    merge_local_rules(ws, root)
-    info = {**info, "topology": place_topology(ws, root)}
+def prepare(ws: Workspace, pinned: Any = None) -> tuple[Path, dict[str, Any]]:
+    """摆好（或找回批次钉住的）数据根、对齐每次都要对齐的部分，再激活。"""
+    root, info = pinned_root(ws, pinned) if pinned else materialize(ws)
+    with state_lock(ws, "engine", root.name):
+        code_mirror(root)
+        merge_local_rules(ws, root)
+        topology = place_topology(ws, root)
+    info = {**info, "topology": topology, "data_root": to_state_path(ws, root)}
     return activate(root), info
 
 
 __all__ = ["DATA_ROOT_ENV", "activate", "code_mirror", "local_rules_path", "materialize",
-           "merge_local_rules", "place_topology", "prepare", "topology_path"]
+           "merge_local_rules", "pinned_root", "place_topology", "prepare", "root_for",
+           "topology_path"]

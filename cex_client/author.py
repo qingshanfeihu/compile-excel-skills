@@ -24,25 +24,43 @@ compile-worker 写机械用例（块语言）并经 submit_mechanical_case 的�
 - 规格一致性（case 与管辖规格书的一致性裁决，scenario 1）没有移植：管辖规格书绑定时
   consistency_requirement=required，提交如实拒绝并说明；recompose 时 spec='none' 走不适用。
 - answerer 为 undetermined 的观察块不经引擎写用户裁决账，直接如实返回待用户裁决，不封存。
-- 客户端的产物根是工作区 compile_outputs/（引擎是 workspace/outputs/），批目录与每案目录的
-  相对布局不变；intent.json 里的契约路径相对工作区根记。
+- 客户端的产物根是工作区 compile_outputs/（引擎是 workspace/outputs/）。每案目录（intent.json、
+  封存的 mechanical_case.json）放在本批目录下 compile_outputs/<批>/cases/<autoid>/，两个批次含
+  同一 autoid 也互不覆盖；引擎读每案目录的地方（提交规则闸的出处核对）把 outputs_root 指到这里。
+  旧版放在 compile_outputs/<autoid>/ 的批次照读：下一次提交时按本批回执把 intent 重盖到新位置，
+  出件时把核过哈希的封存用例搬进本批目录；intent.json 里的契约路径相对工作区根记；
+- 出件逐案核封存时记下的 mechanical_case_sha256：文件被换过（别的批、手工改）就不出这一案并点名；
+  有未封存或被换过的案时 ok=false；
+- 状态"读—改—写"都在工作区锁里做（同时提交几案不会丢封存记录），状态里的路径相对工作区根记；
+  整批钉在重组开始时的引擎数据根上（engine_env.pinned_root）。
 """
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
 import re
 import shutil
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from . import engine_env
 from .errors import ClientError
-from .workspace import Workspace, read_private_json, safe_component, write_private_json
+from .workspace import (
+    Workspace,
+    from_state_path,
+    read_private_json,
+    safe_component,
+    state_lock,
+    to_state_path,
+    write_file_safely,
+    write_private_json,
+)
 
 STATE_SCHEMA = "cex.author-dispatch/v1"
 _STRIP = "﻿￿"
@@ -66,6 +84,22 @@ def _load_state(ws: Workspace, out_name: str) -> dict[str, Any]:
 
 def _save_state(ws: Workspace, state: dict[str, Any]) -> None:
     write_private_json(_state_path(ws, state["out_name"]), {**state, "schema": STATE_SCHEMA})
+
+
+def _update_state(ws: Workspace, out_name: str,
+                  change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    """锁内重读状态 → change 就地改 → 写回；同时跑的几个工具调用各自的改动都留得住。"""
+    with state_lock(ws, "author", out_name):
+        state = read_private_json(_state_path(ws, out_name)) or {}
+        state.setdefault("out_name", out_name)
+        change(state)
+        _save_state(ws, state)
+        return state
+
+
+def cases_root(ws: Workspace, out_name: str) -> Path:
+    """本批的每案目录根：compile_outputs/<批>/cases/<autoid>/。"""
+    return ws.outputs_dir / safe_component(out_name, "batch name") / "cases"
 
 
 def _sha256_bytes(raw: bytes) -> str:
@@ -98,9 +132,10 @@ def _sealed_batch(ws: Workspace, out_name: str) -> tuple[dict[str, Any], Path]:
     return rstate, ws.outputs_dir / rstate["out_name"]
 
 
-def _current_seal_sha(ws: Workspace, out_name: str) -> str:
+def _current_seal_sha(ws: Workspace, out_name: str, pinned: Any = None) -> str:
     """重组批次当前的密封：没密封（或已被 cex_recompose_prepare 重开）就抛错，否则给出机械脑图的 sha。"""
-    engine_env.prepare(ws)  # 核对密封要用引擎（数据根、领域文法）；每个工具调用是新进程，先接好
+    # 核对密封要用引擎（数据根、领域文法）；每个工具调用是新进程，先接好这一批的数据根
+    engine_env.prepare(ws, pinned=pinned)
     _rstate, batch = _sealed_batch(ws, out_name)
     from cex_core.engine.case_compiler.mindmap_contract_projector import (
         load_machine_mindmap,
@@ -116,7 +151,7 @@ def _require_current_seal(ws: Workspace, state: dict[str, Any]) -> None:
     接着写出来的卷面对不上交付链里的机械脑图，这里拒绝，而不是让它悄悄出件。"""
     out_name = state["out_name"]
     try:
-        current = _current_seal_sha(ws, out_name)
+        current = _current_seal_sha(ws, out_name, state.get("data_root"))
     except ClientError as exc:
         raise ClientError(
             f"authoring {out_name!r} needs its recompose batch sealed, and it is not: {exc}. "
@@ -318,9 +353,10 @@ def _receipt(batch: Path, projected: dict[str, Any], rstate: dict[str, Any]) -> 
     }
 
 
-def _stamp_intent(ws: Workspace, root: Path, batch: Path, aid: str, receipt: dict[str, Any],
-                  case: dict[str, Any] | None) -> dict[str, Any]:
-    """nodes.py `_stamp_intent`：每案 intent.json（author_claims 是断言兑现 Author 期望的出处）。"""
+def _stamp_intent(ws: Workspace, root: Path, batch: Path, case_root: Path, aid: str,
+                  receipt: dict[str, Any], case: dict[str, Any] | None) -> dict[str, Any]:
+    """nodes.py `_stamp_intent`：每案 intent.json（author_claims 是断言兑现 Author 期望的出处），
+    落在本批的每案目录 case_root/<autoid>/。"""
     from cex_core.engine.case_compiler._sealed_io import read_regular_nofollow
     from cex_core.engine.case_compiler.contract_entry import (
         normalize_contract,
@@ -332,7 +368,7 @@ def _stamp_intent(ws: Workspace, root: Path, batch: Path, aid: str, receipt: dic
         resolve_consistency_requirement,
     )
 
-    case_dir = ws.outputs_dir / aid
+    case_dir = case_root / safe_component(aid, "autoid")
     marker = case_dir / "intent_stamp_status.json"
     case_dir.mkdir(parents=True, exist_ok=True)
     write_json_atomic(marker, {"schema": _INTENT_STAMP_SCHEMA, "autoid": aid, "status": "pending"})
@@ -409,14 +445,29 @@ def _stamp_intent(ws: Workspace, root: Path, batch: Path, aid: str, receipt: dic
 # ── 给写手看的契约卡与判据待裁定视图 ─────────────────────────────────────
 
 
-def _criterion_language() -> dict[str, dict[str, Any]]:
-    from cex_core.engine.case_compiler.criterion_normalization import load_projection
+SLOT_RULE = ("Each expectation is redeemed by the block its expectation_binding points at. The "
+             "submission gate accepts the binding only when (block kind, operator) is one of that "
+             "expectation's allowed_slots: operator is asserts[assert_index].op for OBSERVE_ASSERT, "
+             "the block's F for STEP, and \"\" for kinds that carry no operator.")
+# 引擎给的判据披露里有"答「否决并重裁」就能翻掉"的邀请；客户端没有执行它的工具，换成如实的说明
+_VETO_INVITATION = re.compile(r"这条归类是引擎裁定的，与你写的不符就可以翻掉：答「[^」]*」（键 [0-9a-f]*），"
+                              r"下次同类编译重新裁定")
+_VETO_NOTE = ("这条归类是引擎裁定的；与你写的不符时，把你的异议告诉我，我会如实写进报告，"
+              "但本客户端不能翻掉它——在服务端的判据台账改动之前，这条归类保持不变")
 
-    return {str(row.get("criterion_type") or ""): row
-            for row in load_projection().get("criterion_types") or [] if isinstance(row, dict)}
+
+def _allowed_slots() -> dict[str, list[list[str]]]:
+    """提交规则闸认的 (块种类, 算子) 配对：直接取闸自己用的那张表，不另抄一份。"""
+    from cex_core.engine.case_compiler.mechanical_case_gate import (
+        CRITERION_TYPE_ALLOWED_SLOTS,
+    )
+
+    return {str(ctype): [[str(kind), str(op)] for kind, op in sorted(pairs)]
+            for ctype, pairs in CRITERION_TYPE_ALLOWED_SLOTS.items()}
 
 
-def _card_view(batch: Path, aid: str, language: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _card_view(batch: Path, aid: str, slots: dict[str, list[list[str]]],
+               mm_case: dict[str, Any] | None) -> dict[str, Any]:
     contract = json.loads((batch / "contracts" / f"{aid}.json").read_text(encoding="utf-8"))
     expectations = []
     for item in contract.get("expectations") or []:
@@ -425,12 +476,11 @@ def _card_view(batch: Path, aid: str, language: dict[str, dict[str, Any]]) -> di
         claim = item.get("author_claim") or item.get("defect_spec_claim") or {}
         normalized = item.get("normalized_claim") or {}
         ctype = str(normalized.get("criterion_type") or "")
-        row = language.get(ctype) or {}
         expectations.append({
             "expectation_id": claim.get("expectation_id"), "semantic_key": claim.get("semantic_key"),
             "text": item.get("text"), "claim_kind": claim.get("kind"),
             "criterion_type": ctype or None, "criterion_label": normalized.get("criterion_label_zh"),
-            "allowed_block_kinds": row.get("block_kinds"), "allowed_operators": row.get("operators"),
+            "allowed_slots": copy.deepcopy(slots.get(ctype) or []),
             "authored_step": normalized.get("authored_step"),
             "fixture_mode": normalized.get("mode"),
         })
@@ -439,13 +489,23 @@ def _card_view(batch: Path, aid: str, language: dict[str, dict[str, Any]]) -> di
             "bucket": contract.get("bucket"), "author_steps": contract.get("author_steps"),
             "adapted_steps": contract.get("adapted_steps"),
             "step_structure": contract.get("step_structure"),
+            # step_structure 里 {"ref": "concretizations[i]"} 指的就是这张表（密封的机械脑图里这一案的）
+            "concretizations": copy.deepcopy((mm_case or {}).get("concretizations") or []),
             "consistency": contract.get("consistency"),
             "device_disclosure": contract.get("device_disclosure"),
             "expectations": expectations,
             "contract_path": str(batch / "contracts" / f"{aid}.json")}
 
 
-def _pending_view(state: dict[str, Any]) -> list[dict[str, Any]]:
+def client_disclosure_message(message: str) -> str:
+    """引擎披露里客户端做不到的邀请换成如实说明（其余原文不动）。"""
+    text = _VETO_INVITATION.sub(_VETO_NOTE, str(message or ""))
+    if "否决并重裁" in text:
+        text = "；".join(_VETO_NOTE if "否决并重裁" in part else part for part in text.split("；"))
+    return text
+
+
+def _pending_view(ws: Workspace, state: dict[str, Any]) -> list[dict[str, Any]]:
     out = []
     for key, brief in sorted((state.get("pending") or {}).items()):
         shape = (brief.get("shapes") or [{}])[0]
@@ -454,7 +514,7 @@ def _pending_view(state: dict[str, Any]) -> list[dict[str, Any]]:
                                 "original_text": c.get("original_text")}
                                for c in shape.get("claims") or []],
                     "criterion_types": [row.get("criterion_type") for row in brief.get("criterion_types") or []],
-                    "brief_path": state["brief_paths"][key]})
+                    "brief_path": str(from_state_path(ws, state["brief_paths"][key]))})
     return out
 
 
@@ -475,7 +535,7 @@ def _round_rules(state: dict[str, Any], manual: str) -> dict | None:
 
 
 def _project_and_publish(ws: Workspace, state: dict[str, Any]) -> dict[str, Any]:
-    root, info = engine_env.prepare(ws)
+    root, info = engine_env.prepare(ws, pinned=state.get("data_root"))
     rstate, batch = _sealed_batch(ws, state["out_name"])
     _full, _family, manual = _versions(info)
     projected = _project(root, batch, rstate, info, rule_records=_round_rules(state, manual))
@@ -502,39 +562,53 @@ def _project_and_publish(ws: Workspace, state: dict[str, Any]) -> dict[str, Any]
     receipt = _receipt(batch, projected, rstate)
     text = (batch / "mindmap_source.json").read_bytes().decode("utf-8").lstrip(_STRIP)
     manifest_cases = _manifest_cases(text)
+    case_root = cases_root(ws, state["out_name"])
     stamped = {}
     for aid in summary["written"]:
-        proof = _stamp_intent(ws, root, batch, aid, receipt, manifest_cases.get(aid))
+        proof = _stamp_intent(ws, root, batch, case_root, aid, receipt, manifest_cases.get(aid))
         _slice, slice_sha = source_case_slice(manifest_cases[aid], aid)
         stamped[aid] = {"consistency_requirement": proof["requirement"],
                         "source_case_slice_sha256": slice_sha}
     capability = info.get("capability") or {}
-    # 重投影后契约卡逐字节没变的案，已封存的机械用例仍然有效；变了的要重新提交
     contracts = receipt["contract_sha256_by_autoid"]
-    sealed = {aid: record for aid, record in (state.get("sealed") or {}).items()
-              if contracts.get(aid) == record.get("contract_sha256")}
-    state.update({"phase": "published", "receipt": receipt, "cases": stamped, "pending": {},
-                  "projected_machine_mindmap_sha256": summary["machine_mindmap_sha256"],
-                  "data_root": str(root), "bundle_id": info.get("bundle_id"),
-                  "capability": capability, "sealed": sealed})
-    _save_state(ws, state)
-    language = _criterion_language()
+
+    def publish(current: dict[str, Any]) -> None:
+        # 锁内合并：别的调用刚封存的案不丢；重投影后契约卡逐字节没变的案，已封存的机械用例仍然
+        # 有效，变了的要重新提交
+        sealed = current.get("sealed") if "sealed" in current else state.get("sealed")
+        current.update({
+            "phase": "published", "receipt": receipt, "cases": stamped, "pending": {},
+            "projected_machine_mindmap_sha256": summary["machine_mindmap_sha256"],
+            "data_root": to_state_path(ws, root), "bundle_id": info.get("bundle_id"),
+            "capability": capability, "cases_root": to_state_path(ws, case_root),
+            "round_records": current.get("round_records") or state.get("round_records") or [],
+            "sealed": {aid: record for aid, record in (sealed or {}).items()
+                       if contracts.get(aid) == record.get("contract_sha256")}})
+
+    _update_state(ws, state["out_name"], publish)
     from . import bed
 
     topology = bed.load(ws) or {}
-    disclosures = [{k: item.get(k) for k in ("autoid", "code", "message", "criterion_type")
+    disclosures = [{k: (client_disclosure_message(item[k]) if k == "message" else item.get(k))
+                    for k in ("autoid", "code", "message", "criterion_type")
                     if item.get(k) is not None} for item in summary["disclosures"]]
     disclosures_path = batch / "author_disclosures.json"
-    disclosures_path.write_text(json.dumps(disclosures, ensure_ascii=False, indent=1),
-                                encoding="utf-8")
+    write_file_safely(ws.root, disclosures_path,
+                      json.dumps(disclosures, ensure_ascii=False, indent=1).encode("utf-8"))
+    slots = _allowed_slots()
+    # concretizations 原样取自密封的机械脑图（投影前的那份，不经 fill/strip 改动）
+    sealed_mm = json.loads((batch / "machine_mindmap.json").read_text(encoding="utf-8"))
+    mm_cases = {str(case.get("autoid") or ""): case
+                for case in sealed_mm.get("cases") or [] if isinstance(case, dict)}
     return {
         "ok": True, "out_name": state["out_name"], "phase": "published",
-        "cases": [_card_view(batch, aid, language) for aid in summary["written"]],
+        "cases": [_card_view(batch, aid, slots, mm_cases.get(str(aid))) for aid in summary["written"]],
+        "slot_rule": SLOT_RULE,
         "quarantined": summary["quarantined"], "needs_decision": summary["needs_decision"],
         "abandoned": summary["abandoned"],
         # 给用户看的披露（判据归类、重组提案）落盘，最终报告照这份写；编写本身不需要它们
         "disclosures": {"count": len(disclosures), "path": str(disclosures_path)},
-        "bed": bed.facts_view(topology) if topology else None,
+        "bed": bed.facts_view(topology, bed.load_services(ws)) if topology else None,
         "blocks_schema": str(root / "knowledge" / "data" / "compile_ref" / "blocks_schema.json"),
         "next": ("Write one mechanical case per case (blocks language, see the skill's "
                  "references/authoring.md) and submit each with cex_author_submit_case; "
@@ -564,26 +638,37 @@ def _stop_for_criteria(ws: Workspace, state: dict[str, Any], projected: dict[str
     if brief is None:
         raise ClientError("criterion pending shapes have no adjudication envelope")
     directory = batch / "criterion_briefs"
-    directory.mkdir(exist_ok=True)
     pending, paths = {}, {}
     for shape_brief in split_engine_adjudication_briefs(brief):
         key = str(shape_brief["shapes"][0]["shape_key"])
-        path = directory / f"{key[:16]}.json"
-        path.write_text(serialize_engine_adjudication_brief(shape_brief), encoding="utf-8")
-        pending[key], paths[key] = shape_brief, str(path)
-    state.update({"phase": "criterion_pending", "pending": pending, "brief": brief,
-                  "brief_paths": paths,
-                  "projected_machine_mindmap_sha256": projected["machine_mindmap_sha256"]})
-    _save_state(ws, state)
+        path = directory / f"{safe_component(key[:16], 'shape key')}.json"
+        write_file_safely(ws.root, path,
+                          serialize_engine_adjudication_brief(shape_brief).encode("utf-8"))
+        pending[key], paths[key] = shape_brief, to_state_path(ws, path)
+
+    def stop(current: dict[str, Any]) -> None:
+        current.update({"phase": "criterion_pending", "pending": pending, "brief": brief,
+                        "brief_paths": paths, "data_root": state.get("data_root"),
+                        "round_records": current.get("round_records")
+                        or state.get("round_records") or [],
+                        "sealed": current.get("sealed") if "sealed" in current
+                        else state.get("sealed") or {},
+                        "projected_machine_mindmap_sha256": projected["machine_mindmap_sha256"]})
+
+    state = _update_state(ws, state["out_name"], stop)
     return {"ok": True, "out_name": state["out_name"], "phase": "criterion_pending",
-            "pending_shapes": _pending_view(state),
+            "pending_shapes": _pending_view(ws, state),
             "next": ("Adjudicate each shape: read its brief_path, pick one criterion_type from the "
                      "brief's catalogue and call cex_criterion_record (see the skill's "
                      "references/criterion.md). Contracts are published after the last one.")}
 
 
 def prepare(ws: Workspace, out_name: str) -> dict[str, Any]:
-    _root, info = engine_env.prepare(ws)
+    from . import recompose
+
+    # 编写接着重组时的那一个数据根（重组状态里钉着）；旧状态没记就用当前数据包
+    pinned = recompose._load_state(ws, out_name).get("data_root")
+    root, info = engine_env.prepare(ws, pinned=pinned)
     if info.get("topology") is None:
         raise ClientError("no bed topology in this workspace; call cex_bed_topology first "
                           "(the authoring gates read the bed facts)")
@@ -594,14 +679,14 @@ def prepare(ws: Workspace, out_name: str) -> dict[str, Any]:
     previous = read_private_json(_state_path(ws, rstate["out_name"])) or {}
     state = {"schema": STATE_SCHEMA, "out_name": rstate["out_name"],
              "round_records": previous.get("round_records") or [],
-             "sealed": previous.get("sealed") or {}}
+             "sealed": previous.get("sealed") or {}, "data_root": to_state_path(ws, root)}
     return _project_and_publish(ws, state)
 
 
 def criterion_record(ws: Workspace, out_name: str, shape_key: str, judgment: Any) -> dict[str, Any]:
     state = _load_state(ws, out_name)
     _require_current_seal(ws, state)
-    _root, info = engine_env.prepare(ws)
+    _root, info = engine_env.prepare(ws, pinned=state.get("data_root"))
     brief = (state.get("pending") or {}).get(str(shape_key or ""))
     if brief is None:
         raise ClientError(f"shape {shape_key!r} is not pending; pending: "
@@ -626,22 +711,27 @@ def criterion_record(ws: Workspace, out_name: str, shape_key: str, judgment: Any
                                            manual_version=manual or None)
     local = engine_env.local_rules_path(ws)
     local.parent.mkdir(parents=True, exist_ok=True)
-    known = set()
-    if local.is_file():
-        known = {json.loads(line).get("rule_sha256") for line in
-                 local.read_text(encoding="utf-8").splitlines() if line.strip()}
-    with open(local, "a", encoding="utf-8") as stream:
-        for record in records:
-            if record.get("rule_sha256") not in known:
-                stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
-    state["round_records"] = [*(state.get("round_records") or []), *records]
-    state["pending"] = {k: v for k, v in state["pending"].items() if k != shape_key}
-    _save_state(ws, state)
+    with state_lock(ws, "criterion-rules"):
+        known = set()
+        if local.is_file():
+            known = {json.loads(line).get("rule_sha256") for line in
+                     local.read_text(encoding="utf-8").splitlines() if line.strip()}
+        with open(local, "a", encoding="utf-8") as stream:
+            for record in records:
+                if record.get("rule_sha256") not in known:
+                    stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+    def record_shape(current: dict[str, Any]) -> None:
+        current["round_records"] = [*(current.get("round_records") or []), *records]
+        current["pending"] = {k: v for k, v in (current.get("pending") or {}).items()
+                              if k != shape_key}
+
+    state = _update_state(ws, out_name, record_shape)
     decided = [{"rule_id": r.get("rule_id"), "criterion_type": (r.get("output") or {}).get("criterion_type"),
                 "disclosure": r.get("disclosure")} for r in records]
     if state["pending"]:
         return {"ok": True, "status": "recorded", "decided": decided,
-                "pending_shapes": _pending_view(state)}
+                "pending_shapes": _pending_view(ws, state)}
     return {"status": "recorded", "decided": decided, **_project_and_publish(ws, state)}
 
 
@@ -668,7 +758,7 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
         raise ClientError("contracts are not published yet; finish cex_author_prepare "
                           "(and any cex_criterion_record) first")
     _require_current_seal(ws, state)
-    root, _info = engine_env.prepare(ws)
+    root, _info = engine_env.prepare(ws, pinned=state.get("data_root"))
     if isinstance(mechanical_case, str):
         try:
             mechanical_case = json.loads(mechanical_case)
@@ -751,12 +841,15 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
                 "claims": undetermined,
                 "detail": "an observation names no answerer; nothing is sealed. Ask the user who "
                           "answers it, or rewrite the block with a determined answerer."}
+    _require_identity_table(body)
     text = (batch / "mindmap_source.json").read_bytes().decode("utf-8").lstrip(_STRIP)
     slice_, slice_sha = source_case_slice(_manifest_cases(text)[aid], aid)
+    case_root = _ensure_cases_root(ws, state, root, batch, text)
     try:
+        # 引擎按 outputs_root/<autoid>/intent.json 核出处：指到本批自己的每案目录
         ok, report = run_mechanical_case_gate(
             body, contract, contract_sha256=contract_sha, device_build=configured_device_os_build(),
-            outputs_root=ws.outputs_dir, consistency_contract=None, consistency_contract_sha256="",
+            outputs_root=case_root, consistency_contract=None, consistency_contract_sha256="",
             consistency_required=False, source_case_slice=slice_, source_case_slice_sha256=slice_sha)
     except (TypeError, ValueError, RecursionError) as exc:
         return _reject(aid, [_violation("gate_uncomputable", "mechanical_case",
@@ -783,26 +876,121 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
     if exempt is not None:
         return _reject(aid, [exempt], advisories)
     measurements = report["measurements"]
-    minted = mint_and_land_mechanical_case(
-        dict(body), ws.outputs_dir / aid / MECHANICAL_CASE_SIDECAR_NAME,
-        capabilities_used=list(measurements["capabilities_used"]),
-        expanded_step_count=int(measurements["expanded_step_count"]),
-        check_point_count=int(measurements["check_point_count"]),
-        gate_report_sha256=gate_report_digest(report))
-    if minted.document is None:
-        return _reject(aid, [_violation(minted.code, "case", minted.detail, gate="seal")], advisories)
-    seal = minted.document["seal"]
-    artifact = ws.outputs_dir / aid / MECHANICAL_CASE_SIDECAR_NAME
-    state.setdefault("sealed", {})[aid] = {"artifact": str(artifact),
-                                           "mechanical_case_sha256": seal["mechanical_case_sha256"],
-                                           "contract_sha256": contract_sha}
-    _save_state(ws, state)
-    remaining = [a for a in receipt["written_autoids"] if a not in state["sealed"]]
+    artifact = case_root / aid / MECHANICAL_CASE_SIDECAR_NAME
+    republished: list[bool] = []
+    with state_lock(ws, "author-case", f"{state['out_name']}/{aid}"):
+        # 同一案同时提交两次：落盘与记账在同一把锁里，记下的哈希总是文件里那一份
+        minted = mint_and_land_mechanical_case(
+            dict(body), artifact,
+            capabilities_used=list(measurements["capabilities_used"]),
+            expanded_step_count=int(measurements["expanded_step_count"]),
+            check_point_count=int(measurements["check_point_count"]),
+            gate_report_sha256=gate_report_digest(report))
+        if minted.document is None:
+            return _reject(aid, [_violation(minted.code, "case", minted.detail, gate="seal")],
+                           advisories)
+        seal = minted.document["seal"]
+
+        def record(current: dict[str, Any]) -> None:
+            contracts = (current.get("receipt") or {}).get("contract_sha256_by_autoid") or {}
+            if current.get("phase") != "published" or contracts.get(aid) != contract_sha:
+                republished.append(True)
+                return
+            current.setdefault("sealed", {})[aid] = {
+                "artifact": to_state_path(ws, artifact),
+                "mechanical_case_sha256": seal["mechanical_case_sha256"],
+                "contract_sha256": contract_sha}
+
+        current = _update_state(ws, state["out_name"], record)
+    if republished:
+        return _reject(aid, [_violation(
+            "contracts_republished", "contracts",
+            "cex_author_prepare re-published the contract cards while this case was being "
+            "checked; nothing was recorded. Read the new card and submit the case again")],
+            advisories)
+    written = (current.get("receipt") or {}).get("written_autoids") or []
+    remaining = [a for a in written if a not in (current.get("sealed") or {})]
     return {"ok": True, "status": "sealed", "autoid": aid, "artifact": str(artifact),
             "mechanical_case_sha256": seal["mechanical_case_sha256"],
             "expanded_step_count": measurements["expanded_step_count"],
             "check_point_count": measurements["check_point_count"],
             "advisories": advisories, "remaining_autoids": remaining}
+
+
+def _precedent_blocks(blocks: Any) -> list[int] | None:
+    """引用 precedent（框架里已验证的用例包）的块下标；按引擎自己的展开判定（块级与断言级 ref
+    都算）。展开不了返回 None——闸会自己报展开错误。"""
+    from cex_core.engine.case_compiler.blocks import expand_blocks
+
+    blocks = list(blocks or []) if isinstance(blocks, list) else []
+    try:
+        _steps, prov, error = expand_blocks(blocks)
+    except (TypeError, ValueError, RecursionError):
+        return None
+    if error or not prov:
+        return None
+    if not any(isinstance(item, dict) and isinstance(item.get("source"), dict)
+               and item["source"].get("kind") == "precedent" for item in prov):
+        return []
+
+    def cites(ref: Any) -> bool:
+        return str(ref or "").partition(":")[0].strip() == "precedent"
+
+    return [i for i, block in enumerate(blocks) if isinstance(block, dict) and (
+        cites(block.get("ref")) or any(isinstance(a, dict) and cites(a.get("ref"))
+                                       for a in block.get("asserts") or []))] or [-1]
+
+
+def _identity_table_missing() -> str:
+    """引擎外置的身份表（拒用用例包的真实案号）不可用时给出原因，可用时给空串。"""
+    from cex_core.engine._root import IdentityListUnavailable
+    from cex_core.engine.case_compiler.package_advisories import DENIED_668_AUTOIDS
+
+    try:
+        len(DENIED_668_AUTOIDS)
+    except IdentityListUnavailable as exc:
+        return str(exc)
+    return ""
+
+
+def _require_identity_table(body: dict[str, Any]) -> None:
+    """提交规则闸要拿引擎的拒用包身份表核每个 precedent 出处；发行版不带这张表（没设
+    CEX_ENGINE_IDENTITIES）时闸只会报一个看不出原因的 E_PACKAGE_INDEX_UNAVAILABLE。这里先说清楚：
+    缺的是什么、没有它这个工具收不了 precedent 出处、可以怎么改。"""
+    blocks = _precedent_blocks(body.get("blocks"))
+    if not blocks:
+        return
+    missing = _identity_table_missing()
+    if not missing:
+        return
+    where = (f"block(s) {[i for i in blocks if i >= 0]}" if blocks != [-1]
+             else "an expanded step")
+    raise ClientError(
+        f"{where} cite a precedent source, and cex_author_submit_case cannot accept one without the "
+        "engine's identity table (the denied-package case numbers every precedent is checked "
+        f"against), which this installation does not have: {missing}. Cite the manual, a footprint "
+        "or the stamped intent instead, or ask the maintainer to install the identity table")
+
+
+def _ensure_cases_root(ws: Workspace, state: dict[str, Any], root: Path, batch: Path,
+                       text: str) -> Path:
+    """本批的每案目录。旧版状态的 intent.json 在 compile_outputs/<autoid>/（同 autoid 的别的批会
+    覆盖它）：按本批回执把每案重盖到本批目录下再接着写（迁移只发生在要写的时候）。"""
+    case_root = cases_root(ws, state["out_name"])
+    if state.get("cases_root"):
+        return case_root
+    with state_lock(ws, "author-migrate", state["out_name"]):
+        # 同时提交的几案只迁移一次：锁内再看一眼状态
+        current = read_private_json(_state_path(ws, state["out_name"])) or {}
+        if not current.get("cases_root"):
+            receipt = state.get("receipt") or {}
+            manifest_cases = _manifest_cases(text)
+            for aid in receipt.get("written_autoids") or []:
+                _stamp_intent(ws, root, batch, case_root, aid, receipt, manifest_cases.get(aid))
+            _update_state(ws, state["out_name"], lambda cur: cur.__setitem__(
+                "cases_root", to_state_path(ws, case_root)))
+    state["cases_root"] = to_state_path(ws, case_root)
+    return case_root
 
 
 # ── emit ─────────────────────────────────────────────────────────────────
@@ -850,42 +1038,108 @@ def expand_case(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     return body, out
 
 
+def _sealed_case(ws: Workspace, aid: str, record: dict[str, Any],
+                 case_root: Path) -> tuple[dict[str, Any], list[dict[str, Any]], bytes | None]:
+    """封存记录指向的文件 → (用例体, 工作簿步骤, 要搬进本批目录的原字节或 None)。文件的封印
+    与封存时记下的 mechanical_case_sha256 对不上（别的批、手工改过）就抛 ClientError。"""
+    path = from_state_path(ws, record.get("artifact"))
+    try:
+        body, steps = expand_case(path)
+        raw = path.read_bytes()
+    except (OSError, ValueError) as exc:
+        raise ClientError(f"the sealed file is unreadable or invalid ({type(exc).__name__}: "
+                          f"{exc})") from None
+    actual = str((body.get("seal") or {}).get("mechanical_case_sha256") or "")
+    if actual != str(record.get("mechanical_case_sha256") or ""):
+        raise ClientError(f"the sealed file now holds mechanical case {actual[:12]}, not the "
+                          f"{str(record.get('mechanical_case_sha256') or '')[:12]} sealed for this "
+                          "batch (overwritten by another batch or edited)")
+    target = case_root / aid / path.name
+    return body, steps, (raw if path != target else None)
+
+
+def _relocate_sealed(ws: Workspace, out_name: str, aid: str, record: dict[str, Any], raw: bytes,
+                     case_root: Path) -> None:
+    """旧版布局（compile_outputs/<autoid>/）里核过哈希的封存用例搬进本批目录，免得再被同 autoid
+    的别的批覆盖。与提交同一把每案锁；记录在这期间变了（又提交过）就不动。"""
+    source = from_state_path(ws, record.get("artifact"))
+    target = case_root / aid / source.name
+    with state_lock(ws, "author-case", f"{out_name}/{aid}"):
+        current = ((read_private_json(_state_path(ws, out_name)) or {}).get("sealed") or {}).get(aid)
+        if not current or current.get("artifact") != record.get("artifact") \
+                or current.get("mechanical_case_sha256") != record.get("mechanical_case_sha256"):
+            return
+        write_file_safely(ws.root, target, raw)
+
+        def point(state: dict[str, Any]) -> None:
+            state["sealed"][aid]["artifact"] = to_state_path(ws, target)
+
+        _update_state(ws, out_name, point)
+
+
 def emit(ws: Workspace, out_name: str) -> dict[str, Any]:
     state = _load_state(ws, out_name)
     _require_current_seal(ws, state)
-    engine_env.prepare(ws)
+    engine_env.prepare(ws, pinned=state.get("data_root"))
     receipt = state.get("receipt") or {}
     sealed = state.get("sealed") or {}
-    missing = [aid for aid in receipt.get("written_autoids") or [] if aid not in sealed]
+    contracts = receipt.get("contract_sha256_by_autoid") or {}
+    case_root = cases_root(ws, state["out_name"])
+    missing: list[str] = []
+    drifted: list[dict[str, str]] = []
+    relocations: dict[str, bytes] = {}
     cases = []
     for aid in receipt.get("written_autoids") or []:
         if aid not in sealed:
+            missing.append(aid)
             continue
-        body, steps = expand_case(Path(sealed[aid]["artifact"]))
-        if (body.get("binding") or {}).get("contract_sha256") != \
-                (receipt.get("contract_sha256_by_autoid") or {}).get(aid):
+        try:
+            body, steps, relocate = _sealed_case(ws, aid, sealed[aid], case_root)
+        except ClientError as exc:
+            drifted.append({"autoid": aid, "reason": str(exc)})
+            continue
+        if (body.get("binding") or {}).get("contract_sha256") != contracts.get(aid):
             missing.append(aid)  # 封存时的契约卡已不是现在这张：要按新卡重新提交
             continue
+        if relocate is not None:
+            relocations[aid] = relocate
         description = body.get("description") or {}
         cases.append({"autoid": aid, "priority": "P1",
                       "description": str(description.get("intent_verbatim") or ""),
                       "steps": steps})
+    for aid, raw in relocations.items():
+        _relocate_sealed(ws, state["out_name"], aid, sealed[aid], raw, case_root)
     if not cases:
         raise ClientError("no sealed mechanical case to emit; submit cases with "
-                          "cex_author_submit_case first")
+                          "cex_author_submit_case first"
+                          + (f" (not emitted: {json.dumps(drifted, ensure_ascii=False)})"
+                             if drifted else ""))
     batch = ws.outputs_dir / state["out_name"]
     doc = {"batch": state["out_name"], "cases": cases, "_generated": _CASES_SCHEMA_NOTE}
     cases_path = batch / "cases.json"
-    cases_path.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
+    write_file_safely(ws.root, cases_path,
+                      json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
     from .skill_scripts import compile_workbook, verify_workbook
 
     result = compile_workbook(cases_path, ws.outputs_dir)
     verify = verify_workbook(Path(result["path"]))
-    return {"ok": bool(result.get("ok")) and verify.get("fail") == 0,
-            "xlsx": result.get("path"), "cases_json": str(cases_path),
-            "emitted_autoids": [c["autoid"] for c in cases], "not_sealed_autoids": missing,
-            "verify": {"pass": verify.get("pass"), "fail": verify.get("fail"),
-                       "failures": verify.get("failures")}}
+    complete = not missing and not drifted
+    out = {"ok": complete and bool(result.get("ok")) and verify.get("fail") == 0,
+           "xlsx": result.get("path"), "cases_json": str(cases_path),
+           "emitted_autoids": [c["autoid"] for c in cases], "not_sealed_autoids": missing,
+           "not_emitted": drifted,
+           "verify": {"pass": verify.get("pass"), "fail": verify.get("fail"),
+                      "failures": verify.get("failures")}}
+    if not complete:
+        out["error"] = (
+            f"the workbook holds {len(cases)} of {len(receipt.get('written_autoids') or [])} "
+            "contracted cases"
+            + (f"; not sealed yet: {missing}" if missing else "")
+            + (f"; sealed file replaced, not emitted: {[d['autoid'] for d in drifted]}"
+               if drifted else "")
+            + ". Submit those cases with cex_author_submit_case and emit again, or tell the user "
+              "which cases are missing before running this workbook.")
+    return out
 
 
 __all__ = ["criterion_record", "emit", "expand_case", "prepare", "source_case_slice", "submit_case"]

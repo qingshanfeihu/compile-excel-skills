@@ -4,18 +4,24 @@
   python3 install.py --harness claude|pi|circle|all [--harness ...] [--upgrade] [--install-deps]
                      [--prefix DIR] [--dry-run]
 
-1. 发行根（cex_core/、cex_client/、bin/、skills/、adapters/）复制到 --prefix
-   （缺省 ~/.local/share/compile-excel/current）。已存在时不覆盖，退出码 3，除非给了 --upgrade；
-   替换是先写旁边的 .new 再改名，旧版在新版就位后才删。各 harness 都引用这个固定路径，所以升级只换这一处。
+1. 发行根（cex_core/、cex_client/、bin/、skills/、adapters/ 等可分发文件）复制到 --prefix
+   （缺省 ~/.local/share/compile-excel/current）。只拷可分发的文件：git 检出里按 git ls-files
+   （已跟踪 + 未忽略的新文件），否则逐个排除工作区状态（.compile-excel/、compile_outputs/、
+   token.json、lease.json……）与缓存。已存在时不覆盖，退出码 3，除非给了 --upgrade；替换是先写
+   旁边的 .new 再改名，旧版在新版就位后才删。各 harness 都引用这个固定路径，所以升级只换这一处。
+   发行根里的 Claude 插件清单盖上这一版内容的版本号（<版本>+<内容摘要>）：Claude Code 按版本号
+   缓存插件副本，版本号不变它就一直跑旧副本。
 2. 依赖：检查 python3 能否 import requirements.txt 里的包；缺了只报告，给了 --install-deps 才
-   `python3 -m pip install --user -r requirements.txt`。
+   `python3 -m pip install --user -r requirements.txt`（失败照样出 JSON 报告）。
 3. 按 harness 挂载：
-   - claude：`claude plugin marketplace add <发行根>`（目录型 marketplace，插件就地加载）+
-     `claude plugin install compile-excel@compile-excel`；
+   - claude：`claude plugin marketplace add <发行根>`（已有就 `marketplace update`）+
+     `claude plugin install`（已装就 `claude plugin update`）；Claude Code 跑的是它自己缓存里的
+     副本，所以装完核对缓存副本与发行根逐文件一致、版本号就是这一版，不一致如实报失败；
    - pi：`pi install <发行根>`（本地路径包，不复制）；
    - circle：skills/ 下每个技能拷到 $CIRCLE_HOME/skills/<名字>（写 .cex_home 指回发行根），
      扩展入口写到 $CIRCLE_HOME/extensions/compile-excel/extension.py（转到发行根里的实现）。
 4. 自检后打印一段 JSON 报告。不读、不写任何口令；登录在首次使用时由 skill 引导。
+--dry-run 不改任何东西，但只读的预检照做（marketplace / 插件清单、依赖探测），有问题照样报。
 
 退出码：0 全部成功；1 有 harness 失败；2 用法错误；3 已安装且没给 --upgrade。
 """
@@ -23,6 +29,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -36,16 +43,24 @@ SOURCE = Path(__file__).resolve().parent
 HARNESSES = ("claude", "pi", "circle")
 MARKETPLACE = "compile-excel"
 PLUGIN = "compile-excel@compile-excel"
+PLUGIN_MANIFEST = ".claude-plugin/plugin.json"
 INSTALL_RECORD = ".cex_install.json"
 SHIM_MARKER = "# compile-excel install.py"
-# _identities.json：抽取时外置的生产身份字面，只给服务端生成链用，不发给客户端
-_SKIP = {".git", "tests", "__pycache__", ".pytest_cache", ".ruff_cache", "node_modules",
-         "_identities.json"}
+# 不分发的目录：开发与测试、缓存、工作区状态与产物
+_SKIP_DIRS = {".git", "tests", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
+              "node_modules", ".venv", "venv", ".compile-excel", "compile_outputs", ".circle",
+              ".agents"}
+# 不分发的文件：_identities.json 是抽取时外置的生产身份字面（只给服务端生成链用）；其余是
+# 工作区凭据与状态、安装器自己写的记录
+_SKIP_FILES = {"_identities.json", "token.json", "lease.json", "login_pending.json",
+               "client_config.json", "tasks.json", ".DS_Store", ".cex_home", INSTALL_RECORD}
+_SKIP_SUFFIXES = (".pyc", ".pyo", ".tmp")
 SKILLS = ("compile-excel", "mindmap-recompose")
 # requirements.txt 的包名 → import 名；依赖自检按这张表探（测试钉住两边一致）
 DEP_MODULES = {"openpyxl": "openpyxl", "beautifulsoup4": "bs4", "PyYAML": "yaml",
                "pydantic": "pydantic", "langchain-core": "langchain_core"}
 _REQUIRED = ("cex_core/__init__.py", "cex_client/tools.py", "bin/cex_tool", "bin/cex_mcp_proxy.py",
+             "bin/cex_mcp",
              *(f"skills/{name}/SKILL.md" for name in SKILLS),
              "adapters/circle/extension.py", "adapters/pi/index.ts",
              ".claude-plugin/plugin.json", "package.json", "requirements.txt")
@@ -53,6 +68,56 @@ _REQUIRED = ("cex_core/__init__.py", "cex_client/tools.py", "bin/cex_tool", "bin
 
 class InstallError(Exception):
     pass
+
+
+def _excluded(rel: str) -> bool:
+    parts = rel.split("/")
+    return (any(part in _SKIP_DIRS for part in parts[:-1]) or parts[-1] in _SKIP_FILES
+            or parts[-1].endswith(_SKIP_SUFFIXES))
+
+
+def distributable_files(root: Path) -> list[str]:
+    """要分发的文件（相对 posix 路径，排好序）：git 检出里取 git ls-files（已跟踪 + 未被忽略
+    的新文件），否则遍历目录；两种都再按排除表过滤，只要普通文件（不跟符号链接）。"""
+    listed: list[str] | None = None
+    if (root / ".git").exists() and shutil.which("git"):
+        proc = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--cached", "--others",
+                               "--exclude-standard"], capture_output=True, timeout=120,
+                              check=False)
+        if proc.returncode == 0:
+            listed = [p for p in proc.stdout.decode("utf-8").split("\0") if p]
+    if listed is None:
+        listed = []
+        for directory, dirs, files in os.walk(root):
+            dirs[:] = sorted(d for d in dirs if d not in _SKIP_DIRS)
+            base = Path(directory).relative_to(root)
+            listed.extend((base / name).as_posix() for name in files)
+    out = set()
+    for rel in listed:
+        path = root / rel
+        if not _excluded(rel) and path.is_file() and not path.is_symlink():
+            out.add(rel)
+    return sorted(out)
+
+
+def content_digest(root: Path, files: list[str]) -> str:
+    """这一版分发内容的摘要：文件名与字节；插件清单只算去掉 version 的部分（它要盖进版本号）。"""
+    digest = hashlib.sha256()
+    for rel in files:
+        data = (root / rel).read_bytes()
+        if rel == PLUGIN_MANIFEST:
+            manifest = json.loads(data.decode("utf-8"))
+            manifest.pop("version", None)
+            data = json.dumps(manifest, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        digest.update(rel.encode("utf-8") + b"\0" + hashlib.sha256(data).digest())
+    return digest.hexdigest()
+
+
+def plugin_version(root: Path, files: list[str]) -> str:
+    """Claude 插件的发行版本：清单里的基础版本 + 内容摘要（内容变了版本就变，Claude Code 才会换缓存）。"""
+    base = str(json.loads((root / PLUGIN_MANIFEST).read_text(encoding="utf-8")).get("version")
+               or "0.0.0").split("+", 1)[0]
+    return f"{base}+{content_digest(root, files)[:12]}"
 
 
 class Installer:
@@ -63,9 +128,10 @@ class Installer:
 
     # ── 小工具 ────────────────────────────────────────────
     def run(self, argv: list[str], actions: list[str], *, timeout: int = 300,
-            check: bool = True) -> subprocess.CompletedProcess | None:
+            check: bool = True, readonly: bool = False) -> subprocess.CompletedProcess | None:
+        """跑一条外部命令并记进 actions。--dry-run 只跑只读的预检（readonly=True）。"""
         actions.append("$ " + " ".join(argv))
-        if self.dry_run:
+        if self.dry_run and not readonly:
             return None
         proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
         if check and proc.returncode != 0:
@@ -84,10 +150,13 @@ class Installer:
         missing = [rel for rel in _REQUIRED if not (SOURCE / rel).is_file()]
         if missing:
             raise InstallError(f"source checkout is incomplete, missing: {', '.join(missing)}")
+        files = distributable_files(SOURCE)
+        stamped = plugin_version(SOURCE, files)
         report: dict[str, Any] = {"path": str(self.prefix), "version": self.version(SOURCE),
-                                  "actions": []}
+                                  "plugin_version": stamped, "files": len(files), "actions": []}
         if self.prefix.resolve() == SOURCE:
             report["actions"].append("running from the installed copy; nothing to copy")
+            report["plugin_version"] = self.installed_plugin_version() or stamped
             return report
         if self.prefix.exists():
             if not upgrade:
@@ -97,18 +166,29 @@ class Installer:
                                    "choose another --prefix or move it away yourself")
         staged = self.prefix.with_name(self.prefix.name + ".new")
         old = self.prefix.with_name(self.prefix.name + ".old")
-        report["actions"].append(f"copy {SOURCE} -> {self.prefix}")
+        report["actions"].append(f"copy {len(files)} distributable files {SOURCE} -> {self.prefix}")
+        report["actions"].append(f"stamp {PLUGIN_MANIFEST} version {stamped}")
         if self.dry_run:
             return report
         for leftover in (staged, old):
             if leftover.exists():
                 shutil.rmtree(leftover)
         self.prefix.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(SOURCE, staged, ignore=lambda _d, names: [n for n in names if n in _SKIP])
+        staged.mkdir()
+        for rel in files:
+            target = staged / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(SOURCE / rel, target)
+        manifest_path = staged / PLUGIN_MANIFEST
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["version"] = stamped
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                                 encoding="utf-8")
         (staged / INSTALL_RECORD).write_text(json.dumps({
-            "version": report["version"], "installed_at": int(time.time()),
-            "source": str(SOURCE)}, indent=1) + "\n", encoding="utf-8")
-        for rel in ("bin/cex_tool", "bin/cex_mcp_proxy.py"):
+            "version": report["version"], "plugin_version": stamped,
+            "installed_at": int(time.time()), "source": str(SOURCE)}, indent=1) + "\n",
+            encoding="utf-8")
+        for rel in ("bin/cex_tool", "bin/cex_mcp_proxy.py", "bin/cex_mcp"):
             os.chmod(staged / rel, 0o755)
         if self.prefix.exists():
             self.prefix.rename(old)
@@ -117,36 +197,56 @@ class Installer:
             shutil.rmtree(old)
         return report
 
+    def installed_plugin_version(self) -> str:
+        try:
+            return str(json.loads((self.prefix / PLUGIN_MANIFEST).read_text(encoding="utf-8"))
+                       .get("version") or "")
+        except (OSError, ValueError):
+            return ""
+
     # ── 2. 依赖 ───────────────────────────────────────────
     def check_deps(self, install: bool) -> dict[str, Any]:
         modules = DEP_MODULES
         probe = "import importlib.util,sys; print(','.join(m for m in sys.argv[1:] " \
                 "if importlib.util.find_spec(m) is None))"
-        report: dict[str, Any] = {"python": self.python, "actions": []}
-        if self.dry_run:
-            report["missing"] = "not checked (dry run)"
-            return report
+        report: dict[str, Any] = {"ok": True, "python": self.python, "actions": []}
+        # 探测是只读的：--dry-run 也照做
         proc = subprocess.run([self.python, "-c", probe, *modules.values()], capture_output=True,
                               text=True, timeout=60)
+        if proc.returncode != 0:
+            raise InstallError(f"{self.python} could not run the dependency probe (exit "
+                               f"{proc.returncode}): {(proc.stderr or proc.stdout).strip()[-400:]}")
         missing = [name for name, mod in modules.items() if mod in proc.stdout.strip().split(",")]
         report["missing"] = missing
-        requirements = str(self.prefix / "requirements.txt")
+        requirements = str((SOURCE if self.dry_run else self.prefix) / "requirements.txt")
         if missing and install:
             self.run([self.python, "-m", "pip", "install", "--user", "-r", requirements],
                      report["actions"], timeout=900)
-            report["missing"] = []
+            if not self.dry_run:
+                report["missing"] = []
         elif missing:
             report["next"] = (f"ask the user, then: {self.python} -m pip install --user -r "
                               f"{requirements} (or re-run install.py with --install-deps)")
         return report
 
     # ── 3. harness ────────────────────────────────────────
+    def _claude_plugins(self, actions: list[str]) -> list[dict[str, Any]]:
+        listed = self.run(["claude", "plugin", "list", "--json"], actions, check=False,
+                          readonly=True)
+        if listed is None or listed.returncode != 0:
+            return []
+        try:
+            plugins = json.loads(listed.stdout or "[]")
+        except ValueError:
+            return []
+        return [p for p in plugins if isinstance(p, dict)] if isinstance(plugins, list) else []
+
     def claude(self) -> dict[str, Any]:
         actions: list[str] = []
         if shutil.which("claude") is None:
             raise InstallError("claude CLI not found on PATH")
         listing = self.run(["claude", "plugin", "marketplace", "list", "--json"], actions,
-                           check=False)
+                           check=False, readonly=True)
         existing = []
         if listing is not None and listing.returncode == 0:
             try:
@@ -161,10 +261,41 @@ class Installer:
                                f"{current.get('path')}; remove it with `claude plugin marketplace "
                                f"remove {MARKETPLACE}` if it is an old copy")
         else:
-            actions.append(f"marketplace {MARKETPLACE} already points to {self.prefix}")
-        self.run(["claude", "plugin", "install", PLUGIN], actions)
-        return {"ok": True, "actions": actions,
-                "note": "the plugin loads in place from the distribution; new sessions pick it up"}
+            # 目录型 marketplace 也要刷新：Claude Code 按刷新时读到的清单决定有没有新版本
+            self.run(["claude", "plugin", "marketplace", "update", MARKETPLACE], actions)
+        installed = any(p.get("id") == PLUGIN for p in self._claude_plugins(actions))
+        self.run(["claude", "plugin", "update" if installed else "install", PLUGIN], actions)
+        wanted = (self.installed_plugin_version() if not self.dry_run else
+                  plugin_version(SOURCE, distributable_files(SOURCE)))
+        if self.dry_run:
+            return {"ok": True, "actions": actions, "plugin_version": wanted}
+        return self._verify_claude_cache(actions, wanted)
+
+    def _verify_claude_cache(self, actions: list[str], wanted: str) -> dict[str, Any]:
+        """Claude Code 跑的是它缓存里的副本：核对副本的版本号是这一版、逐文件与发行根一致。"""
+        entry = next((p for p in self._claude_plugins(actions) if p.get("id") == PLUGIN), None)
+        report: dict[str, Any] = {"ok": False, "actions": actions, "plugin_version": wanted}
+        if entry is None:
+            report["error"] = f"{PLUGIN} is not in `claude plugin list` after installing it"
+            return report
+        cache = Path(str(entry.get("installPath") or ""))
+        report["cache"] = str(cache)
+        if str(entry.get("version") or "") != wanted:
+            report["error"] = (f"Claude Code still lists {PLUGIN} at version "
+                               f"{entry.get('version')!r}, not {wanted!r}; its cached copy was not "
+                               "replaced")
+            return report
+        differing = [rel for rel in distributable_files(self.prefix)
+                     if not (cache / rel).is_file()
+                     or (cache / rel).read_bytes() != (self.prefix / rel).read_bytes()]
+        if differing:
+            report["error"] = (f"Claude Code's cached copy at {cache} differs from the distribution "
+                               f"in {len(differing)} file(s), e.g. {differing[:3]}")
+            return report
+        report.update(ok=True, note=("Claude Code runs its cached copy of the plugin, now this "
+                                     "version; sessions started before the upgrade keep the old "
+                                     "one until they are restarted"))
+        return report
 
     def pi(self) -> dict[str, Any]:
         actions: list[str] = []
@@ -190,8 +321,10 @@ class Installer:
         for skill in skills:
             if skill.exists():
                 shutil.rmtree(skill)
-            shutil.copytree(self.prefix / "skills" / skill.name, skill,
-                            ignore=lambda _d, names: [n for n in names if n in _SKIP])
+            source = self.prefix / "skills" / skill.name
+            for rel in distributable_files(source):
+                (skill / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source / rel, skill / rel)
             (skill / ".cex_home").write_text(str(self.prefix) + "\n", encoding="utf-8")
         ext_dir.mkdir(parents=True, exist_ok=True)
         impl = self.prefix / "adapters" / "circle" / "extension.py"
@@ -259,7 +392,10 @@ def main(argv: list[str] | None = None) -> int:
         report["error"] = str(exc)
         print(json.dumps(report, ensure_ascii=False, indent=1))
         return 1
-    report["dependencies"] = installer.check_deps(args.install_deps)
+    try:
+        report["dependencies"] = installer.check_deps(args.install_deps)
+    except (InstallError, subprocess.TimeoutExpired, OSError) as exc:
+        report["dependencies"] = {"ok": False, "python": installer.python, "error": str(exc)}
     report["harnesses"] = {}
     for name in harnesses:
         try:
@@ -267,7 +403,8 @@ def main(argv: list[str] | None = None) -> int:
         except (InstallError, subprocess.TimeoutExpired, OSError) as exc:
             report["harnesses"][name] = {"ok": False, "error": str(exc)}
     report["verify"] = installer.verify()
-    report["ok"] = report["verify"]["ok"] and all(h["ok"] for h in report["harnesses"].values())
+    report["ok"] = (report["verify"]["ok"] and report["dependencies"].get("ok", True)
+                    and all(h["ok"] for h in report["harnesses"].values()))
     report["next"] = ("Start a new session in the harness. On first use in a project folder the "
                       "skill asks for the server URL and device build, then signs in through the "
                       "browser (cex_init, cex_login_start).")

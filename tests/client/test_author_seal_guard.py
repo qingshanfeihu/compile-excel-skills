@@ -40,7 +40,8 @@ def test_authoring_refuses_a_reopened_batch(tmp_path, monkeypatch):
         raise ClientError(f"the machine mindmap of {name!r} is not sealed (receipt is prepared); "
                           "call cex_recompose_seal first")
 
-    monkeypatch.setattr(author.engine_env, "prepare", lambda _ws: order.append("engine") or (None, {}))
+    monkeypatch.setattr(author.engine_env, "prepare",
+                        lambda _ws, **_k: order.append("engine") or (None, {}))
     monkeypatch.setattr(author, "_sealed_batch", reopened)
     for call in _calls(ws):
         with pytest.raises(ClientError, match="cex_recompose_seal, then cex_author_prepare"):
@@ -51,7 +52,7 @@ def test_authoring_refuses_a_reopened_batch(tmp_path, monkeypatch):
 
 def test_authoring_refuses_a_different_seal_and_goes_on_with_the_same_one(tmp_path, monkeypatch):
     ws = _workspace(tmp_path, monkeypatch)
-    monkeypatch.setattr(author, "_current_seal_sha", lambda _ws, _name: "b" * 64)
+    monkeypatch.setattr(author, "_current_seal_sha", lambda _ws, _name, *_a: "b" * 64)
     for call in _calls(ws):
         with pytest.raises(ClientError, match="sealed again since cex_author_prepare"):
             call()
@@ -59,10 +60,10 @@ def test_authoring_refuses_a_different_seal_and_goes_on_with_the_same_one(tmp_pa
     class PastTheGuard(Exception):
         pass
 
-    def next_step(_ws):
+    def next_step(_ws, **_k):
         raise PastTheGuard
 
-    monkeypatch.setattr(author, "_current_seal_sha", lambda _ws, _name: SEALED)
+    monkeypatch.setattr(author, "_current_seal_sha", lambda _ws, _name, *_a: SEALED)
     monkeypatch.setattr(author.engine_env, "prepare", next_step)
     for call in _calls(ws):
         with pytest.raises(PastTheGuard):
@@ -96,7 +97,9 @@ def test_lang_query_on_a_sealed_batch_answers_without_recording(tmp_path, monkey
     monkeypatch.setattr(recompose, "_load_state", lambda _ws, name: {
         "out_name": name, "data_root": str(tmp_path / "data"), "dispatch_id": "d"})
     monkeypatch.setattr(recompose, "_is_sealed", lambda _batch: True)
-    monkeypatch.setattr(engine_env, "activate", lambda _root: None)
+    roots = []
+    monkeypatch.setattr(engine_env, "prepare",
+                        lambda _ws, pinned=None: roots.append(pinned) or (tmp_path / "data", {}))
 
     def closed_scope(*_a, **_k):
         raise AssertionError("a sealed batch has no open dispatch scope to enter")
@@ -106,6 +109,7 @@ def test_lang_query_on_a_sealed_batch_answers_without_recording(tmp_path, monkey
     out = recompose.lang_query(ws, {"kind": "usage", "name": "dig"}, out_name="demo")
     assert out["ok"] and out["result"] == "answer" and "not recorded" in out["note"]
     assert calls == [{"kind": "usage", "name": "dig"}]
+    assert roots == [str(tmp_path / "data")], "the lookup runs on the batch's own data root"
 
 
 def test_criterion_adjudication_goes_on_before_any_receipt_exists(tmp_path, monkeypatch):
@@ -119,13 +123,13 @@ def test_criterion_adjudication_goes_on_before_any_receipt_exists(tmp_path, monk
     class PastTheGuard(Exception):
         pass
 
-    def next_step(_ws):
+    def next_step(_ws, **_k):
         raise PastTheGuard
 
-    monkeypatch.setattr(author, "_current_seal_sha", lambda _ws, _name: SEALED)
+    monkeypatch.setattr(author, "_current_seal_sha", lambda _ws, _name, *_a: SEALED)
     monkeypatch.setattr(author.engine_env, "prepare", next_step)
     with pytest.raises(PastTheGuard):
         author.criterion_record(ws, "demo", "shape-1", {})
-    monkeypatch.setattr(author, "_current_seal_sha", lambda _ws, _name: "b" * 64)
+    monkeypatch.setattr(author, "_current_seal_sha", lambda _ws, _name, *_a: "b" * 64)
     with pytest.raises(ClientError, match="sealed again since cex_author_prepare"):
         author.criterion_record(ws, "demo", "shape-1", {})

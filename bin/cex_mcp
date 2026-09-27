@@ -1,0 +1,5 @@
+#!/bin/sh
+# compile-excel 的 Claude Code MCP 入口（插件清单 mcpServers 用 sh 调它）：解释器取 CEX_PYTHON，
+# 缺省 python3——与 pi、circle 适配器同一条规则，不在插件清单里写死解释器。
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
+exec "${CEX_PYTHON:-python3}" "$here/cex_mcp_proxy.py" "$@"

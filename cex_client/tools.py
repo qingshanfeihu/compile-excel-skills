@@ -15,6 +15,7 @@ from . import workspace as wsmod
 from .errors import ClientError
 
 SPECS_PATH = Path(__file__).resolve().parent / "tool_specs.json"
+MAX_CHECK_COMMANDS = 200
 
 
 def load_specs() -> list[dict[str, Any]]:
@@ -77,7 +78,9 @@ def cex_sync(args: dict[str, Any]) -> dict[str, Any]:
 def cex_client_config(args: dict[str, Any]) -> dict[str, Any]:
     ws = _ws(args)
     config = auth.request_json(ws, "GET", "/v1/config/client")
-    wsmod.write_private_json(ws.client_config_path, config)
+    # 记下取自哪个服务端：网关地址只认这份缓存，换了服务端就得重取
+    wsmod.write_private_json(ws.client_config_path,
+                             {**config, gateway.CLIENT_CONFIG_SOURCE: ws.server})
     return {"ok": True, "config": config}
 
 
@@ -100,17 +103,21 @@ def cex_cmd_check(args: dict[str, Any]) -> dict[str, Any]:
     commands = args.get("commands")
     if not isinstance(commands, list) or not commands:
         raise ClientError("commands must be a non-empty list of strings")
+    if len(commands) > MAX_CHECK_COMMANDS:
+        # 不悄悄只查前 200 条：超了就整次拒绝，让调用方分批
+        raise ClientError(f"commands has {len(commands)} entries; at most {MAX_CHECK_COMMANDS} "
+                          "per call - split the list over several calls")
     projection_path = bundle.entry_path(ws, "cmdtree", "vendor_stdlib_")
     if projection_path is None:
         raise ClientError("no command tree projection in the synced bundle; call cex_sync")
     projection = load_projection(projection_path)
     results = []
-    for command in commands[:200]:
+    for command in commands:
         verdict = resolve_vendor_command(str(command), projection)
         results.append({"command": str(command), **{k: verdict.get(k) for k in (
             "decided", "hit", "head", "src", "origin", "reason_code", "parameter_error")
             if k in verdict}})
-    return {"ok": True, "projection": projection_path.name,
+    return {"ok": True, "projection": projection_path.name, "checked": len(results),
             "all_hit": all(r.get("hit") for r in results), "results": results}
 
 
@@ -137,7 +144,9 @@ def cex_bed_lease(args: dict[str, Any]) -> dict[str, Any]:
 
 def cex_env_prepare(args: dict[str, Any]) -> dict[str, Any]:
     ws = _ws(args)
-    return gateway.call_tool(ws, "env_prepare", gateway.lease_args(ws))
+    # 带上本工作区的 device_build：网关据此核被测设备的 build 与编译数据是否同一版
+    return gateway.call_tool(ws, "env_prepare", {**gateway.lease_args(ws),
+                                                 "device_build": ws.device_build})
 
 
 def cex_case_submit(args: dict[str, Any]) -> dict[str, Any]:
@@ -163,7 +172,13 @@ def cex_init_device(args: dict[str, Any]) -> dict[str, Any]:
     ws = _ws(args)
     forwarded = {k: args[k] for k in ("step", "device_index", "device_count", "confirmation")
                  if args.get(k) is not None}
-    return gateway.call_tool(ws, "init_device", {**gateway.lease_args(ws), **forwarded})
+    out = gateway.call_tool(ws, "init_device", {**gateway.lease_args(ws), **forwarded})
+    if not out.get("ok") and "jumphost:admin" in str(out.get("error") or ""):
+        out["next"] = ("The session was granted without jumphost:admin. If the user's account has "
+                       "that permission (an administrator grants it on the server), sign in again "
+                       "(cex_logout, then cex_login_start); otherwise device init is not available "
+                       "to this user.")
+    return out
 
 
 def cex_portal_login_start(args: dict[str, Any]) -> dict[str, Any]:

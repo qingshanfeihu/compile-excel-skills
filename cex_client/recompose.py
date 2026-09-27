@@ -18,14 +18,16 @@ InfoTest 里这一段由编译引擎的 recompose 节点做：封存脑图快照
 - 全部案落盘后由客户端从台账密封（引擎在台账盖满时也是自己密封、不再派 fork；
   self_check / orphan_notes 两个可选字段引擎也不消费）；
 - 派发状态落在 .compile-excel/recompose/<批名>.json，每次工具调用据此重新进入同一个派发
-  作用域（工具可能跑在独立进程里）。
+  作用域（工具可能跑在独立进程里）；状态里记着这一批开始时的引擎数据根（工作区相对路径），
+  后续调用回到同一个数据根（engine_env.pinned_root），中途换了数据包也不会悄悄换；
+- 引擎工具结果里提到的引擎内部工具名换成客户端工具名（submit_machine_mindmap →
+  cex_recompose_seal 等），模型照着做得到。
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import uuid
 from pathlib import Path
@@ -33,7 +35,15 @@ from typing import Any
 
 from . import engine_env
 from .errors import ClientError
-from .workspace import Workspace, read_private_json, safe_component, write_private_json
+from .workspace import (
+    Workspace,
+    read_private_json,
+    safe_component,
+    state_lock,
+    to_state_path,
+    write_file_safely,
+    write_private_json,
+)
 
 STATE_SCHEMA = "cex.recompose-dispatch/v1"
 DEFECT_CHANNEL_ABSENT = "client_has_no_defect_spec_channel"
@@ -42,8 +52,47 @@ _SPEC_STATUS_SCHEMA = "ist.governing-spec-status"
 _DEFECT_STATUS_SCHEMA = "ist.defect-spec-status"
 
 
+# 引擎工具名 → 客户端工具名（长的先换）
+_CLIENT_TOOL_NAMES = (("submit_machine_mindmap_cases", "cex_recompose_submit_cases"),
+                      ("submit_machine_mindmap", "cex_recompose_seal"))
+_ENGINE_SELF_SEAL = ("Every case assigned to this dispatch is recorded. Do not call "
+                     "submit_machine_mindmap")
+
+
 def _state_path(ws: Workspace, out_name: str) -> Path:
     return ws.state_dir / "recompose" / f"{safe_component(out_name, 'batch name')}.json"
+
+
+def default_batch_name(stem: str) -> str:
+    """没给 out_name 时用脑图文件名；中文、空格之类放不进路径段，就取其中的 ASCII 部分加一段
+    文件名摘要（同一个文件名每次得到同一个批名，不同文件名不会撞）。"""
+    text = str(stem or "").strip()
+    try:
+        return safe_component(text, "batch name")
+    except ClientError:
+        pass
+    ascii_part = re.sub(r"[^A-Za-z0-9._-]+", "-", text)
+    ascii_part = re.sub(r"\.{2,}", ".", re.sub(r"-{2,}", "-", ascii_part)).strip("-._")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+    return safe_component(f"{ascii_part[:48].rstrip('-._')}-{digest}" if ascii_part
+                          else f"batch-{digest}", "batch name")
+
+
+def client_wording(value: Any) -> Any:
+    """引擎结果里的引擎内部工具名换成客户端工具名（字符串、列表、字典逐层换）。"""
+    if isinstance(value, str):
+        if value.startswith(_ENGINE_SELF_SEAL):
+            # 引擎分片派发的"别封，引擎自己封"在客户端不成立：客户端只有一个派发，由你来封
+            return ("Every case of this batch is recorded; call cex_recompose_seal now. Further "
+                    "cex_recompose_submit_cases calls are rejected.")
+        for engine_name, client_name in _CLIENT_TOOL_NAMES:
+            value = re.sub(rf"\b{engine_name}\b", client_name, value)
+        return value
+    if isinstance(value, list):
+        return [client_wording(v) for v in value]
+    if isinstance(value, dict):
+        return {k: client_wording(v) for k, v in value.items()}
+    return value
 
 
 def _load_state(ws: Workspace, out_name: str) -> dict[str, Any]:
@@ -287,7 +336,8 @@ def prepare(ws: Workspace, mindmap: str, *, out_name: str = "", spec: str = "") 
     titles = _root_titles(text)
     if len(titles) != 1:
         raise ClientError(f"the mindmap must have exactly one root title (found {len(titles)})")
-    name = safe_component(out_name or source_file.stem, "batch name")
+    name = safe_component(out_name, "batch name") if out_name else \
+        default_batch_name(source_file.stem)
     outputs = ws.outputs_dir
     batch = outputs / name
     batch.mkdir(parents=True, exist_ok=True)
@@ -296,10 +346,8 @@ def prepare(ws: Workspace, mindmap: str, *, out_name: str = "", spec: str = "") 
     spec_status = _governing_spec(root, batch, name, titles[0], "" if declined else pin, declined)
     defect = _defect_spec(spec_status, titles[0], declined)
     snapshot = batch / "mindmap_source.json"
-    if not snapshot.is_file() or snapshot.read_bytes() != raw:
-        tmp = batch / ".mindmap_source.json.tmp"
-        tmp.write_bytes(raw)
-        os.replace(tmp, snapshot)
+    if snapshot.is_symlink() or not snapshot.is_file() or snapshot.read_bytes() != raw:
+        write_file_safely(ws.root, snapshot, raw)
     write_json_atomic(batch / "governing_spec_status.json", spec_status)
     write_json_atomic(batch / "defect_spec_status.json", defect)
     source_sha = hashlib.sha256(raw).hexdigest()
@@ -310,10 +358,11 @@ def prepare(ws: Workspace, mindmap: str, *, out_name: str = "", spec: str = "") 
     _receipt, already = initialize_machine_mindmap_submission(
         outputs, name, dispatch_id, binding=binding, case_autoids=autoids,
         source_sha256=source_sha)
-    write_private_json(_state_path(ws, name), {
-        "schema": STATE_SCHEMA, "out_name": name, "dispatch_id": dispatch_id,
-        "source_sha256": source_sha, "binding": binding, "data_root": str(root),
-        "bundle_id": info.get("bundle_id")})
+    with state_lock(ws, "recompose", name):
+        write_private_json(_state_path(ws, name), {
+            "schema": STATE_SCHEMA, "out_name": name, "dispatch_id": dispatch_id,
+            "source_sha256": source_sha, "binding": binding,
+            "data_root": to_state_path(ws, root), "bundle_id": info.get("bundle_id")})
     remaining = [aid for aid in autoids if aid not in set(already)]
     result = {
         "ok": True, "out_name": name, "mindmap_snapshot": str(snapshot),
@@ -340,6 +389,9 @@ def prepare(ws: Workspace, mindmap: str, *, out_name: str = "", spec: str = "") 
                "(authoring refuses to continue on an unsealed batch)" if authoring else "") + ".")
         if not remaining:
             result["next"] = "Every case is already recorded: call cex_recompose_seal now."
+    if not out_name:
+        result["note"] = (f"out_name defaulted to {name!r}; pass out_name={name!r} to every "
+                          "later cex_recompose_* / cex_author_* call for this batch")
     if defect.get("unresolved"):
         result["defect_spec_note"] = (
             "The root title names a ticket, but this client cannot bind a DefectSpec "
@@ -358,17 +410,19 @@ def _is_sealed(batch: Path) -> bool:
 
 
 def _scope(ws: Workspace, out_name: str):
+    """回到这一批开始时的数据根，进入它的派发作用域：(状态, 作用域, 数据根)。"""
     state = _load_state(ws, out_name)
-    engine_env.activate(Path(state["data_root"]))
+    root, _info = engine_env.prepare(ws, pinned=state.get("data_root"))
     from cex_core.engine.ist_core.tools.device.recompose_submission import (
         recompose_dispatch_scope,
     )
 
-    return state, recompose_dispatch_scope(ws.outputs_dir, state["out_name"], state["dispatch_id"])
+    return (state, recompose_dispatch_scope(ws.outputs_dir, state["out_name"],
+                                            state["dispatch_id"]), root)
 
 
 def submit_cases(ws: Workspace, out_name: str, cases: Any) -> dict[str, Any]:
-    state, scope = _scope(ws, out_name)
+    _state, scope, _root = _scope(ws, out_name)
     from cex_core.engine.ist_core.tools.device.recompose_submit_tool import (
         submit_machine_mindmap_cases,
     )
@@ -378,14 +432,14 @@ def submit_cases(ws: Workspace, out_name: str, cases: Any) -> dict[str, Any]:
     try:
         result = json.loads(raw)
     except (TypeError, ValueError):
-        return {"ok": False, "status": "rejected", "detail": str(raw)[:4000]}
-    return {"ok": result.get("status") != "rejected", **result}
+        return {"ok": False, "status": "rejected", "detail": client_wording(str(raw)[:4000])}
+    return {"ok": result.get("status") != "rejected", **client_wording(result)}
 
 
 def seal(ws: Workspace, out_name: str) -> dict[str, Any]:
     """nodes.py `_engine_seal_from_parts`：把台账上已落盘的案密封成机械脑图。缺的案不补写，
     由密封层按作者原文兜底并在结果里点名。"""
-    state, _scope_unused = _scope(ws, out_name)
+    state, _scope_unused, _root = _scope(ws, out_name)
     from cex_core.engine.case_compiler.mindmap_contract_projector import fill_mechanical_fields
     from cex_core.engine.ist_core.tools.device.recompose_parts import read_machine_mindmap_parts
     from cex_core.engine.ist_core.tools.device.recompose_submission import (
@@ -431,13 +485,12 @@ def lang_query(ws: Workspace, args: dict[str, Any], out_name: str = "") -> dict[
     note = None
     if out_name:
         state = _load_state(ws, out_name)
-        root = Path(state["data_root"])
         if _is_sealed(ws.outputs_dir / state["out_name"]):
-            engine_env.activate(root)
+            root, _info = engine_env.prepare(ws, pinned=state.get("data_root"))
             note = ("the recompose batch is sealed, so this lookup is not recorded in its "
                     "grounding; the result is the same")
         else:
-            state, scope = _scope(ws, out_name)
+            state, scope, root = _scope(ws, out_name)
     else:
         root, _info = engine_env.prepare(ws)
     from cex_core.engine.ist_core.tools.device.lang_query_tool import lang_query as tool
