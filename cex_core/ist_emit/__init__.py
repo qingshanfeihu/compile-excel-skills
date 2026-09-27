@@ -21,20 +21,22 @@ emit_xlsx、select_runtime_template。
 
 from typing import Any
 
+# 子模块按相对名找（相对本包）：cex_core 被网关 vendor 成 gateway.vendor.cex_core 时照样找得到，
+# 也不会误拿 sys.path 上碰巧叫 ist_emit 的别的包
 _LAZY = {
-    "CaseIR": ("ist_emit.case_ir", "CaseIR"),
-    "FileIR": ("ist_emit.case_ir", "FileIR"),
-    "Row": ("ist_emit.case_ir", "Row"),
-    "Step": ("ist_emit.case_ir", "Step"),
-    "CONTRACT_MARKER": ("ist_emit.excel_contract", "CONTRACT_MARKER"),
-    "EXECUTION_HEADERS": ("ist_emit.excel_contract", "EXECUTION_HEADERS"),
-    "EXECUTION_SHEET_MARKER": ("ist_emit.excel_contract", "EXECUTION_SHEET_MARKER"),
-    "PINNED_CONTRACT_SHA256": ("ist_emit.excel_contract", "PINNED_CONTRACT_SHA256"),
-    "TEMPLATE_SHA256": ("ist_emit.excel_contract", "TEMPLATE_SHA256"),
-    "ExcelContractError": ("ist_emit.excel_contract", "ExcelContractError"),
-    "resolve_execution_sheet": ("ist_emit.excel_contract", "resolve_execution_sheet"),
-    "emit_xlsx": ("ist_emit.xlsx_emit", "emit_xlsx"),
-    "select_runtime_template": ("ist_emit.xlsx_emit", "select_runtime_template"),
+    "CaseIR": (".case_ir", "CaseIR"),
+    "FileIR": (".case_ir", "FileIR"),
+    "Row": (".case_ir", "Row"),
+    "Step": (".case_ir", "Step"),
+    "CONTRACT_MARKER": (".excel_contract", "CONTRACT_MARKER"),
+    "EXECUTION_HEADERS": (".excel_contract", "EXECUTION_HEADERS"),
+    "EXECUTION_SHEET_MARKER": (".excel_contract", "EXECUTION_SHEET_MARKER"),
+    "PINNED_CONTRACT_SHA256": (".excel_contract", "PINNED_CONTRACT_SHA256"),
+    "TEMPLATE_SHA256": (".excel_contract", "TEMPLATE_SHA256"),
+    "ExcelContractError": (".excel_contract", "ExcelContractError"),
+    "resolve_execution_sheet": (".excel_contract", "resolve_execution_sheet"),
+    "emit_xlsx": (".xlsx_emit", "emit_xlsx"),
+    "select_runtime_template": (".xlsx_emit", "select_runtime_template"),
 }
 
 
@@ -44,7 +46,7 @@ def __getattr__(name: str) -> Any:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     import importlib
 
-    module = importlib.import_module(target[0])
+    module = importlib.import_module(target[0], __name__)
     return getattr(module, target[1])
 
 

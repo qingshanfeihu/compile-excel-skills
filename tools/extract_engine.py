@@ -10,15 +10,18 @@ import 的 scripts.* 也一并进闭包。每个模块按 AST 机械变换后重
 - ``main.*`` 导入改成 ``cex_core.engine.*``，``scripts.*`` 改成 ``cex_core.engine.scripts.*``；
 - ``Path(__file__)…parents[k]`` / ``.parent`` 这类"按源码位置找仓根"的表达式，改成
   ``_cex_data_path("<相对仓根的目录>")``：数据根由环境变量 CEX_ENGINE_DATA_ROOT 指定，
-  布局与 InfoTest 仓根相同（knowledge/…、runtime/…）；
+  布局与 InfoTest 仓根相同（knowledge/…、runtime/…）；没设时指向建不出来的位置（见 _root）；
 - 去掉注释（其中有批次名、用例号等内部实证记录；设计理由回 InfoTest 源看）。docstring
   保留——工具函数的 docstring 就是给模型的工具说明，langchain 还会解析它；docstring 里的
-  批次名与六位用例号换成占位（_sanitize_docstrings），换到会被当工具说明的 docstring 上就
-  报错，不许静默改提示词。
+  批次名、用例号（六位尾号与完整案号）换成占位，实验床内网地址换进保留段
+  （_sanitize_docstrings），换到会被当工具说明的 docstring 上就报错，不许静默改提示词；
+- 其余字符串字面里的批次名、运行号、六位用例号：说明文字（报错消息、投影注解）换成占位，
+  短字面（键、标识符、比对值）带了就报错，回 InfoTest 改（_sanitize_literals）。
 
 - 生产身份字面（真实用例号这类）不进生成代码：EXTERNALIZED 里点名的模块级常量原样搬进抽取树
-  旁的 _identities.json（不入库，安装器也不拷给客户端），代码改成按名字取。文件在时取到的是
-  同一个 frozenset；不在时一读就报错（失败关闭），不当成空集。
+  旁的 _identities.json（不入库，安装器与网关 vendor 都不带），代码改成按名字取。运行时由
+  CEX_ENGINE_IDENTITIES 指向这张表（没设时找抽取树旁那份）；取到的是同一个 frozenset，
+  取不到时一读就报错（失败关闭），不当成空集。
 
 指向闭包外模块的延迟 import 原样保留（运行到那里会 ModuleNotFoundError），全部记进
 cex_core/engine/MANIFEST.json 的 boundary，并标出被 try/except 包住、可能静默走另一
@@ -129,18 +132,31 @@ EXTERNALIZED = {"main/case_compiler/package_advisories.py": ("DENIED_668_AUTOIDS
 
 ROOT_MODULE = '''"""数据根：抽取来的引擎按 InfoTest 仓根的布局读数据（knowledge/…、runtime/…）。
 
-CEX_ENGINE_DATA_ROOT 指向这样一个目录。没设时指向一个不存在的目录：读数据的地方照
-InfoTest 自己的"数据不可达"路径失败关闭，而不是悄悄读到别处。
+CEX_ENGINE_DATA_ROOT 指向这样一个目录。没设时指向 /dev/null 底下一个建不出来的位置：读数据的
+地方照 InfoTest 自己的"数据不可达"路径失败关闭，写盘在操作系统那一层就失败（NotADirectoryError，
+root 也一样），不会悄悄读写到别处——包目录里也不会长出文件。
+
+引擎模块多数在导入时就按数据根算好路径常量。数据根没设时算出来的路径指向那个不可达位置，之后
+再设数据根也改不过来：``modules_bound_while_unset()`` 列出这样的模块，调用方据此拒绝在这个进程
+里接着用引擎（先设数据根、换个进程再导入）。
+
+抽取时外置的生产身份表（真实用例号这类）不随包分发：CEX_ENGINE_IDENTITIES 指向它；没设时找抽取
+树旁的 _identities.json（开发检出里由 tools/extract_engine.py 写出，不入库、不发给客户端和网关）。
+表不可用时读到的是一个一读就报错的占位（失败关闭），不是空集。
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 DATA_ROOT_ENV = "CEX_ENGINE_DATA_ROOT"
-_UNSET = Path(__file__).resolve().parent / ".data-root-unset"
+IDENTITIES_ENV = "CEX_ENGINE_IDENTITIES"
+# /dev/null 不是目录（POSIX）：它底下的路径读不到、也建不出来，哪个用户都一样
+_UNSET = Path(os.devnull) / "CEX_ENGINE_DATA_ROOT-is-unset"
+_BOUND_WHILE_UNSET: set[str] = set()
 
 
 def data_root() -> Path:
@@ -152,9 +168,23 @@ def data_root_configured() -> bool:
     return data_root() != _UNSET
 
 
+def modules_bound_while_unset() -> tuple[str, ...]:
+    """数据根没设时就按它算过路径的模块（多数在导入时算成模块常量）。
+
+    非空说明这个进程里的引擎拿着指向不可达位置的路径，之后再设 CEX_ENGINE_DATA_ROOT 也改不
+    过来：调用方应拒绝在这个进程里接着用引擎。"""
+    return tuple(sorted(_BOUND_WHILE_UNSET))
+
+
 def _cex_data_path(rel: str = "") -> Path:
     """原来 ``Path(__file__)`` 往上数到的那个目录，换算到数据根下。"""
     root = data_root()
+    if root == _UNSET:
+        try:
+            caller = sys._getframe(1).f_globals.get("__name__") or "?"
+        except (AttributeError, ValueError):
+            caller = "?"
+        _BOUND_WHILE_UNSET.add(str(caller))
     return root / rel if rel else root
 
 
@@ -163,15 +193,18 @@ class IdentityListUnavailable(RuntimeError):
 
 
 class _Unavailable:
-    """外置的身份表不在：任何读取都报错，不当成空集。"""
+    """外置的身份表不可用：任何读取都报错，不当成空集。"""
 
-    def __init__(self, key: str) -> None:
+    def __init__(self, key: str, reason: str = "") -> None:
         self._key = key
+        self._reason = reason
 
     def _fail(self, *_args, **_kwargs):
+        why = f" ({self._reason})" if self._reason else ""
         raise IdentityListUnavailable(
-            f"{self._key} is kept out of the generated code; its values live in _identities.json "
-            "next to cex_core/engine, which is missing (tools/extract_engine.py writes it)")
+            f"{self._key} is kept out of the shipped engine and its identity table is "
+            f"unavailable{why}; set {IDENTITIES_ENV} to the _identities.json that "
+            "tools/extract_engine.py writes from the InfoTest source")
 
     __contains__ = __iter__ = __len__ = __bool__ = _fail
 
@@ -179,14 +212,29 @@ class _Unavailable:
         return self._fail
 
 
+def _identity_table() -> Path:
+    raw = os.environ.get(IDENTITIES_ENV, "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path(__file__).resolve().parent / "_identities.json"
+
+
 def _cex_identity_set(key: str):
-    """抽取时外置的模块级身份常量（tools/extract_engine.py 的 EXTERNALIZED）。"""
-    path = Path(__file__).resolve().parent / "_identities.json"
+    """抽取时外置的模块级身份常量（tools/extract_engine.py 的 EXTERNALIZED）。
+
+    表不在、读不成、没有这一项或形状不对，都返回一读就报错的占位：不当成空集，也不让导入失败
+    （同一模块里用不到身份表的功能照常可用）。"""
+    path = _identity_table()
     try:
         table = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return _Unavailable(key)
-    return frozenset(table[key])
+        return _Unavailable(key, f"{path} does not exist")
+    except (OSError, UnicodeError, ValueError) as exc:
+        return _Unavailable(key, f"{path} is unreadable: {type(exc).__name__}")
+    values = table.get(key) if isinstance(table, dict) else None
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        return _Unavailable(key, f"{path} has no list of strings under this key")
+    return frozenset(values)
 '''
 
 PACKAGE_INIT = '"""生成的包（tools/extract_engine.py）；不在这里手改。"""\n'
@@ -198,9 +246,16 @@ ENGINE_INIT = '''"""从 InfoTest 抽取的编译判据引擎（tools/extract_eng
 闭包边界见 MANIFEST.json。
 """
 
-from cex_core.engine._root import DATA_ROOT_ENV, data_root, data_root_configured
+from cex_core.engine._root import (
+    DATA_ROOT_ENV,
+    IDENTITIES_ENV,
+    data_root,
+    data_root_configured,
+    modules_bound_while_unset,
+)
 
-__all__ = ["DATA_ROOT_ENV", "data_root", "data_root_configured"]
+__all__ = ["DATA_ROOT_ENV", "IDENTITIES_ENV", "data_root", "data_root_configured",
+           "modules_bound_while_unset"]
 '''
 
 
@@ -351,15 +406,37 @@ def _is_doc(stmt: ast.stmt) -> bool:
 
 _BATCH = re.compile(r"\b(?:internala|internalb)[A-Za-z0-9_]*", re.IGNORECASE)
 _RUN = re.compile(r"\bRUN_20\d{2}[A-Za-z0-9_-]*")
-_SIX = re.compile(r"(?<![\d.])\d{6}(?![\d.])")
+# 六位用例号：两边不许挨着字母、数字或点（十六进制摘要、版本号里的六位数字串不是用例号）
+_SIX = re.compile(r"(?<![0-9A-Za-z.])\d{6}(?![0-9A-Za-z.])")
+# 完整用例号（12–20 位）；框架末尾伪案与合成样例卷的案号不是生产记录
+_LONG_ID = re.compile(r"(?<![0-9A-Za-z.])\d{12,20}(?![0-9A-Za-z.])")
+_NOT_CASE_IDS = frozenset({"999999999999999", "990000000000000001"})
+# 实验床内网地址（10.4.x.x 跳板机段、172.16.x.x 床段）：说明文字里的例子换进 198.18.0.0/15
+# （RFC 2544 基准测试保留段，不路由），第三、四段原样保留，例子里按网段号命名之类的说法仍然成立
+_LAB_IP = re.compile(r"(?<![\d.])(10\.4|172\.16)\.(\d{1,3})\.(\d{1,3})(?!\d)")
+_IP_STANDIN = {"10.4": "198.19", "172.16": "198.18"}
 
 
-def _scrub_doc(text: str) -> str:
+def scrub_records(text: str) -> str:
+    """批次名、运行号、六位用例号换成占位（docstring、字符串字面、同步来的注释共用这一套）。"""
     def case(match: re.Match) -> str:
         n = int(match.group(0))
         # 整数常量（整万、2 的幂）不是用例号
         return match.group(0) if n % 1000 == 0 or n & (n - 1) == 0 else "<case>"
     return _SIX.sub(case, _RUN.sub("<run>", _BATCH.sub("<batch>", text)))
+
+
+def scrub_prose(text: str) -> str:
+    """docstring、注释这类纯说明文字：记录换占位之外，完整用例号也换成占位、实验床内网地址
+    换进保留段。"""
+    text = _LONG_ID.sub(lambda m: m.group(0) if m.group(0) in _NOT_CASE_IDS else "<case>",
+                        scrub_records(text))
+    return _LAB_IP.sub(lambda m: f"{_IP_STANDIN[m.group(1)]}.{m.group(2)}.{m.group(3)}", text)
+
+
+def _is_prose(text: str) -> bool:
+    """给人或模型读的说明文字（消息、注解）：有空白、够长。标识符、键、模式这类短字面不算。"""
+    return len(text) >= 40 and any(ch.isspace() for ch in text)
 
 
 def _tool_functions(tree: ast.Module) -> set[str]:
@@ -389,7 +466,7 @@ def _sanitize_docstrings(tree: ast.Module, rel_file: str) -> int:
         if not node.body or not _is_doc(node.body[0]):
             continue
         const = node.body[0].value
-        scrubbed = _scrub_doc(const.value)
+        scrubbed = scrub_prose(const.value)
         if scrubbed != const.value:
             # 工具说明就是给模型的提示词：不许在这里静默改写，回 InfoTest 源头改
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in tools:
@@ -397,6 +474,30 @@ def _sanitize_docstrings(tree: ast.Module, rel_file: str) -> int:
                                    "scrubbing; fix it in InfoTest")
             const.value = scrubbed
             changed += 1
+    return changed
+
+
+def _sanitize_literals(tree: ast.Module, rel_file: str) -> int:
+    """docstring 以外的字符串字面里的批次名、运行号、六位用例号换成占位。
+
+    只动说明文字（报错消息、投影里的注解）：它们不参与判定。短字面（键、标识符、模式、比对值）
+    带了这些记录就报错，回 InfoTest 源头改，不在这里静默改可能影响行为的值。内网地址不在这里换：
+    字面里的地址是床事实（例如框架取证书的 TFTP 源），换了就是错的——留给泄漏守门逐条放行。"""
+    docs = {id(node.body[0].value) for node in ast.walk(tree)
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.body and _is_doc(node.body[0])}
+    changed = 0
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)) or id(node) in docs:
+            continue
+        scrubbed = scrub_records(node.value)
+        if scrubbed == node.value:
+            continue
+        if not _is_prose(node.value):
+            raise ExtractError(f"{rel_file}:{getattr(node, 'lineno', '?')}: a short string literal "
+                               "carries an internal run record; fix it in InfoTest")
+        node.value = scrubbed
+        changed += 1
     return changed
 
 
@@ -488,6 +589,7 @@ def transform(source: str, rel_file: str) -> tuple[str, list[str], dict[str, lis
     tree = ast.parse(source)
     _sanitize_docstrings(tree, rel_file)
     identities = _externalize(tree, rel_file)
+    _sanitize_literals(tree, rel_file)
     rewriter = _Rewrite(rel_file)
     tree = rewriter.visit(tree)
     leftovers = [n for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id == "__file__"]

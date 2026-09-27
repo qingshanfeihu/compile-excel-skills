@@ -7,16 +7,23 @@
 - cex_core/vendor_cmd.py            ← main/case_compiler/vendor_stdlib.py 的命令判定函数
 - cex_core/defects/html_extractors/  ← main/ingest/html_extractors/（schema 换成 dataclass）
 - cex_core/defects/scrub.py          ← main/defect_spec_source.py 的脱敏与禁入判定
-- cex_core/security_scrub.py         ← main/ist_core/security_scrub.py（到 scrub_text 为止）
+- cex_core/security_scrub.py         ← main/ist_core/security_scrub.py（到 scrub_text 为止；
+                                       项目根改成装着 cex_core 的发行根，浅装位置不替换）
+逐字复制的代码里，注释中的批次名、运行号、六位用例号与实验床内网地址换成占位（与
+tools/extract_engine.py 同一套规则），代码一字不动。
 --check 只比对不写，有差异退出码 1（tests/core/test_extraction_drift.py 用它）。
 """
 
 from __future__ import annotations
 
 import argparse
+import io
 import re
 import sys
+import tokenize
 from pathlib import Path
+
+from extract_engine import scrub_prose  # 同目录的抽取脚本（本脚本按路径直接运行）
 
 VENDOR_HEADER = '''"""命令存在性与参数契约判定：读命令树投影（vendor_stdlib JSON），不读原始 XML。
 
@@ -104,13 +111,55 @@ from typing import Any
 '''
 
 SECURITY_HEADER = ("# ruff: noqa: F401\n# 逐字抽自 InfoTest main/ist_core/security_scrub.py"
-                   "（到 scrub_text 为止）。\n# 改判据先改 InfoTest 源再重新抽取，不在这里手改。\n")
+                   "（到 scrub_text 为止）。\n# 唯一改动是 _path_roots 的项目根（见那里）。"
+                   "改判据先改 InfoTest 源再重新抽取，不在这里手改。\n")
+
+_PATH_ROOTS_SOURCE = '''def _path_roots() -> tuple[str, str]:
+    global _PROJECT_ROOT, _HOME_CACHE
+    if _PROJECT_ROOT is None:
+        _PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
+    home_env = os.environ.get("HOME") or ""
+    if _HOME_CACHE[0] != home_env:
+        _HOME_CACHE = (home_env, str(Path.home()))
+    return _PROJECT_ROOT, _HOME_CACHE[1]
+'''
+_PATH_ROOTS_CEX = '''def _replaceable_root(path: Path) -> str:
+    """只认真实的仓根、发行根或家目录：文件系统根和根下一级（/、/opt 这类浅装位置）拿去做
+    子串替换会把文本里的每个路径都改坏，一律不替换。"""
+    return str(path) if len(path.parts) > 2 else ""
+
+
+def _path_roots() -> tuple[str, str]:
+    global _PROJECT_ROOT, _HOME_CACHE
+    if _PROJECT_ROOT is None:
+        # InfoTest 在这里取仓根（main/ 的上一级）；这里对应的是装着 cex_core 包的发行根
+        _PROJECT_ROOT = _replaceable_root(Path(__file__).resolve().parents[1])
+    home_env = os.environ.get("HOME") or ""
+    if _HOME_CACHE[0] != home_env:
+        _HOME_CACHE = (home_env, _replaceable_root(Path.home()))
+    return _PROJECT_ROOT, _HOME_CACHE[1]
+'''
 
 
 def _span(lines: list[str], start_pat: str, end_pat: str) -> str:
     start = next(i for i, line in enumerate(lines) if re.match(start_pat, line))
     end = next(i for i, line in enumerate(lines) if i > start and re.match(end_pat, line))
     return "".join(lines[start:end])
+
+
+def _scrub_comments(source: str) -> str:
+    """注释里的内部实证记录换成占位（scrub_prose）；只改注释 token，代码与字符串一字不动。"""
+    lines = source.splitlines(keepends=True)
+    edits = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type == tokenize.COMMENT:
+            scrubbed = scrub_prose(token.string)
+            if scrubbed != token.string:
+                edits.append((token.start, token.end[1], scrubbed))
+    for (row, col), end_col, text in reversed(edits):
+        line = lines[row - 1]
+        lines[row - 1] = line[:col] + text + line[end_col:]
+    return "".join(lines)
 
 
 def build(infotest: Path) -> dict[str, str]:
@@ -170,8 +219,14 @@ def build(infotest: Path) -> dict[str, str]:
     sec = sec[:sec.index("def _scrub_sha256_identity(")]
     if "from main" in sec or "import main" in sec:
         raise SystemExit("security_scrub 前半段引用了 InfoTest 的其他模块，先更新本脚本")
+    if sec.count(_PATH_ROOTS_SOURCE) != 1:
+        raise SystemExit("InfoTest security_scrub._path_roots 变了，先更新本脚本")
+    # InfoTest 按"本文件往上两级"取仓根；cex_core 装在 /opt/cex_core/ 这类浅位置时那是 "/"，
+    # 替换下去文本里每个路径都坏了
+    sec = sec.replace(_PATH_ROOTS_SOURCE, _PATH_ROOTS_CEX)
     files["cex_core/security_scrub.py"] = SECURITY_HEADER + sec.rstrip() + "\n"
-    return files
+    return {rel: _scrub_comments(text) if rel.endswith(".py") else text
+            for rel, text in files.items()}
 
 
 def main() -> int:

@@ -3,9 +3,9 @@
 > §1–§6 是 2026-09-24 的基线快照，保留原样作对照；之后的进展看 §7–§10。
 
 > 2026-09-24 实测基线：同一脑图（slb virtual httplist 等 list 命令支持 no 和 clear），
-> 引擎最好成绩 internala-final1/httplist_qwen3 = 5/5 上机 pass；skill 路线 slb_virtual_list_0923 =
-> 5/5 pass、slb_list_noclear_full = 3/3 pass + verify_batch 11/11。**判定通道同源**
-> （都是 10.4.127.103 框架真跑 + MySQL result DB），差距全部在判定通道**之前和之后**。
+> 引擎最好的一批 5/5 上机 pass；skill 路线同一脑图的一批 5/5 pass，另一批（不含 no/clear 的
+> 子集）3/3 pass + verify_batch 11/11。**判定通道同源**（都是跳板机上的框架真跑 + MySQL
+> result DB），差距全部在判定通道**之前和之后**。
 
 ## 0. 一句话定位
 
@@ -115,13 +115,20 @@
 
 - `main.*` 改成 `cex_core.engine.*`，`scripts.*` 改成 `cex_core.engine.scripts.*`；
 - `Path(__file__)…parents[k]` 改成数据根下的同一相对目录。数据根由 `CEX_ENGINE_DATA_ROOT`
-  指定，布局与 InfoTest 仓根相同；没设时指向一个不存在的目录，读数据的地方按引擎自己的
-  "不可达"路径失败关闭；
+  指定，布局与 InfoTest 仓根相同；没设时指向 `/dev/null` 底下一个建不出来的位置，读数据的地方
+  按引擎自己的"不可达"路径失败关闭，写盘在操作系统那一层失败（此前指向包目录里一个建得出来的
+  目录，没设数据根时写盘会落进包里）。导入时就按数据根算好的路径改不回来，
+  `cex_core.engine.modules_bound_while_unset()` 列出没设数据根时就算过路径的模块，客户端据此
+  拒绝在同一进程里接着用引擎；
 - 去掉注释（里面有批次名、用例号等内部实证记录；设计理由回 InfoTest 源看）。docstring
-  保留，其中的批次名与六位用例号换成占位：langchain 工具的 docstring 就是给模型的工具说明，
-  `parse_docstring=True` 还会解析它。E10 那一版连 docstring 一起删了，E5c 接入提交工具时
-  langchain 当场报 docstring 格式错误才暴露，已改；替换落到会被当工具说明的 docstring 上时
-  抽取直接报错，不静默改提示词。
+  保留，其中的批次名与六位用例号换成占位、实验床内网地址换进 198.18.0.0/15 保留段：langchain
+  工具的 docstring 就是给模型的工具说明，`parse_docstring=True` 还会解析它。E10 那一版连
+  docstring 一起删了，E5c 接入提交工具时 langchain 当场报 docstring 格式错误才暴露，已改；
+  替换落到会被当工具说明的 docstring 上时抽取直接报错，不静默改提示词。其余字符串字面里的
+  批次名、运行号、六位用例号：说明文字（报错消息、投影注解）换成占位，短字面（键、比对值）
+  带了就报错、回 InfoTest 改。`tools/sync_from_infotest.py` 逐字复制的几个文件保留注释，
+  注释里的这些记录同样换成占位。发出去的全部文件由 `tests/test_boundaries.py` 的泄漏守门
+  逐个扫，确需保留的（哨兵案号、示例案号、框架取证书的 TFTP 源）逐条登记理由。
 
 `MANIFEST.json` 记录每个文件的源 sha256，以及闭包边界。`--check` 比对漂移，默认测试会跑。
 
@@ -137,6 +144,13 @@
 换成 `cex_core.engine.<模块>`。两轮按 (classname, name) 逐条比较结果（通过/失败/报错/跳过，
 失败时再比异常类型）。抽取副本那一轮必须留下"别名已生效"的证据，否则判失败，
 否则插件没装上时两轮必然一致。
+
+默认测试（`tests/core/test_engine_extract.py`，小批 7 个文件）在 faithful 之后复用同一份基线
+再跑一轮 standalone（客户端模式：闭包外的 import 不回落 InfoTest）：结果变了的测试只许是
+"找不到 MANIFEST 登记的边界模块"（2026-09-27 小批 244 例里 4 例，全是 emit 路径上的
+`ist_core.tools.deepagent`），其余一律算差异。全量（`CEX_ENGINE_PARITY=full`）只断言
+faithful：被 try/except 包住的边界 import 会悄悄换分支、不报 ModuleNotFoundError，这类差异在
+客户端预期存在（见下表），逐条列在报告里而不断言。
 
 **结果**（2026-09-24，本机 InfoTest 检出，数据是库内那 8 份 compile_ref，没有镜像，
 没有环境派生投影）：
@@ -256,9 +270,14 @@ XML 时能否取到还依赖别的数据，本机没有真实投影，未核。�
   `engine_module`（此前两处测试照 `main` 的假设自己算，对 `scripts.*` 会算错）；
 - 第四条机械变换"身份字面外置"：`package_advisories.DENIED_668_AUTOIDS` 是一组真实生产用例号
   （先例库的毒卷封禁表），既做成员判断也会被遍历写进投影，不能换成哈希。抽取时原样搬进抽取树
-  旁的 `_identities.json`：不入库，安装器也不拷给客户端；服务端 vendor 同步从同级检出复制，所以
-  服务端生成链照常能用。代码改成按名字取，文件在时是同一个 frozenset，不在时一读就报
-  `IdentityListUnavailable`，不当成空集。
+  旁的 `_identities.json`：不入库，安装器与网关 vendor 都不带。运行时由 `CEX_ENGINE_IDENTITIES`
+  指向这张表（没设时找抽取树旁那份，只在开发检出里有）。代码改成按名字取，取到时是同一个
+  frozenset；表不在、读不成、缺这一项时一读就报 `IdentityListUnavailable`（消息里点名该设的
+  环境变量），不当成空集，也不让导入失败。要它的路径：先例包投影生成（`build_package_advisories`
+  ← `framework_projections` / `scripts/maintenance/build_package_advisories`）、已验证卷的收敛与
+  检查（`verified_corpus`）、出件时对 precedent 来源的引用核验（`provenance_ir`，那里包在
+  try/except 里，缺表时按"索引不可用"拒绝）。服务端生成链的 `framework_projections` 一步会走到
+  前两条，得显式给它这个环境变量。
 
 **对拍**：InfoTest 里提到这 25 个新模块的测试文件共 93 个，2,336 例。初跑 2 例不同，都是模块名
 本身：修复提示里按模块名拼出的命令，以及按 InfoTest 模块名开级别的 logger。按精确结果登记后，
@@ -316,6 +335,6 @@ guarded。抽取器顺带修了四处闭包算法：代码写在 `__init__.py` �
 - 编写阶段对拍（`tests/client/test_author.py`，可选）：拿 InfoTest 已交付的一批，从发布到出件与
   交付工作簿逐行一致；不发台账种子、逐形状经 `cex_criterion_record` 裁定时同样一致。
 
-**上机**（.100 床，设备 10.5.0 build 585）：InfoTest 的参考机械用例走客户端全链路 5/5 通过；
-circle（qwen3.8-flash）按技能从脑图走到上机，批次 `slb-list-authoring` 第一轮 5/5 通过，21 个检查点，
+**上机**（实验床，设备 10.5.0 build 585）：InfoTest 的参考机械用例走客户端全链路 5/5 通过；
+circle（qwen3.8-flash）按技能从脑图走到上机，第一轮 5/5 通过，21 个检查点，
 流量判据是触发机上的 curl 退出码（该通时 0，作者写「访问失败」处为 7）。

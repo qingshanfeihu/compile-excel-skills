@@ -5,6 +5,13 @@
 闭包边界见 MANIFEST.json。
 """
 
-from cex_core.engine._root import DATA_ROOT_ENV, data_root, data_root_configured
+from cex_core.engine._root import (
+    DATA_ROOT_ENV,
+    IDENTITIES_ENV,
+    data_root,
+    data_root_configured,
+    modules_bound_while_unset,
+)
 
-__all__ = ["DATA_ROOT_ENV", "data_root", "data_root_configured"]
+__all__ = ["DATA_ROOT_ENV", "IDENTITIES_ENV", "data_root", "data_root_configured",
+           "modules_bound_while_unset"]

@@ -140,7 +140,7 @@ def parse_arp(text: str) -> tuple[tuple[str, str], ...]:
     return tuple(out)
 
 def _subnet_of(cidr: str) -> str:
-    """`172.16.33.215/24` → `172.16.33.0/24`；解析不了就原样回。"""
+    """`198.18.33.215/24` → `198.18.33.0/24`；解析不了就原样回。"""
     match = _SUBNET_RE.match(cidr)
     if not match:
         return cidr
@@ -162,7 +162,7 @@ class L2Domain:
 
     @property
     def name(self) -> str:
-        """按网段号命名：net33 ← 172.16.33.0/24；一个口挂多段就并起来。"""
+        """按网段号命名：net33 ← 198.18.33.0/24；一个口挂多段就并起来。"""
         octets = [o for o in (_third_octet(s) for s in self.subnets) if o]
         if not octets:
             return f'net-{self.iface}'

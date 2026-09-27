@@ -39,7 +39,7 @@ def norm_command_tokens(cmd: str) -> list[str]:
 def strip_token_quotes(token: str) -> str:
     # 引号归一只有这一份实现：命令侧（shlex 主路径已剥，回退路径补剥）与
     # 条件值侧（stated_value_tokens）共用，否则带引号字面在两侧得到不同归一，
-    # 同一条命令里的值会被比对器误报 absent（internala 内部工单/内部工单 三条假冲突）。
+    # 同一条命令里的值会被比对器误报 absent（<batch> 内部工单/内部工单 三条假冲突）。
     text = str(token or "").strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
         return text[1:-1]

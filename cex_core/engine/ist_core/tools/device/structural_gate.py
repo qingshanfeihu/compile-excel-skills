@@ -694,7 +694,7 @@ def _check_empty_assertion_pattern(steps: list, result: StructuralResult) -> Non
             continue
         if str(s.get('G', '') or '').strip() or str(s.get('H', '') or '').strip() or str(s.get('I', '') or '').strip():
             continue
-        result.add('empty_assertion_pattern', 'check_point has G/H/I all empty — no pattern, no register reference, the framework has nothing to compare (it falls back to searching with the observation command text; 044605 evidence: one on-device round wasted). Write a pattern in G, or reference an already-captured H register. If expected is not independently known, write <RUNTIME> only as an underdetermined marker; device actuals may be registered as digests but never backfilled into expected. An identity-bound Author, Spec, DefectSpec, Manual, ConfigBinding, or CapabilityXml claim must supply expected before delivery.', i)
+        result.add('empty_assertion_pattern', 'check_point has G/H/I all empty — no pattern, no register reference, the framework has nothing to compare (it falls back to searching with the observation command text; <case> evidence: one on-device round wasted). Write a pattern in G, or reference an already-captured H register. If expected is not independently known, write <RUNTIME> only as an underdetermined marker; device actuals may be registered as digests but never backfilled into expected. An identity-bound Author, Spec, DefectSpec, Manual, ConfigBinding, or CapabilityXml claim must supply expected before delivery.', i)
 
 def _check_assertion_regex_compiles(steps: list, result: StructuralResult) -> None:
     for i, s in enumerate(steps):

@@ -1,6 +1,6 @@
 # ruff: noqa: F401
 # 逐字抽自 InfoTest main/ist_core/security_scrub.py（到 scrub_text 为止）。
-# 改判据先改 InfoTest 源再重新抽取，不在这里手改。
+# 唯一改动是 _path_roots 的项目根（见那里）。改判据先改 InfoTest 源再重新抽取，不在这里手改。
 
 from __future__ import annotations
 
@@ -353,13 +353,20 @@ _PROJECT_ROOT: str | None = None
 _HOME_CACHE: tuple[str, str] = ("\x00", "")
 
 
+def _replaceable_root(path: Path) -> str:
+    """只认真实的仓根、发行根或家目录：文件系统根和根下一级（/、/opt 这类浅装位置）拿去做
+    子串替换会把文本里的每个路径都改坏，一律不替换。"""
+    return str(path) if len(path.parts) > 2 else ""
+
+
 def _path_roots() -> tuple[str, str]:
     global _PROJECT_ROOT, _HOME_CACHE
     if _PROJECT_ROOT is None:
-        _PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
+        # InfoTest 在这里取仓根（main/ 的上一级）；这里对应的是装着 cex_core 包的发行根
+        _PROJECT_ROOT = _replaceable_root(Path(__file__).resolve().parents[1])
     home_env = os.environ.get("HOME") or ""
     if _HOME_CACHE[0] != home_env:
-        _HOME_CACHE = (home_env, str(Path.home()))
+        _HOME_CACHE = (home_env, _replaceable_root(Path.home()))
     return _PROJECT_ROOT, _HOME_CACHE[1]
 
 

@@ -6,7 +6,10 @@
 
 - faithful：抽取副本里指向闭包外的延迟 import 回落到 InfoTest 原模块，逐条结果
   （passed/failed/error/skipped，失败时再比异常类型）必须完全一致；
-- standalone：那些 import 照客户端的样子失败，列出结果变了的测试和它们撞上的边界。
+- standalone（客户端模式）：那些 import 照客户端的样子失败。结果变了的测试里，失败原因是
+  "找不到 MANIFEST 登记的边界模块"的记进 boundary_diffs（客户端本来就走不到那里）；其余的
+  才算差异。被 try/except 包住的边界 import 会悄悄换分支，不一定报 ModuleNotFoundError：
+  在全量测试上这类差异预期存在（见 docs/engine-parity.md），默认小批里没有。
 
 每条测试的结果按 (classname, name) 对齐；抽取副本那一轮必须留下别名生效的证据
 （CEX_ALIAS_MARKER），否则判失败——插件没装上时两轮必然"完全一致"，那不是对拍。
@@ -18,6 +21,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -74,6 +78,21 @@ _SOURCE_TEXT = {
 }
 EXPECTED_DIFFS.update({test: (("passed", ""), ("failed", exc), reason)
                        for test, (exc, reason) in _SOURCE_TEXT.items()})
+# 预检的修复提示按生成器的模块名拼 `python -m …`：抽取副本里是 cex_core.engine.scripts.…
+_GENERATOR_MODULE_NAME = ("the preflight repair hint spells `python -m <generator module>`; the "
+                          "extracted generator's module name is cex_core.engine.scripts.…")
+EXPECTED_DIFFS.update({
+    "tests.ist_core.compile_engine.test_env_preflight_cache::" + test:
+        (("passed", ""), ("failed", "AssertionError"), _GENERATOR_MODULE_NAME)
+    for test in (
+        "test_missing_projection_is_reported_without_inventing_a_drift_digest",
+        *(f"test_preflight_names_the_actual_drifted_projection_and_its_generator[{case}]" for case in (
+            "capability_usage_index.json-scripts.gen_capability_usage_index",
+            "device_behavior_examples.json-scripts.gen_device_behavior_examples",
+            "language_docs_index.json-scripts.maintenance.build_language_docs_index",
+            "package_advisories_10.5.json-scripts.maintenance.build_package_advisories")),
+    )
+})
 # 按 InfoTest 模块名模拟导入失败（改 builtins.__import__ 只拦 main.* 这个名字）：抽取副本导入的是
 # cex_core.engine.* 这个名字，模拟的失败根本不触发，走到的是后面的正常判据
 _SIMULATED_IMPORT_FAILURE = ("simulates an import failure for the InfoTest module name (patching "
@@ -88,23 +107,44 @@ EXPECTED_DIFFS.update({
     )
 })
 _EXC = re.compile(r"^\s*([A-Za-z_][\w.]*(?:Error|Exception|Exit|Interrupt|Warning|Failed|Skipped))\b")
+_MISSING_ENGINE_MODULE = re.compile(r"No module named '(cex_core\.engine(?:\.[\w]+)*)'")
 
 
-def _outcomes(junit: Path) -> dict[tuple[str, str], tuple[str, str]]:
-    out: dict[tuple[str, str], tuple[str, str]] = {}
+def _results(junit: Path) -> dict[tuple[str, str], tuple[str, str, str]]:
+    """(classname, name) → (结果, 异常类型, 失败/报错消息)。"""
+    out: dict[tuple[str, str], tuple[str, str, str]] = {}
     for case in ET.parse(junit).getroot().iter("testcase"):
         key = (case.get("classname") or "", case.get("name") or "")
-        state, kind = "passed", ""
+        state, kind, message = "passed", "", ""
         for tag in ("failure", "error", "skipped"):
             node = case.find(tag)
             if node is not None:
                 state = {"failure": "failed"}.get(tag, tag)
                 if tag != "skipped":
-                    match = _EXC.match(node.get("message") or "")
+                    message = node.get("message") or ""
+                    match = _EXC.match(message)
                     kind = match.group(1).rsplit(".", 1)[-1] if match else ""
                 break
-        out[key] = (state, kind)
+        out[key] = (state, kind, message)
     return out
+
+
+def _outcomes(junit: Path) -> dict[tuple[str, str], tuple[str, str]]:
+    return {key: (state, kind) for key, (state, kind, _message) in _results(junit).items()}
+
+
+def _boundary_hit(message: str, boundary_targets: set[str]) -> str:
+    """消息是"找不到 MANIFEST 登记的边界模块（或它的上级包）"时返回那个模块的 InfoTest 名。"""
+    match = _MISSING_ENGINE_MODULE.search(message or "")
+    if match is None:
+        return ""
+    engine_name = match.group(1)
+    if engine_name == "cex_core.engine.scripts" or engine_name.startswith("cex_core.engine.scripts."):
+        name = "scripts" + engine_name[len("cex_core.engine.scripts"):]
+    else:
+        name = "main" + engine_name[len("cex_core.engine"):]
+    hit = any(target == name or target.startswith(name + ".") for target in boundary_targets)
+    return name if hit else ""
 
 
 def _run(python: str, root: Path, tests: list[str], junit: Path, workers: int,
@@ -126,12 +166,17 @@ def _run(python: str, root: Path, tests: list[str], junit: Path, workers: int,
 
 
 def compare(root: Path, python: str, tests: list[str], mode: str, workers: int = 4,
-            baseline: Path | None = None) -> dict:
+            baseline: Path | None = None, save_baseline: Path | None = None) -> dict:
+    manifest = json.loads((SKILLS_ROOT / "cex_core" / "engine" / "MANIFEST.json")
+                          .read_text(encoding="utf-8"))
+    boundary_targets = set(manifest["boundary_targets"])
     with tempfile.TemporaryDirectory(prefix="cex-parity-") as tmp:
         tmpdir = Path(tmp)
         base_xml = baseline or tmpdir / "base.xml"
         if baseline is None:
             _run(python, root, tests, base_xml, workers, None, plugin=False)
+        if save_baseline is not None:
+            shutil.copyfile(base_xml, save_baseline)
         marker = tmpdir / "alias.json"
         cex_xml = tmpdir / "cex.xml"
         _run(python, root, tests, cex_xml, workers, {
@@ -142,16 +187,22 @@ def compare(root: Path, python: str, tests: list[str], mode: str, workers: int =
         aliased = json.loads(marker.read_text(encoding="utf-8"))
         engine_dir = str(SKILLS_ROOT / "cex_core" / "engine")
         not_aliased = sorted(k for k, v in aliased.items() if not str(v).startswith(engine_dir))
-        base, cex = _outcomes(base_xml), _outcomes(cex_xml)
-    diffs, expected = [], []
+        base, cex = _outcomes(base_xml), _results(cex_xml)
+    diffs, expected, boundary = [], [], []
     for key in sorted(set(base) | set(cex)):
-        a, b = base.get(key), cex.get(key)
+        a = base.get(key)
+        b = cex[key][:2] if key in cex else None
         if a == b:
             continue
         test = "::".join(key)
         known = EXPECTED_DIFFS.get(test)
-        if mode == "faithful" and known and (a, b) == (known[0], known[1]):
+        if known and (a, b) == (known[0], known[1]):
             expected.append({"test": test, "reason": known[2]})
+            continue
+        missing = _boundary_hit(cex[key][2], boundary_targets) \
+            if mode == "standalone" and key in cex and b[0] in ("failed", "error") else ""
+        if missing:
+            boundary.append({"test": test, "infotest": a, "extracted": b, "boundary": missing})
             continue
         diffs.append({"test": test, "infotest": a, "extracted": b})
     counts = {}
@@ -159,7 +210,7 @@ def compare(root: Path, python: str, tests: list[str], mode: str, workers: int =
         counts[state] = counts.get(state, 0) + 1
     return {"mode": mode, "tests": len(base), "baseline_counts": counts,
             "aliased_modules": len(aliased), "not_aliased": not_aliased, "diffs": diffs,
-            "expected_diffs": expected}
+            "expected_diffs": expected, "boundary_diffs": boundary}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -170,6 +221,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--tests-file")
     parser.add_argument("--baseline", help="reuse a baseline junit report")
+    parser.add_argument("--save-baseline", help="keep the baseline junit report here (for a "
+                                                "second mode over the same tests)")
     parser.add_argument("--report", help="write the JSON report here")
     parser.add_argument("tests", nargs="*")
     args = parser.parse_args(argv)
@@ -180,11 +233,13 @@ def main(argv: list[str] | None = None) -> int:
     if not tests:
         parser.error("no tests given")
     report = compare(Path(args.infotest_root).resolve(), args.python, tests, args.mode,
-                     args.workers, Path(args.baseline) if args.baseline else None)
+                     args.workers, Path(args.baseline) if args.baseline else None,
+                     Path(args.save_baseline) if args.save_baseline else None)
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.report:
         Path(args.report).write_text(text + "\n", encoding="utf-8")
     print(f"{report['mode']}: {report['tests']} tests, {len(report['diffs'])} differ, "
+          f"{len(report['boundary_diffs'])} stop at the closure boundary, "
           f"aliased {report['aliased_modules']} modules, not aliased {report['not_aliased']}")
     return 0 if not report["diffs"] and not report["not_aliased"] else 1
 
