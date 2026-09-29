@@ -95,15 +95,17 @@ def _sync_tool():
     return module
 
 
-def test_synced_copies_scrub_run_records_in_comments_only():
+def test_synced_copies_scrub_run_records_in_comments_only(monkeypatch):
+    # 人名缩写批次名单从环境注入（公开仓不携带真实名单）
+    monkeypatch.setenv("CEX_INTERNAL_HANDLES", "internala")
     sync = _sync_tool()
     source = ('def f(x):\n'
-              '    # 比对器误报（internala 内部工单/内部工单），实证 202609240000000001 的尾号 445566；床 10.4.127.103\n'
-              '    return x == "internala keeps 445566"  # RUN_20260924_a\n')
+              '    # 比对器误报（internala 内部工单/内部工单），实证 202609240000000001 的尾号 223344；床 10.4.127.103\n'
+              '    return x == "internala keeps 223344"  # RUN_20260924_a\n')
     out = sync._scrub_comments(source)
-    assert '"internala keeps 445566"' in out
+    assert '"internala keeps 223344"' in out
     comments = [line.split("#", 1)[1] for line in out.splitlines() if "# " in line]
-    assert comments and all("internala" not in c and "445566" not in c and "RUN_2026" not in c
+    assert comments and all("internala" not in c and "223344" not in c and "RUN_2026" not in c
                             and "10.4.127.103" not in c for c in comments)
     assert "<batch>" in out and "<case>" in out and "<run>" in out and "198.19.127.103" in out
     assert Path(REPO_ROOT / "cex_core" / "vendor_cmd.py").read_text(encoding="utf-8") \

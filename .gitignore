@@ -16,3 +16,6 @@ compile_outputs/
 
 # 抽取时外置的生产身份字面（真实用例号等）：由 tools/extract_engine.py 从 InfoTest 源现生成，不入库
 cex_core/engine/_identities.json
+
+# 人名缩写名单（内部部署自备，不入库）
+tools/internal_handles.txt

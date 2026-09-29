@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import subprocess
 import tokenize
@@ -122,9 +123,17 @@ print("ok")
 # 安装器照检出整份拷走（tests/ 除外），网关 vendor 整包拷 cex_core/：这些文件里不许有实验床
 # 内网地址、批次名、用例号这类内部运行记录。例外逐条登记：值 → (限定的文件前缀, 理由)。
 _LAB_IP = re.compile(r"(?<![\d.])(?:10\.4|172\.16)\.\d{1,3}\.\d{1,3}(?!\d)")
+# 按人名缩写起头的批次：名单同 tools/extract_engine.py 从 CEX_INTERNAL_HANDLES 注入
+# （公开仓不携带真实名单；名单为空时该项不查，RUN_/日期形批次照查）
+os.environ.setdefault("CEX_INTERNAL_HANDLES", "internala")  # 本文件守门自测用中性名
+_HANDLES = tuple(h.strip() for h in os.environ.get("CEX_INTERNAL_HANDLES", "").split(",")
+                 if h.strip())
+_HANDLE_PART = (rf"(?i:(?<![A-Za-z0-9])(?:{'|'.join(_HANDLES)})[A-Za-z0-9_-]*)"
+                if _HANDLES else "")
 _BATCH_LIKE = re.compile(
-    r"(?i:(?<![A-Za-z0-9])(?:internala|internalb)[A-Za-z0-9_-]*)"   # 按人名缩写起头的批次
-    r"|\bRUN_20\d{2}[A-Za-z0-9_-]*"                         # 引擎运行号
+    _HANDLE_PART
+    + ("|" if _HANDLE_PART else "")
+    + r"\bRUN_20\d{2}[A-Za-z0-9_-]*"                         # 引擎运行号
     # 小写蛇形/连字符名字、以月日（或年月日）收尾：slb_virtual_list_0923 这类批次名
     r"|(?<![A-Za-z0-9_-])[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*[_-](?:20\d{2})?"
     r"(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?![A-Za-z0-9_-])")
@@ -146,8 +155,6 @@ _LEAK_ALLOWED: dict[str, tuple[str, str]] = {
                       ("框架取证书的 TFTP 源：能力图谱的策展说明照框架源码写出这条床事实，模型据此"
                        "判断证书导入走哪条分支；数据包里的框架镜像同样带着它，换成别的地址就是错的")),
     "smoke_0923": ("skills/compile-excel/SKILL.md", "cases.json 示例里的批次名（示例，可换成中性名）"),
-    "internala": ("tools/extract_engine.py", "抽取脚本自己的脱敏规则"),
-    "internalb": ("tools/extract_engine.py", "抽取脚本自己的脱敏规则"),
 }
 
 

@@ -68,8 +68,12 @@ def test_manifest_lists_every_generated_module_and_boundary():
 def test_generated_code_carries_no_internal_run_records():
     # /U[s]ers/：字符类写法，免得本文件自己被可移植性守门当成写死的个人路径
     # 990000000000000001：环境收敛生成能力样例卷时用的合成案号，不是生产数据
-    pattern = re.compile(r"internala|internalb|RUN_20\d{2}|/U[s]ers/"
-                         r"|\b(?!999999999999999\b|990000000000000001\b)\d{12,20}\b",
+    # 人名缩写批次同 tools/extract_engine.py：名单来自环境（公开 CI 无名单则该项不查）
+    handles = [h.strip() for h in os.environ.get("CEX_INTERNAL_HANDLES", "").split(",") if h.strip()]
+    handle_alt = "|".join(handles)
+    pattern = re.compile((handle_alt + "|" if handle_alt else "")
+                         + r"RUN_20\d{2}|/U[s]ers/"
+                         + r"|\b(?!999999999999999\b|990000000000000001\b)\d{12,20}\b",
                          re.IGNORECASE)
     hits = []
     for path in ENGINE.rglob("*.py"):
@@ -369,7 +373,8 @@ TFTP = "certificates come from TFTP 172.16.35.215 unless the name ends in .pem"
     assert "198.18.33.215/24" in doc and "198.19.127.103" in doc and "172.16" not in doc
 
 
-def test_extraction_refuses_a_run_record_in_a_short_literal():
+def test_extraction_refuses_a_run_record_in_a_short_literal(monkeypatch):
+    monkeypatch.setenv("CEX_INTERNAL_HANDLES", "internala")
     extractor = _extractor()
     with pytest.raises(extractor.ExtractError, match="short string literal"):
         extractor.transform('BATCH = "internala_final1"\n', "main/x.py")

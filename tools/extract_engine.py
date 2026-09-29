@@ -34,6 +34,7 @@ import argparse
 import ast
 import hashlib
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -404,7 +405,26 @@ def _is_doc(stmt: ast.stmt) -> bool:
             and isinstance(stmt.value.value, str))
 
 
-_BATCH = re.compile(r"\b(?:internala|internalb)[A-Za-z0-9_]*", re.IGNORECASE)
+# 人名缩写批次：名单不入库（公开仓不携带内部人名）。从 CEX_INTERNAL_HANDLES（逗号分隔）
+# 或 tools/internal_handles.txt（每行一个，# 注释）读取；两者都没有时为空集——公开环境失去
+# 该类清洗，内部部署自行携带名单（格式见 internal_handles.example.txt）。
+_HANDLES_NEVER = re.compile(r"(?!x)x")  # 空集：永不匹配
+
+
+def _batch_pattern() -> "re.Pattern[str]":
+    names = [n.strip() for n in os.environ.get("CEX_INTERNAL_HANDLES", "").split(",") if n.strip()]
+    if not names:
+        handles_file = Path(__file__).with_name("internal_handles.txt")
+        if handles_file.is_file():
+            names = [ln.strip() for ln in handles_file.read_text(encoding="utf-8").splitlines()
+                     if ln.strip() and not ln.lstrip().startswith("#")]
+    if not names:
+        return _HANDLES_NEVER
+    body = "|".join(re.escape(n) for n in names)
+    return re.compile(rf"\b(?:{body})[A-Za-z0-9_]*", re.IGNORECASE)
+
+
+_BATCH = _batch_pattern()
 _RUN = re.compile(r"\bRUN_20\d{2}[A-Za-z0-9_-]*")
 # 六位用例号：两边不许挨着字母、数字或点（十六进制摘要、版本号里的六位数字串不是用例号）
 _SIX = re.compile(r"(?<![0-9A-Za-z.])\d{6}(?![0-9A-Za-z.])")
