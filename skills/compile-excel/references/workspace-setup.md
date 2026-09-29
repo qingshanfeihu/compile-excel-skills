@@ -54,7 +54,8 @@ Bundle kinds: `cmdtree` (command-tree projection, no raw XML), `projections` (do
 the destructive-command rules, and other derived tables), `template`, `manual`, `spec`,
 `framework`, `footprints`. What a given build carries depends on what the server published.
 
-`cex_docs_query` searches the current build's verified local manuals first and also queries the
+`cex_docs_query` searches verified local manuals for the build's `source.manual_version` first
+(when present in the bundle manifest) and also queries the
 server's document index when available. Results mark `source: local_manual` or
 `source: server_document`; only local manual matches have
 `manual:<version>/<file>.md:<line>` references. Offline results state that server documents were

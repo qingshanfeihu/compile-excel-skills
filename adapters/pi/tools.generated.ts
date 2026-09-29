@@ -91,8 +91,8 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_docs_query",
 		label: "CEX docs query",
-		description: "Search verified manuals for the current build and, when available, server documents. Local manual matches come first with manual:<path>:<line> citations; server documents are marked separately and have no manual citation. Offline results state that server documents were not searched. If neither source is available, reports a supply failure.",
-		snippet: "Search verified manuals for the current build and, when available, server documents.",
+		description: "Search verified manuals for the current build's bound manual version and, when available, server documents. Local manual matches come first with manual:<path>:<line> citations; server documents are marked separately and have no manual citation. Offline results state that server documents were not searched. If neither source is available, reports a supply failure.",
+		snippet: "Search verified manuals for the current build's bound manual version and, when available, server documents.",
 		readOnly: true,
 		parameters: Type.Object({
 			"workspace": Type.Optional(Type.String()),

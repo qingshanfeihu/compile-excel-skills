@@ -8,7 +8,7 @@ from typing import Any
 
 from . import bundle
 from .errors import ClientError
-from .workspace import Workspace
+from .workspace import Workspace, safe_component
 
 _TERM_RE = re.compile(r"[A-Za-z0-9_]+|[一-鿿]")
 _MAX_QUERY_CHARS = 512
@@ -73,13 +73,17 @@ def query(ws: Workspace, text: str, limit: int) -> dict[str, Any]:
         except ClientError as exc:
             return {"ok": False, "build": build, "bundle_id": manifest.get("bundle_id"),
                     "error": f"{exc}; call cex_sync", "next": "Call cex_sync and retry."}
+        source = manifest.get("source")
+        bound_version = source.get("manual_version") if isinstance(source, dict) else None
+        manual_root = (f"manual/{safe_component(bound_version, 'manual_version')}/"
+                       if bound_version is not None else "manual/")
         matches: list[tuple[tuple[int, ...], str, int]] = []
         sources: dict[str, list[str]] = {}
         skipped: list[dict[str, str]] = []
         searched = 0
         for entry in entries:
             rel = str(entry["path"])
-            if not (rel.startswith("manual/") and rel.endswith(".md")):
+            if not (rel.startswith(manual_root) and rel.endswith(".md")):
                 continue
             manual_rel = rel[len("manual/"):]
             if not manual_rel:

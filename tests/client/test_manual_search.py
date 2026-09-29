@@ -14,7 +14,7 @@ from cex_client.errors import ServerUnreachable
 
 
 def _bundle(ws: wsmod.Workspace, files: dict[str, str | bytes], *,
-            bundle_id: str = "bundle-test") -> None:
+            bundle_id: str = "bundle-test", manual_version: str | None = None) -> None:
     root = ws.bundle_dir()
     root.mkdir(parents=True)
     entries = []
@@ -24,10 +24,13 @@ def _bundle(ws: wsmod.Workspace, files: dict[str, str | bytes], *,
         raw = text.encode("utf-8") if isinstance(text, str) else text
         path.write_bytes(raw)
         entries.append({"path": rel, "kind": "manual", "sha256": hashlib.sha256(raw).hexdigest()})
-    (root / "manifest.json").write_text(json.dumps({
+    manifest = {
         "schema": "cex.bundle/v1", "build": ws.device_build,
         "bundle_id": bundle_id, "entries": entries,
-    }), encoding="utf-8")
+    }
+    if manual_version is not None:
+        manifest["source"] = {"manual_version": manual_version}
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
 def test_queries_all_manual_markdown_and_returns_citations(tmp_path: Path, monkeypatch) -> None:
@@ -162,6 +165,17 @@ def test_only_searched_manuals_are_hashed(tmp_path: Path, monkeypatch) -> None:
     (ws.bundle_dir() / "manual/v/cli.md").write_text("tampered\n", encoding="utf-8")
     corrupt = manual_search.query(ws, "slb", 3)
     assert corrupt["ok"] is False and "cex_sync" in corrupt["error"]
+
+
+def test_only_bundle_bound_manual_version_is_searched(tmp_path: Path) -> None:
+    ws = wsmod.init(tmp_path / "ws", server="https://unused.example",
+                    device_build="SAMPLE_BUILD_LOCAL")
+    _bundle(ws, {"manual/10.5.0/cli.md": "slb virtual http old\n",
+                 "manual/10.6.0/cli.md": "slb virtual http current\n"},
+            manual_version="10.6.0")
+    out = manual_search.query(ws, "slb virtual http", 3)
+    assert out["manuals_searched"] == 1
+    assert [row["ref"] for row in out["results"]] == ["manual:10.6.0/cli.md:1"]
 
 
 def test_online_search_appends_server_documents_without_manual_citations(
