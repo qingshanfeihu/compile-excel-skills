@@ -90,7 +90,11 @@ def cex_docs_query(args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("q") or "").strip()
     if not query:
         raise ClientError("q is required")
-    limit = max(1, min(int(args["limit"]) if args.get("limit") is not None else 3, 10))
+    try:
+        limit = int(str(args.get("limit", 3)).strip())
+    except (TypeError, ValueError):
+        limit = 3
+    limit = max(1, min(limit, 10))
     local = manual_search.query(ws, query, limit)
     local_results = [{**row, "source": "local_manual"} for row in local.get("results", [])]
     server_results: list[dict[str, Any]] = []

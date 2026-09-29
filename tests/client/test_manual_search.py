@@ -82,6 +82,21 @@ def test_full_line_match_outranks_nearby_terms_and_limit_is_clamped(
     assert 1 < len(ten["results"]) <= 10
 
 
+@pytest.mark.parametrize(("raw_limit", "expected"), [
+    ("", 3), ("3.0", 3), ("invalid", 3), ({"value": 4}, 3),
+    (None, 3), (0, 1), (99, 10),
+])
+def test_invalid_limit_uses_default_and_numeric_bounds_are_clamped(
+        tmp_path: Path, monkeypatch, raw_limit, expected: int) -> None:
+    ws = wsmod.init(tmp_path / "ws", server="https://unused.example",
+                    device_build="SAMPLE_BUILD_LOCAL")
+    _bundle(ws, {"manual/v/cli.md": "".join(f"alpha row {index}\n" for index in range(12))})
+    monkeypatch.setattr(auth, "request_json", lambda *_args, **_kwargs: {"results": []})
+    out = tools.call("cex_docs_query", {"workspace": str(ws.root), "q": "alpha",
+                                        "limit": raw_limit})
+    assert out["ok"] and len(out["results"]) == expected
+
+
 @pytest.mark.parametrize("query", [
     "slb virtual http", '"slb virtual http"', "`slb virtual http`",
     "slb virtual http,", "slb-virtual-http", "SLB，VIRTUAL，HTTP",
