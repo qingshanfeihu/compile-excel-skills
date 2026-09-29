@@ -23,7 +23,7 @@ portal session sits in a private per-user cache. Nothing secret passes through t
 | Read a defect ticket as source | `cex_portal_login_start` → user scans → `cex_portal_login_wait` → `cex_bug_get` |
 | Compile a mindmap | `mindmap-recompose` skill (seal) → `cex_bed_lease acquire` → `cex_bed_topology` → `cex_author_prepare` → one `cex_author_submit_case` per case → `cex_author_emit` ([authoring](references/authoring.md)) |
 | Type a new verdict shape | `cex_author_prepare` stops at `criterion_pending` → `cex_criterion_record` ([criterion](references/criterion.md)) |
-| Look up manual text / a command's manual line | `cex_docs_query`; `cex_lang_query` `{"kind": "param", "name": "<head>"}` |
+| Look up manual text / a command's manual line | `cex_docs_query` searches the current build's locally synced manuals; `cex_lang_query` `{"kind": "param", "name": "<head>"}` |
 | Ground commands against the build | `cex_cmd_check` while authoring; `scripts/cmdtree_check.py` as the gate for hand-written cases |
 | Compile plain step text (no mindmap) | You write `compile_outputs/<batch>/cases.json` → `scripts/cmdtree_check.py` → `scripts/compile_excel.py` |
 | Static acceptance | `scripts/verify_batch.py` + `cex_scan_destructive` |
@@ -140,7 +140,9 @@ client (every `cex_author_submit_case` is rejected with `consistency_stage_unava
 recompose skill asks the user before anything is recomposed against it.
 
 The synced bundle (`.compile-excel/bundle/<build>/`) carries spec and manual files when the
-server publishes them, and `cex_docs_query` searches the manuals. Both are legal verbatim
+server publishes them. `cex_docs_query` searches every `.md` under that bundle's `manual/`
+locally, without a server query; sync the current device build first. Its `ref` is already in
+the required `manual:<version>/<file>.md:<line>` form. Spec and manual text are legal verbatim
 sources, quoted as `spec:<file>:<line>` / `manual:<file>:<line>`. Sources widen the pool; they
 never license paraphrase.
 

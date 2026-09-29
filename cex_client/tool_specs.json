@@ -137,7 +137,7 @@
   },
   {
    "name": "cex_docs_query",
-   "description": "Keyword search over the server's CLI and product manuals. Returns matching documents with short snippets.",
+   "description": "Search all Markdown manuals in the workspace's synced bundle for its current device build, without contacting the server. Returns ranked matches with context, line numbers, and manual:<path>:<line> citations; call cex_sync first if no bundle is present.",
    "read_only": true,
    "input_schema": {
     "type": "object",

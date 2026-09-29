@@ -20,15 +20,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
 import pytest
+from conftest import REPO_ROOT
 
 from cex_client import auth, tools
 from cex_client import workspace as wsmod
 from cex_client.errors import ClientError, NotLoggedIn
-from conftest import REPO_ROOT
 
 
 class FakeAuthServer:
-    """最小的 compile-excel-server 认证面：/token（refresh 轮换）、/device_authorize、/v1/docs/query。"""
+    """最小的认证面：/token、/device_authorize、/v1/config/client。"""
 
     def __init__(self, *, refresh_delay: float = 0.3, known_scopes: set[str] | None = None):
         self.lock = threading.Lock()
@@ -55,7 +55,7 @@ class FakeAuthServer:
                 self.end_headers()
                 self.wfile.write(body)
 
-            def do_POST(self):  # noqa: N802
+            def do_POST(self):
                 size = int(self.headers.get("Content-Length") or 0)
                 form = parse_qs(self.rfile.read(size).decode())
                 if self.path == "/token":
@@ -87,19 +87,20 @@ class FakeAuthServer:
                     return self._send(200, {"device_code": "dc", "user_code": "ABCD",
                                             "verification_uri": "http://x/activate",
                                             "expires_in": 600, "interval": 1})
-                if self.path == "/v1/docs/query":
+                if self.path == "/v1/config/client":
                     header = self.headers.get("Authorization") or ""
                     server.seen_auth.append(header)
                     if server.redirect_to:
-                        return self._send(302, {}, {"Location": server.redirect_to + "/v1/docs/query"})
+                        return self._send(302, {}, {"Location": server.redirect_to + "/v1/config/client"})
                     with server.lock:
                         row = server.tokens.get(header[7:])
                         ok = bool(row and row["kind"] == "access" and not row["revoked"])
                     return self._send(200 if ok else 401,
-                                      {"results": []} if ok else {"detail": "unauthorized"})
+                                      {"gateway_url": "https://gateway.example"}
+                                      if ok else {"detail": "unauthorized"})
                 return self._send(404, {})
 
-            do_GET = do_POST  # noqa: N815
+            do_GET = do_POST
 
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
@@ -137,31 +138,31 @@ def _workspace(tmp_path, base: str, *, expired: bool, fake: FakeAuthServer | Non
 def test_concurrent_refresh_rotates_once_and_nobody_is_logged_out(tmp_path, fake):
     ws = _workspace(tmp_path, fake.base, expired=True, fake=fake)
     env = {k: v for k, v in os.environ.items() if k != "CEX_WORKSPACE"}
-    args = json.dumps({"workspace": str(ws.root), "q": "slb"})
+    args = json.dumps({"workspace": str(ws.root)})
     procs = [subprocess.Popen([sys.executable, str(REPO_ROOT / "bin" / "cex_tool"),
-                               "cex_docs_query", args], stdout=subprocess.PIPE, text=True, env=env)
+                               "cex_client_config", args], stdout=subprocess.PIPE, text=True, env=env)
              for _ in range(3)]
     outs = [json.loads(p.communicate(timeout=60)[0]) for p in procs]
     assert all(out.get("ok") for out in outs), outs
     assert fake.log == ["rotated"], "the refresh token is presented exactly once"
     assert ws.token_path.exists()
-    again = tools.call("cex_docs_query", {"workspace": str(ws.root), "q": "slb"})
+    again = tools.call("cex_client_config", {"workspace": str(ws.root)})
     assert again["ok"], again
 
 
 def test_a_transient_token_failure_keeps_the_session(tmp_path, fake):
     ws = _workspace(tmp_path, fake.base, expired=True, fake=fake)
     fake.token_status = 502
-    out = tools.call("cex_docs_query", {"workspace": str(ws.root), "q": "slb"})
+    out = tools.call("cex_client_config", {"workspace": str(ws.root)})
     assert out["ok"] is False and "HTTP 502" in out["error"] and "kept" in out["error"]
     assert ws.token_path.exists(), "a 502 on /token is not a revocation"
     fake.token_status = None
-    assert tools.call("cex_docs_query", {"workspace": str(ws.root), "q": "slb"})["ok"]
+    assert tools.call("cex_client_config", {"workspace": str(ws.root)})["ok"]
 
 
 def test_an_unreachable_server_keeps_the_session(tmp_path):
     ws = _workspace(tmp_path, "http://127.0.0.1:9", expired=True)
-    out = tools.call("cex_docs_query", {"workspace": str(ws.root), "q": "slb"})
+    out = tools.call("cex_client_config", {"workspace": str(ws.root)})
     assert out["ok"] is False and "unreachable" in out["error"]
     assert ws.token_path.exists()
 
@@ -187,7 +188,7 @@ def test_authenticated_requests_do_not_follow_redirects(tmp_path, fake):
     try:
         ws = _workspace(tmp_path, fake.base, expired=False, fake=fake)
         fake.redirect_to = other.base
-        out = tools.call("cex_docs_query", {"workspace": str(ws.root), "q": "slb"})
+        out = tools.call("cex_client_config", {"workspace": str(ws.root)})
         assert out["ok"] is False and "redirect" in out["error"]
         assert other.seen_auth == [], "the bearer token never reaches another origin"
         assert fake.seen_auth and fake.seen_auth[0].startswith("Bearer ")

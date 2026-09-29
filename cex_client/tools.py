@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from . import auth, bugs, bundle, device, gateway, portal
+from . import auth, bugs, bundle, device, gateway, manual_search, portal
 from . import workspace as wsmod
 from .errors import ClientError
 
@@ -89,10 +90,8 @@ def cex_docs_query(args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("q") or "").strip()
     if not query:
         raise ClientError("q is required")
-    limit = max(1, min(int(args.get("limit") or 3), 10))
-    body, headers = auth._form({"q": query, "limit": str(limit)})
-    return {"ok": True, **auth.request_json(ws, "POST", "/v1/docs/query", data=body,
-                                            headers=headers)}
+    limit = max(1, min(int(args["limit"]) if args.get("limit") is not None else 3, 10))
+    return manual_search.query(ws, query, limit)
 
 
 def cex_cmd_check(args: dict[str, Any]) -> dict[str, Any]:

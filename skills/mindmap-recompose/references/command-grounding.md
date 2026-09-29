@@ -18,7 +18,7 @@ authority over Author, Spec, DefectSpec, Manual, ConfigBinding, or CapabilityXml
 The command tree needs its source XML beside the projection before the engine will read it through
 `cex_lang_query`. When a `cex_lang_query` answer says the vendor command-tree projection "could not be loaded", the
 synced bundle carries the projection without that XML: do not retry the query. Ground existence and arguments with
-`cex_cmd_check`, read the wording in the manual files (`kind=docs` still names them) or with `cex_docs_query`, and
+`cex_cmd_check`, read the wording in the current build's locally synced manual files (`kind=docs` still names them) or search them with `cex_docs_query`, and
 say in the report that per-argument contracts were unavailable.
 
 ## Procedure

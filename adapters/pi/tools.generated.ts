@@ -91,8 +91,8 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_docs_query",
 		label: "CEX docs query",
-		description: "Keyword search over the server's CLI and product manuals. Returns matching documents with short snippets.",
-		snippet: "Keyword search over the server's CLI and product manuals.",
+		description: "Search all Markdown manuals in the workspace's synced bundle for its current device build, without contacting the server. Returns ranked matches with context, line numbers, and manual:<path>:<line> citations; call cex_sync first if no bundle is present.",
+		snippet: "Search all Markdown manuals in the workspace's synced bundle for its current device build, without contacting the server.",
 		readOnly: true,
 		parameters: Type.Object({
 			"workspace": Type.Optional(Type.String()),

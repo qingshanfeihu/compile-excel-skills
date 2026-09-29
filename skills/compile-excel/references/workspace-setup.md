@@ -54,6 +54,11 @@ Bundle kinds: `cmdtree` (command-tree projection, no raw XML), `projections` (do
 the destructive-command rules, and other derived tables), `template`, `manual`, `spec`,
 `framework`, `footprints`. What a given build carries depends on what the server published.
 
+`cex_docs_query` reads the current build's verified `manual/**/*.md` files from this local
+bundle. It makes no server request. Results name the bundle id and build, include nearby lines,
+and provide `manual:<version>/<file>.md:<line>` references. If no bundle is present, run
+`cex_sync` before searching.
+
 When the server is unreachable, `cex_sync` verifies the cached bundle and returns
 `source: cache` with a `note` naming the bundle id and its date. Tell the user which bundle the
 compile used; a missing or modified cache is an error, not a silent fallback.
