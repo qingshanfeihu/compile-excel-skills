@@ -95,7 +95,7 @@ spec store to replace, override, or fill a missing identity. Do not put source/S
 case objects or the seal: the tools inject them from the prepared dispatch, so transcription cannot alter
 artifact identity.
 
-[R48] A product manual or converted product document (the current build's local bundle manuals searched by `cex_docs_query`, and the manuals `cex_lang_query`
+[R48] A product manual or converted product document (the current build's local bundle manuals and online server documents searched by `cex_docs_query`, and the manuals `cex_lang_query`
 names) is not a SPEC and is never a legal backfill source in this skill. Only the singular engine-resolved SPEC
 may supply `spec:<file>:<line>` atoms.
 

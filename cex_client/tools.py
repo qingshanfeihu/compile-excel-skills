@@ -91,7 +91,44 @@ def cex_docs_query(args: dict[str, Any]) -> dict[str, Any]:
     if not query:
         raise ClientError("q is required")
     limit = max(1, min(int(args["limit"]) if args.get("limit") is not None else 3, 10))
-    return manual_search.query(ws, query, limit)
+    local = manual_search.query(ws, query, limit)
+    local_results = [{**row, "source": "local_manual"} for row in local.get("results", [])]
+    server_results: list[dict[str, Any]] = []
+    server_searched = False
+    server_note = ""
+    try:
+        body, headers = auth._form({"q": query, "limit": str(limit)})
+        payload = auth.request_json(ws, "POST", "/v1/docs/query", data=body,
+                                    headers=headers)
+        server_searched = True
+        for row in payload.get("results") or []:
+            if isinstance(row, dict):
+                # A server document has no build-bound manual citation.
+                server_results.append({**{key: value for key, value in row.items()
+                                          if key != "ref"}, "source": "server_document"})
+    except ClientError as exc:
+        server_note = f"Server documents were not searched: {exc}"
+
+    local_available = bool(local.get("manuals_searched"))
+    local_note = (str(local.get("error") or "No searchable local manuals in this build's "
+                      "bundle; call cex_sync if manuals are expected.")
+                  if not local_available else "")
+    out = {"ok": local_available or server_searched, "query": query,
+           "build": ws.device_build, "bundle_id": local.get("bundle_id"),
+           "manuals_searched": local.get("manuals_searched", 0),
+           "server_searched": server_searched,
+           "results": (local_results + server_results)[:limit]}
+    if local.get("bundle"):
+        out["bundle"] = local["bundle"]
+    if local_note:
+        out["local_note"] = local_note
+    if server_note:
+        out["server_note"] = server_note
+    if not out["ok"]:
+        out["error"] = (f"docs query unavailable — {local_note}; {server_note}; "
+                        "this is a supply failure, not evidence that the manual lacks this content")
+        out["next"] = local.get("next") or "Call cex_sync and retry when the server is available."
+    return out
 
 
 def cex_cmd_check(args: dict[str, Any]) -> dict[str, Any]:

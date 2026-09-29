@@ -91,8 +91,8 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_docs_query",
 		label: "CEX docs query",
-		description: "Search all Markdown manuals in the workspace's synced bundle for its current device build, without contacting the server. Returns ranked matches with context, line numbers, and manual:<path>:<line> citations; call cex_sync first if no bundle is present.",
-		snippet: "Search all Markdown manuals in the workspace's synced bundle for its current device build, without contacting the server.",
+		description: "Search verified manuals for the current build and, when available, server documents. Local manual matches come first with manual:<path>:<line> citations; server documents are marked separately and have no manual citation. Offline results state that server documents were not searched. If neither source is available, reports a supply failure.",
+		snippet: "Search verified manuals for the current build and, when available, server documents.",
 		readOnly: true,
 		parameters: Type.Object({
 			"workspace": Type.Optional(Type.String()),
