@@ -68,10 +68,8 @@ def query(ws: Workspace, text: str, limit: int) -> dict[str, Any]:
         if manifest is None:
             return {"ok": False, "build": build, "error": "no synced bundle for this build",
                     "next": "Call cex_sync to download the compile data bundle first."}
-        if manifest.get("build") != build:
-            raise ClientError(f"cached bundle build does not match {build}; call cex_sync")
         try:
-            bundle.verify_cache(ws, build)
+            entries = bundle._check_manifest(manifest, build)
         except ClientError as exc:
             return {"ok": False, "build": build, "bundle_id": manifest.get("bundle_id"),
                     "error": f"{exc}; call cex_sync", "next": "Call cex_sync and retry."}
@@ -79,17 +77,20 @@ def query(ws: Workspace, text: str, limit: int) -> dict[str, Any]:
         sources: dict[str, list[str]] = {}
         skipped: list[dict[str, str]] = []
         searched = 0
-        for entry in manifest["entries"]:
+        for entry in entries:
             rel = str(entry["path"])
             if not (rel.startswith("manual/") and rel.endswith(".md")):
                 continue
             manual_rel = rel[len("manual/"):]
             if not manual_rel:
                 continue
-            # verify_cache checked every manifest path and SHA under this shared
-            # lock; avoid hashing each manual a second time before reading it.
             try:
-                lines, found = _search_file(ws.bundle_dir(build) / rel, terms)
+                path = bundle.verified_file(ws, entry, build)
+            except ClientError as exc:
+                return {"ok": False, "build": build, "bundle_id": manifest.get("bundle_id"),
+                        "error": str(exc), "next": "Call cex_sync and retry."}
+            try:
+                lines, found = _search_file(path, terms)
             except (UnicodeDecodeError, OSError) as exc:
                 skipped.append({"path": manual_rel,
                                 "reason": "invalid UTF-8" if isinstance(exc, UnicodeDecodeError)

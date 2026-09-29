@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from cex_client import auth, manual_search, tools
+from cex_client import auth, bundle, manual_search, tools
 from cex_client import workspace as wsmod
 from cex_client.errors import ServerUnreachable
 
@@ -134,6 +134,34 @@ def test_manual_locators_count_only_lf_separated_lines(tmp_path: Path) -> None:
     assert out["results"][0]["ref"] == "manual:v/cli.md:4"
     assert out["results"][0]["line"] == 4
     assert "3: more\u2028inside" in out["results"][0]["snippet"]
+
+
+def test_only_searched_manuals_are_hashed(tmp_path: Path, monkeypatch) -> None:
+    ws = wsmod.init(tmp_path / "ws", server="https://unused.example",
+                    device_build="SAMPLE_BUILD_LOCAL")
+    _bundle(ws, {"manual/v/cli.md": "slb virtual http\n",
+                 "framework/unused.bin": b"unrelated payload"})
+    unused = ws.bundle_dir() / "framework/unused.bin"
+    unused.write_bytes(b"changed payload")
+    monkeypatch.setattr(bundle, "verify_cache", lambda *_args, **_kwargs: (
+        _ for _ in ()).throw(AssertionError("whole bundle must not be verified")))
+    checked = []
+    actual_hash = bundle._sha256_file
+
+    def record_hash(path):
+        checked.append(path.relative_to(ws.bundle_dir()).as_posix())
+        return actual_hash(path)
+
+    monkeypatch.setattr(bundle, "_sha256_file", record_hash)
+    out = manual_search.query(ws, "slb virtual http", 3)
+    assert out["ok"] and out["results"][0]["ref"] == "manual:v/cli.md:1"
+    assert checked == ["manual/v/cli.md"]
+    unused.unlink()
+    assert manual_search.query(ws, "slb", 3)["ok"]
+
+    (ws.bundle_dir() / "manual/v/cli.md").write_text("tampered\n", encoding="utf-8")
+    corrupt = manual_search.query(ws, "slb", 3)
+    assert corrupt["ok"] is False and "cex_sync" in corrupt["error"]
 
 
 def test_online_search_appends_server_documents_without_manual_citations(
