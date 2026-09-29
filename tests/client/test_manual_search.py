@@ -13,14 +13,15 @@ from cex_client import workspace as wsmod
 from cex_client.errors import ServerUnreachable
 
 
-def _bundle(ws: wsmod.Workspace, files: dict[str, str], *, bundle_id: str = "bundle-test") -> None:
+def _bundle(ws: wsmod.Workspace, files: dict[str, str | bytes], *,
+            bundle_id: str = "bundle-test") -> None:
     root = ws.bundle_dir()
     root.mkdir(parents=True)
     entries = []
     for rel, text in files.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        raw = text.encode("utf-8")
+        raw = text.encode("utf-8") if isinstance(text, str) else text
         path.write_bytes(raw)
         entries.append({"path": rel, "kind": "manual", "sha256": hashlib.sha256(raw).hexdigest()})
     (root / "manifest.json").write_text(json.dumps({
@@ -107,6 +108,32 @@ def test_more_distinct_terms_outrank_repeated_partial_match(tmp_path: Path) -> N
     _bundle(ws, {"manual/v/cli.md": "alpha alpha alpha alpha\nalpha beta\n"})
     result = manual_search.query(ws, "alpha beta", 3)
     assert result["results"][0]["line"] == 2
+
+
+def test_invalid_utf8_manual_is_named_and_other_manuals_remain_searchable(
+        tmp_path: Path, monkeypatch) -> None:
+    ws = wsmod.init(tmp_path / "ws", server="https://unused.example",
+                    device_build="SAMPLE_BUILD_LOCAL")
+    _bundle(ws, {"manual/v/bad.md": "无法解码".encode("gbk"),
+                 "manual/v/good.md": "slb virtual http\n"})
+    monkeypatch.setattr(auth, "request_json", lambda *_args, **_kwargs: (
+        _ for _ in ()).throw(ServerUnreachable("server unreachable (test offline)")))
+    out = tools.call("cex_docs_query", {"workspace": str(ws.root), "q": "slb virtual http"})
+    assert out["ok"] and out["manuals_searched"] == 1
+    assert out["results"][0]["ref"] == "manual:v/good.md:1"
+    assert out["manuals_skipped"] == [{"path": "v/bad.md", "reason": "invalid UTF-8"}]
+    assert "v/bad.md" in out["local_note"]
+
+
+def test_manual_locators_count_only_lf_separated_lines(tmp_path: Path) -> None:
+    ws = wsmod.init(tmp_path / "ws", server="https://unused.example",
+                    device_build="SAMPLE_BUILD_LOCAL")
+    _bundle(ws, {"manual/v/cli.md": (
+        "header\rinside\nother\u0085inside\nmore\u2028inside\nslb virtual httpslist")})
+    out = manual_search.query(ws, "slb virtual httpslist", 3)
+    assert out["results"][0]["ref"] == "manual:v/cli.md:4"
+    assert out["results"][0]["line"] == 4
+    assert "3: more\u2028inside" in out["results"][0]["snippet"]
 
 
 def test_online_search_appends_server_documents_without_manual_citations(

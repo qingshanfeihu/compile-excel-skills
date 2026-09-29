@@ -37,7 +37,9 @@ def _clip(line: str, terms: list[str]) -> str:
 
 
 def _search_file(path: Path, terms: list[str]) -> tuple[list[str], list[tuple[tuple[int, ...], int]]]:
-    lines = path.read_text(encoding="utf-8").splitlines()
+    # Preserve CR and Unicode separators inside physical lines. Manual locators
+    # count LF bytes, so splitlines() would mint incorrect line numbers.
+    lines = path.read_bytes().decode("utf-8").split("\n")
     folded = [_fold(line) for line in lines]
     hits = [tuple(term in line for term in terms) for line in folded]
     found: list[tuple[tuple[int, ...], int]] = []
@@ -75,6 +77,7 @@ def query(ws: Workspace, text: str, limit: int) -> dict[str, Any]:
                     "error": f"{exc}; call cex_sync", "next": "Call cex_sync and retry."}
         matches: list[tuple[tuple[int, ...], str, int]] = []
         sources: dict[str, list[str]] = {}
+        skipped: list[dict[str, str]] = []
         searched = 0
         for entry in manifest["entries"]:
             rel = str(entry["path"])
@@ -85,7 +88,13 @@ def query(ws: Workspace, text: str, limit: int) -> dict[str, Any]:
                 continue
             # verify_cache checked every manifest path and SHA under this shared
             # lock; avoid hashing each manual a second time before reading it.
-            lines, found = _search_file(ws.bundle_dir(build) / rel, terms)
+            try:
+                lines, found = _search_file(ws.bundle_dir(build) / rel, terms)
+            except (UnicodeDecodeError, OSError) as exc:
+                skipped.append({"path": manual_rel,
+                                "reason": "invalid UTF-8" if isinstance(exc, UnicodeDecodeError)
+                                else "could not read"})
+                continue
             sources[manual_rel] = lines
             matches.extend((score, manual_rel, index) for score, index in found)
             searched += 1
@@ -100,4 +109,4 @@ def query(ws: Workspace, text: str, limit: int) -> dict[str, Any]:
                         "ref": f"manual:{rel}:{line_number}", "all_terms": score[1] == len(terms)})
     return {"ok": True, "query": text, "build": build,
             "bundle_id": manifest.get("bundle_id"), "bundle": str(ws.bundle_dir(build)),
-            "manuals_searched": searched, "results": results}
+            "manuals_searched": searched, "manuals_skipped": skipped, "results": results}

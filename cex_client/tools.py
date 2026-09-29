@@ -110,12 +110,18 @@ def cex_docs_query(args: dict[str, Any]) -> dict[str, Any]:
         server_note = f"Server documents were not searched: {exc}"
 
     local_available = bool(local.get("manuals_searched"))
+    skipped = local.get("manuals_skipped") or []
     local_note = (str(local.get("error") or "No searchable local manuals in this build's "
                       "bundle; call cex_sync if manuals are expected.")
                   if not local_available else "")
+    if skipped:
+        skipped_names = ", ".join(str(row["path"]) for row in skipped)
+        local_note = (local_note + " " if local_note else "") + (
+            f"Skipped unreadable local manuals: {skipped_names}.")
     out = {"ok": local_available or server_searched, "query": query,
            "build": ws.device_build, "bundle_id": local.get("bundle_id"),
            "manuals_searched": local.get("manuals_searched", 0),
+           "manuals_skipped": skipped,
            "server_searched": server_searched,
            "results": (local_results + server_results)[:limit]}
     if local.get("bundle"):
