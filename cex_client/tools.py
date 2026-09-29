@@ -127,7 +127,7 @@ def cex_docs_query(args: dict[str, Any]) -> dict[str, Any]:
            "manuals_searched": local.get("manuals_searched", 0),
            "manuals_skipped": skipped,
            "server_searched": server_searched,
-           "results": (local_results + server_results)[:limit]}
+           "results": local_results[:limit] + server_results[:limit]}
     if local.get("bundle"):
         out["bundle"] = local["bundle"]
     if local_note:

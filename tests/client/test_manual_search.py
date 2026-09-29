@@ -217,6 +217,24 @@ def test_online_search_appends_server_documents_without_manual_citations(
     assert calls[0][0:2] == ("POST", "/v1/docs/query")
 
 
+def test_local_results_at_limit_do_not_hide_server_documents(tmp_path: Path, monkeypatch) -> None:
+    ws = wsmod.init(tmp_path / "ws", server="https://unused.example",
+                    device_build="SAMPLE_BUILD_LOCAL")
+    _bundle(ws, {"manual/v/cli.md": "alpha\nalpha beta\nbeta\n"})
+    monkeypatch.setattr(auth, "request_json", lambda *_args, **_kwargs: {"results": [
+        {"doc": "EXCEL_FUNCS.md", "snippet": "alpha beta method"},
+        {"doc": "API_GUIDE.md", "snippet": "alpha beta reference"},
+        {"doc": "THIRD.md", "snippet": "alpha beta extra"},
+    ]})
+
+    out = tools.call("cex_docs_query", {"workspace": str(ws.root),
+                                        "q": "alpha beta", "limit": 2})
+    assert out["ok"] and out["server_searched"]
+    assert [row["source"] for row in out["results"]] == [
+        "local_manual", "local_manual", "server_document", "server_document"]
+    assert [row["doc"] for row in out["results"][2:]] == ["EXCEL_FUNCS.md", "API_GUIDE.md"]
+
+
 def test_bundle_without_manuals_uses_server_and_reports_offline_supply_failure(
         tmp_path: Path, monkeypatch) -> None:
     ws = wsmod.init(tmp_path / "ws", server="https://unused.example",

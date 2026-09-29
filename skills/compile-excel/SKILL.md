@@ -143,6 +143,8 @@ The synced bundle (`.compile-excel/bundle/<build>/`) carries spec and manual fil
 server publishes them. `cex_docs_query` searches the current build's local manuals first and
 also searches server documents when available. Results mark `source` as `local_manual` or
 `server_document`; only local manual results have a `manual:<version>/<file>.md:<line>` ref.
+`limit` caps each source separately (default 3, maximum 10), so online results can contain up to
+twice that many matches.
 Offline results say server documents were not searched. If neither source is available, the
 tool reports a supply failure. Sync the current device build when local manuals are expected.
 Spec and manual text are legal verbatim sources, quoted as `spec:<file>:<line>` /

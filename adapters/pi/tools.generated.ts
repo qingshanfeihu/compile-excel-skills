@@ -91,13 +91,13 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_docs_query",
 		label: "CEX docs query",
-		description: "Search verified manuals for the current build's bound manual version and, when available, server documents. Local manual matches come first with manual:<path>:<line> citations; server documents are marked separately and have no manual citation. Offline results state that server documents were not searched. If neither source is available, reports a supply failure.",
+		description: "Search verified manuals for the current build's bound manual version and, when available, server documents. Local manual matches come first with manual:<path>:<line> citations; server documents are marked separately and have no manual citation. Limit applies to each source independently, so online results can contain up to twice the limit. Offline results state that server documents were not searched. If neither source is available, reports a supply failure.",
 		snippet: "Search verified manuals for the current build's bound manual version and, when available, server documents.",
 		readOnly: true,
 		parameters: Type.Object({
 			"workspace": Type.Optional(Type.String()),
 			"q": Type.String({"description": "Search terms."}),
-			"limit": Type.Optional(Type.Integer({"minimum": 1, "maximum": 10})),
+			"limit": Type.Optional(Type.Integer({"description": "Maximum results per source (1–10, default 3); online results can contain up to twice this number.", "minimum": 1, "maximum": 10})),
 		}, { additionalProperties: false }),
 	},
 	{

@@ -58,7 +58,9 @@ the destructive-command rules, and other derived tables), `template`, `manual`, 
 (when present in the bundle manifest) and also queries the
 server's document index when available. Results mark `source: local_manual` or
 `source: server_document`; only local manual matches have
-`manual:<version>/<file>.md:<line>` references. Offline results state that server documents were
+`manual:<version>/<file>.md:<line>` references. `limit` applies separately to local manuals and
+server documents (default 3, maximum 10 each); online results can contain up to twice `limit`.
+Offline results state that server documents were
 not searched. If neither source is available, the tool reports a supply failure. Run `cex_sync`
 when local manuals are expected.
 
