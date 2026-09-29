@@ -63,7 +63,7 @@ def _host_key_space() -> tuple[frozenset[str], frozenset[str]]:
     env_slots = frozenset(public_methods('lib/env.py', 'Env')) - LIFECYCLE_FS
     direct_slots = frozenset(host_slot_es())
     if not env_slots and (not direct_slots):
-        raise RuntimeError('vendor host key space is empty; 框架镜像 env 模块 and the devices table are both unreadable, so no vendor row could be attributed')
+        raise RuntimeError('vendor host key space is empty; the framework mirror and the devices table are both unreadable, so no vendor row could be attributed')
     return (env_slots, direct_slots)
 
 def _host_of_step(step: dict, env_slots: frozenset[str], direct_slots: frozenset[str]) -> str:
@@ -229,7 +229,7 @@ def build() -> dict:
         raise RuntimeError('capability usage corpus changed while it was being scanned')
     vendor = build_vendor_host_observations()
     corpus_status = 'ready' if files else 'absent'
-    execute_empty_reason = "本轮 corpus 下 by_execute_action 为空字典——已用合成 step(见 test_capability_usage_index.py 的正例验证)证明抽取器找得到 execute 用法,不是抽取缺陷;空是因为当前 device-verified 语料里确实一次都没用过 F=execute,与 内部调研文档（已脱敏） 的独立人工审计结论('execute机制:0次使用')一致。" if files else _AUTHORED_CORPUS_UNAVAILABLE_REASON
+    execute_empty_reason = "本轮 corpus 下 by_execute_action 为空字典——已用合成 step(见 test_capability_usage_index.py 的正例验证)证明抽取器找得到 execute 用法,不是抽取缺陷;空是因为当前 device-verified 语料里确实一次都没用过 F=execute,与内部调研文档（已脱敏）的独立人工审计结论('execute机制:0次使用')一致。" if files else _AUTHORED_CORPUS_UNAVAILABLE_REASON
     return {'_meta': {'purpose': "device-verified 案例的能力键(F 值/execute 动作名)真实用法倒排——回答'有没有人这样用过、真实样子长什么样',与 capability_atlas.json的'框架能不能这样用'互补,不重复。", 'regenerate': 'python scripts/gen_capability_usage_index.py', 'corpus_definition': 'knowledge/framework/verified/verified_*.xlsx (独立整卷 PASS 后的引擎自有稳定回写；排除远端 framework mirror 与会被 closing 清理的 workspace 路径)', 'corpus_globs': list(_CORPUS_GLOBS), 'corpus_status': corpus_status, 'corpus_absence_reason': _AUTHORED_CORPUS_UNAVAILABLE_REASON if not files else '', 'corpus_file_count': len(files), 'total_rows_scanned': total_rows, 'source_manifest_sha256': source_manifest, 'unreadable_files': [], 'intended_consumption': 'M2 检索通道(工具进程内 load,不是 worker fs_read 直读)。本文件全量收录、不截断(见下 by_execute_action_empty_reason 同款纪律),完整体积远超 worker 默认 200 行读窗——若 M2 决定改为让 worker 直接 fs_read 本文件,必须先按能力键分文件,否则 worker 一次读只能看到排在最前的那个能力键的一小段,看不到其余能力键(内部工单 的实物例证)。', 'by_execute_action_empty_reason': execute_empty_reason, 'authored_corpus_empty_reason': _AUTHORED_CORPUS_UNAVAILABLE_REASON if not files else '', 'column_separation_reason': 'by_f_value / by_execute_action / authored_host_usage 三个桶的语料是我方 verified 卷(整卷 PASS 后的引擎自有回写＝我们自己验证过的先例);vendor_host_observations 的语料是厂商 smoke_test 卷(厂商在那张床上做过什么)。两者性质不同,合成一个计数就分不清「谁验过」,故分列。', 'authored_host_usage_has_no_verbatim_reason': '我方那一列只给计数,不给命令原文——它没经过那张床上厂商那套长期运行,不构成「这台机器容得下这条命令」的先例;与厂商原文并排摆出来会让读者分不清哪一份是被那台机器长期证明过的。', **vendor['meta']}, 'by_f_value': by_f, 'by_execute_action': by_action, 'authored_host_usage': authored_host_usage, 'vendor_host_observations': vendor['observations']}
 
 def write_projection(data: dict, path: Path=_OUT) -> None:

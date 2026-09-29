@@ -1,6 +1,6 @@
 # 人名缩写批次名单（每行一个缩写，# 开头为注释）。
 # 复制为 internal_handles.txt（已被 .gitignore 忽略）或用环境变量
 # CEX_INTERNAL_HANDLES=缩写1,缩写2 注入；两者都缺省时该类清洗不生效。
-# 示例（中性占位名，非真实名单）：
-# internala
-# internalb
+# 格式示例（占位符，请换成你环境里的真实缩写）：
+# <缩写一>
+# <缩写二>

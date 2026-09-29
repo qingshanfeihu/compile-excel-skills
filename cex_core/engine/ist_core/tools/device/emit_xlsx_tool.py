@@ -2233,7 +2233,7 @@ def _frozen_seal_verdict(autoid: str, new_seal_sha256: str, *, facts: list | Non
     2026-08-20 收窄冻结规则时抽出:此前「同法/换法」只有引擎侧供给边
     (`engine_frozen_override_reason`)会算,而规则自己的放行判据是
     `override_frozen_reason` 非空字符串——实证 `override_frozen_reason='没换法,原样
-    再跑一遍'` 照样通过规则(`内部取证文档（已脱敏）)。
+    再跑一遍'` 照样通过规则（内部取证文档，已脱敏）。
     供给边与 enforcement 各判各的,规则就永远只信自报。收窄=两边同调这一个函数。
 
     读取顺序与既有 D1 供给边逐字相同(可得性递降,全部机械):

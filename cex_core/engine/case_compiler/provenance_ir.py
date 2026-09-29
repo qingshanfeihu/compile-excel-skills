@@ -1677,7 +1677,7 @@ def seal_expectation_directions(case: CaseProvenance, *, outputs_root: Path | No
 def _step_g_snippet(step: StepIR) -> str:
     """G 原文首行截断，供违例文本定位载体。观测命令与配置命令展开后同为
     F='cmd_config'，只报 E/F 会把排障指向错误的块类（<case> 实证约 20 轮，
-    见 内部取证文档（已脱敏）"""
+    见 内部取证文档（已脱敏））。"""
     lines = str(step.G or '').strip().splitlines()
     text = lines[0].strip() if lines else ''
     return text[:60] + ('…' if len(text) > 60 else '')
