@@ -6,7 +6,9 @@ import hashlib
 import json
 from pathlib import Path
 
-from cex_client import auth, tools
+import pytest
+
+from cex_client import auth, manual_search, tools
 from cex_client import workspace as wsmod
 
 
@@ -72,6 +74,37 @@ def test_full_line_match_outranks_nearby_terms_and_limit_is_clamped(tmp_path: Pa
     assert len(one["results"]) == 1 and one["results"][0]["line"] == 4
     ten = tools.call("cex_docs_query", {"workspace": str(ws.root), "q": "alpha", "limit": 99})
     assert 1 < len(ten["results"]) <= 10
+
+
+@pytest.mark.parametrize("query", [
+    "slb virtual http", '"slb virtual http"', "`slb virtual http`",
+    "slb virtual http,", "slb-virtual-http", "SLB，VIRTUAL，HTTP",
+])
+def test_punctuation_and_case_share_search_terms(tmp_path: Path, query: str) -> None:
+    ws = wsmod.init(tmp_path / "ws", server="https://unused.example",
+                    device_build="SAMPLE_BUILD_LOCAL")
+    _bundle(ws, {"manual/v/cli.md": "slb virtual http add service\n"})
+    result = manual_search.query(ws, query, 3)
+    assert result["results"][0]["ref"] == "manual:v/cli.md:1"
+    assert result["results"][0]["all_terms"] is True
+
+
+@pytest.mark.parametrize("query", ["“虚拟服务”", "配置HTTP虚拟服务"])
+def test_han_characters_match_inside_manual_lines(tmp_path: Path, query: str) -> None:
+    ws = wsmod.init(tmp_path / "ws", server="https://unused.example",
+                    device_build="SAMPLE_BUILD_LOCAL")
+    _bundle(ws, {"manual/v/cli.md": "配置HTTP虚拟服务\n"})
+    result = manual_search.query(ws, query, 3)
+    assert result["results"][0]["ref"] == "manual:v/cli.md:1"
+    assert result["results"][0]["all_terms"] is True
+
+
+def test_more_distinct_terms_outrank_repeated_partial_match(tmp_path: Path) -> None:
+    ws = wsmod.init(tmp_path / "ws", server="https://unused.example",
+                    device_build="SAMPLE_BUILD_LOCAL")
+    _bundle(ws, {"manual/v/cli.md": "alpha alpha alpha alpha\nalpha beta\n"})
+    result = manual_search.query(ws, "alpha beta", 3)
+    assert result["results"][0]["line"] == 2
 
 
 def test_missing_or_modified_bundle_fails_with_sync_hint(tmp_path: Path) -> None:

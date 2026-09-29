@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -9,14 +10,20 @@ from . import bundle
 from .errors import ClientError
 from .workspace import Workspace
 
-_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+_TERM_RE = re.compile(r"[A-Za-z0-9_]+|[一-鿿]")
+_MAX_QUERY_CHARS = 512
+_MAX_QUERY_TERMS = 32
 _CONTEXT_LINES = 2
 _SNIPPET_CHARS = 600
 
 
 def _fold(text: str) -> str:
-    """Fold ASCII without changing Chinese or other manual text."""
-    return text.translate(_ASCII_LOWER)
+    return text.lower()
+
+
+def _terms(text: str) -> list[str]:
+    """Use the server's word and Han-character boundaries for manual queries."""
+    return list(dict.fromkeys(_TERM_RE.findall(_fold(text[:_MAX_QUERY_CHARS]))))[:_MAX_QUERY_TERMS]
 
 
 def _clip(line: str, terms: list[str]) -> str:
@@ -42,16 +49,15 @@ def _search_file(path: Path, terms: list[str]) -> tuple[list[str], list[tuple[tu
         window_hits = sum(any(row[term_index] for row in hits[lo:hi])
                           for term_index in range(len(terms)))
         occurrences = sum(folded[index].count(term) for term in terms)
-        # All terms on one line outrank scattered terms; nearby context outranks
-        # an isolated partial hit. Stable path/line ordering breaks equal scores.
-        score = (int(line_hits == len(terms)), int(window_hits == len(terms)),
-                 line_hits, occurrences)
+        # Rank by distinct query-term coverage on the cited line, then its
+        # nearby context. Repetitions only break ties in coverage.
+        score = (line_hits, window_hits, occurrences)
         found.append((score, index))
     return lines, found
 
 
 def query(ws: Workspace, text: str, limit: int) -> dict[str, Any]:
-    terms = list(dict.fromkeys(_fold(part) for part in text.split()))
+    terms = _terms(text)
     if not terms:
         raise ClientError("q is required")
     build = ws.device_build
@@ -91,7 +97,7 @@ def query(ws: Workspace, text: str, limit: int) -> dict[str, Any]:
         snippet = "\n".join(f"{row + 1}: {_clip(lines[row], terms)}" for row in range(lo, hi))
         line_number = index + 1
         results.append({"path": rel, "line": line_number, "snippet": snippet,
-                        "ref": f"manual:{rel}:{line_number}", "all_terms": bool(score[1])})
+                        "ref": f"manual:{rel}:{line_number}", "all_terms": score[1] == len(terms)})
     return {"ok": True, "query": text, "build": build,
             "bundle_id": manifest.get("bundle_id"), "bundle": str(ws.bundle_dir(build)),
             "manuals_searched": searched, "results": results}
