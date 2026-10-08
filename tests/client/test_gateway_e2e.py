@@ -156,8 +156,8 @@ def test_folder_to_device_results_through_the_gateway(server, gateway_up, tmp_pa
         "framework_files", "framework_conf", "destructive_rules", "device_build"}
 
     xlsx = _workbook(ws_dir / "compile_outputs" / "b1" / "case.xlsx", [
-        ("202609240000000101", "APV_1", "cmd_config", "slb real http r1 10.0.0.1 80"),
-        ("202609240000000102", "APV_1", "cmd", "show slb real")])
+        ("202609240000000101", "APV_0", "cmd_config", "slb real http r1 10.0.0.1 80"),
+        ("202609240000000102", "APV_0", "cmd", "show slb real")])
     submitted = tools.call("cex_case_submit", {"workspace": str(ws_dir),
                                                "xlsx": "compile_outputs/b1/case.xlsx"})
     assert submitted["ok"], submitted
@@ -168,13 +168,13 @@ def test_folder_to_device_results_through_the_gateway(server, gateway_up, tmp_pa
         time.sleep(0.3)
     results = tools.call("cex_case_results", {"workspace": str(ws_dir),
                                               "task_id": submitted["task_id"]})
-    assert results["ok"] and results["totals"] == {"cases": 2, "pass": 2, "fail": 0, "not_run": 0}
+    assert results["ok"] and results["totals"] == {"cases": 2, "pass": 2, "fail": 0, "broken": 0, "not_run": 0}
     receipt = json.loads((xlsx.parent / "run_results.json").read_text(encoding="utf-8"))
     assert receipt["task_id"] == submitted["task_id"] and receipt["result_channel"] == "ready"
     assert (xlsx.parent / "run_receipt.md").is_file()
 
     bad = _workbook(ws_dir / "compile_outputs" / "b2" / "case.xlsx", [
-        ("202609240000000103", "APV_1", "cmd", "system reboot")])
+        ("202609240000000103", "APV_0", "cmd", "system reboot")])
     refused = tools.call("cex_case_submit", {"workspace": str(ws_dir), "xlsx": str(bad)})
     assert refused["ok"] is False and any("destructive" in p for p in refused["problems"])
     outside = tools.call("cex_case_submit", {"workspace": str(ws_dir),
@@ -182,7 +182,7 @@ def test_folder_to_device_results_through_the_gateway(server, gateway_up, tmp_pa
     assert outside["ok"] is False and "inside the workspace" in outside["error"]
 
     third = _workbook(ws_dir / "compile_outputs" / "b3" / "case.xlsx", [
-        ("202609240000000104", "APV_1", "cmd", "show version")])
+        ("202609240000000104", "APV_0", "cmd", "show version")])
     run = subprocess.run(
         [sys.executable, str(REPO_ROOT / "skills" / "compile-excel" / "scripts" / "run_device.py"),
          "--xlsx", str(third), "--poll-s", "0.3", "--max-s", "60"],

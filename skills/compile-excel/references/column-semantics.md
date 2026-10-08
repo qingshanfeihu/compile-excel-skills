@@ -45,6 +45,11 @@
 cases JSON 顶层的 `init_commands` 数组合并为一条 `APV_0::cmds_config` 共享前置块，
 写在 Author 行之后、各 case 之前（C=1）。**会落卷面**（早期桩只统计不写入，已作废）。
 
+双机用例要在对端也清场时按设备分组：`{"APV_0": [...], "APV_1": [...]}`，每台一条
+`cmds_config` 块（按 APV_0/1/2 的顺序）。框架在每个案开跑前把 C=1 行按 E 列分派到各自设备重放。
+只许清场（clear / no）、只读（show）和模式切换——`verify_batch.py` 的 init 隔离检查对每台都管。
+用 `APV_1` 之前先看床有几台（`cex_env_prepare` 的 `device_count`）：床上没有的设备，网关拒收。
+
 ## cases JSON 步骤五元组
 
 ```json

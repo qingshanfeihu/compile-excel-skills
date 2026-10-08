@@ -73,3 +73,19 @@ def test_the_same_run_is_backfilled_once(tmp_path):
     _backfill(results, cwd=tmp_path)
     again = _backfill(results, cwd=tmp_path)
     assert again["appended"] == 0 and len(_lines(results)) == 2
+
+
+def test_broken_cases_are_not_true_passes_and_keep_their_reason(tmp_path):
+    ws, results, _workbook = _workspace(tmp_path, with_sha=True)
+    run = json.loads(results.read_text(encoding="utf-8"))
+    run["cases"][0] = {"autoid": "202609270000000001", "verdict": "broken",
+                       "recorded_result": "pass", "broken_reason": "no closing in the case log"}
+    run["totals"] = {"cases": 2, "pass": 0, "fail": 1, "broken": 1, "not_run": 0}
+    run["rc"], run["run_dir"] = 124, "2026-09-27-10:00:00B"
+    results.write_text(json.dumps(run, ensure_ascii=False), encoding="utf-8")
+    out = _backfill(results, cwd=tmp_path)
+    assert out["true_pass"] == 0 and out["broken"] == 1
+    line = _lines(results)[0]
+    assert line["verdict"] == "broken" and line["true_pass"] is False
+    assert line["broken_reason"] == "no closing in the case log"
+    assert line["run"]["rc"] == 124 and line["run"]["run_dir"] == "2026-09-27-10:00:00B"

@@ -80,7 +80,7 @@ Results are JSON with `ok`; on `ok: false` read `error` / `problems` and relay t
    `source`. Output from `cex_probe_show` or a failed run is the *actual* side: use it to
    understand a failure, never copy it into an expectation to make a case pass.
 6. **A product ships only when** `verify_batch.py` fails 0, `cex_scan_destructive` finds
-   nothing, and the on-device run has fail 0 and not_run 0.
+   nothing, and the on-device run has fail 0, broken 0 and not_run 0.
 7. **Rework goes through `scripts/rework_gate.py`**: the cases you rerun must come from the prior
    fail set, and prior-pass cases are locked: every row of them, and the shared `init_commands`,
    must stay exactly as they ran. Never recompile a passing case away silently; a wholesale
@@ -217,7 +217,12 @@ E/F/G/H/I five-tuple and the per-object method families). Output shape:
 ```
 
 You decide the content (which commands, which assertions, which expectations); the script
-guarantees the structure. A sentinel case is appended automatically; do not add one. Keep
+guarantees the structure. A sentinel case is appended automatically; do not add one.
+`init_commands` replay before every case on the device that runs them: a list runs on `APV_0`;
+`{"APV_0": [...], "APV_1": [...]}` gives each device its own block (for example clearing the peer
+of a two-device case). A case that plays two nodes needs two devices: `cex_env_prepare` reports
+the bed's `device_count`, and the gateway refuses a workbook that names a device the bed does not
+have (`APV_1` on a one-device bed). Keep
 `cases.json` at `compile_outputs/<batch>/cases.json`, next to the workbook the compile writes:
 the on-device run fingerprints the `cases.json` beside the workbook, and the rework gate compares
 the next round against those fingerprints.
@@ -247,6 +252,10 @@ rows included). Exit 2 = no projection yet: run `cex_sync`.
 python3 scripts/compile_excel.py --cases <workspace>/compile_outputs/<batch>/cases.json \
     --out <workspace>/compile_outputs
 ```
+
+`--out` is the output root: the workbook lands in `<out>/<batch>/case.xlsx` (an `--out` that
+already ends in the batch name is used as the batch folder itself). The result names it as
+`batch_dir`.
 
 Output is a stats JSON (path / case_count / check_point_count / template identity, plus
 `sources_defaulted`: how many check_points fell back to author-verbatim). A non-zero exit with
@@ -295,19 +304,36 @@ plain step text is fixed in `cases.json`, then recompiled and re-verified.
    step-by-step equivalent is `cex_case_submit` → `cex_case_status` (until `done`) →
    `cex_case_results`. The gateway re-checks the workbook (Excel contract, destructive commands,
    credential literals) and refuses rather than rewriting it; a refusal lists `problems`. Exit
-   codes: 0 every case passed; 1 the run finished with fail or not_run; 2 not submitted (refused,
-   or the submit call failed); 3 still running after `--max-s`; 4 submitted, but polling or
-   fetching the results failed. On 3 and 4 continue with `cex_case_status` / `cex_case_results`
-   for the printed `task_id`; do not resubmit, which runs the whole workbook again.
+   codes: 0 every case passed; 1 the run finished with fail, broken or not_run; 2 not submitted
+   (refused, or the submit call failed); 3 still running after `--max-s`; 4 submitted, but
+   polling or fetching the results failed; 5 the run was lost (its runner died without recording
+   an end: gateway restart, OOM, operator kill) and has no verdicts. On 3 and 4 continue with
+   `cex_case_status` / `cex_case_results` for the printed `task_id`; do not resubmit, which runs
+   the whole workbook again. On 5 resubmit.
 4. Verdicts come from the framework result database, bound to this task; pytest's own
-   `1 passed` means nothing. `run_results.json` and `run_receipt.md` are written beside the
-   xlsx (only for the latest submission of that workbook). Non-pass cases carry `failed_checks`
+   `1 passed` means nothing. A pass or fail counts only when the case's own log ends with the
+   framework's closing (the PASS/FAIL banner followed by `end case: <autoid>`): the framework
+   writes a case's result row when the case begins, holding the previous case's result, so a run
+   killed or crashed inside a case leaves that placeholder behind. Without the closing, or when
+   the closing disagrees with the row, the case is `broken` (`broken_reason`, `recorded_result`).
+   A pass whose log shows an execution failure the case's own assertions were not waiting for
+   (`Failed to execute the command` and the other markers of the bundle's domain grammar) is also
+   `broken`: a configuration step did not take and the assertion matched anyway. Totals are
+   pass / fail / broken / not_run; `rc` is the framework process's exit status (not 0 = the run
+   stopped early). `run_results.json` and `run_receipt.md` are written beside the
+   xlsx (only for the latest submission of that workbook), with the run's identity on the jump
+   host (`run_dir`, `submit_autoid`, `module`, `report_dir`). Non-pass cases carry `failed_checks`
    (each failed check point with the output it was matched against, e.g. `IST_EXIT_STATUS=56`
    for a traffic check), the framework log as the gateway returned it (`detail_tail`), and a
    mechanical first-pass attribution (`G` = CLI error text in the log, `transient?` =
    timeout/connection suspects, `undetermined` otherwise). The semantic call (expectation wrong,
-   product defect, environment) stays with you: read `failed_checks` first, then the log. A log
-   marked stale predates this submission and is no evidence for it.
+   product defect, environment) stays with you: read `failed_checks` first, then the log, then
+   the session dumps: for a non-pass case the gateway returns each device's CLI session
+   (`apv_<ip>.txt`) and each trigger host's session, saved under
+   `compile_outputs/<batch>/evidence/<task_id>/<autoid>/` and listed in the case's `sessions`.
+   A log marked stale predates this submission and is no evidence for it. The sentinel
+   `999999999999999` the compile appended is not a case: the FAIL banner it leaves at the end of
+   the raw log means nothing.
 5. `cex_probe_show` runs one read-only `show`/`get` command when you need the device's actual
    state to understand a failure (requirement 5 still holds).
 6. `cex_init_device` wipes and re-baselines devices. Use it only when the user asks for it:
@@ -328,6 +354,9 @@ failed cases, in this order:
 python3 scripts/rework_gate.py --batch-dir <workspace>/compile_outputs/<batch> \
     --cases <workspace>/compile_outputs/<batch>/cases.json
 ```
+
+(`--results <batch>/run_results.json` is the same as `--batch-dir <batch>`, and `--rework` is
+the same as `--cases`.) A `broken` case reworks like a fail.
 
 The gate compares the new `cases.json` with what actually ran: the per-case fingerprints of
 every row (its E/F/G/H/I and source) and of the shared `init_commands` that `run_results.json`
@@ -356,7 +385,7 @@ True PASSes are the writeback record; fails stay open for the rework loop. The w
 ## Report
 
 Tell the user: batch name, case count, step / check_point counts, product path, verification
-totals (pass / fail / total), destructive-scan result, on-device totals (pass / fail / not_run)
+totals (pass / fail / total), destructive-scan result, on-device totals (pass / fail / broken / not_run)
 with attribution layers, the receipt and footprint paths (`run_receipt.md`, `footprint.jsonl`),
 the bundle id the compile used, every case not compiled (quarantined, abandoned, awaiting a
 user decision) with its reason, every criterion you typed with `cex_criterion_record` and every
@@ -369,7 +398,8 @@ not run (e.g. no bed lease) instead of implying they passed.
 - `compile_outputs/<batch>/` holds `case.xlsx`, `provenance.json`, `run_results.json`,
   `run_receipt.md` and `footprint.jsonl` with this run appended;
 - `verify_batch.py` fails 0, `cex_scan_destructive` is clean, and the on-device run has
-  fail 0 and not_run 0 (or the user accepted the remaining failures after seeing the evidence);
+  fail 0, broken 0 and not_run 0 (or the user accepted the remaining failures after seeing the
+  evidence);
 - the bed lease is released;
 - the report above is delivered.
 

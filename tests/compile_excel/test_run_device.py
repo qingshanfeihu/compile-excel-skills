@@ -92,3 +92,20 @@ def test_finished_run_exit_code_follows_the_verdicts(gateway_stub, capsys, fail,
     state["results"]["totals"] = {"cases": 2, "pass": 2 - fail, "fail": fail, "not_run": 0}
     got, out, _err = _run(capsys)
     assert got == code and out["task_id"] == "cex_task_9" and out["ok"] is (fail == 0)
+
+
+def test_a_lost_run_is_exit_5_and_says_to_resubmit(gateway_stub, capsys):
+    """runner 死了，网关报 lost：不再轮询到 --max-s，也不叫人按 task_id 接着等。"""
+    state, calls = gateway_stub
+    state["status"] = {"state": "lost"}
+    code, out, _err = _run(capsys)
+    assert code == 5 and out["state"] == "lost" and "resubmit" in out["error"]
+    assert len(calls["status"]) == 1 and calls["results"] == 0
+
+
+def test_broken_cases_keep_the_run_from_passing(gateway_stub, capsys):
+    state, _calls = gateway_stub
+    state["results"]["totals"] = {"cases": 2, "pass": 1, "fail": 0, "broken": 1, "not_run": 0}
+    state["results"]["rc"] = 124
+    code, out, _err = _run(capsys)
+    assert code == 1 and out["ok"] is False and out["rc"] == 124

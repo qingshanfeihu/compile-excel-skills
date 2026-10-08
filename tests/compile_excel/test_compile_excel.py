@@ -109,6 +109,54 @@ class BuildFileIRTests(unittest.TestCase):
         with self.assertRaises(CompileError):
             build_file_ir(doc)
 
+    def test_missing_batch_says_where_it_belongs(self):
+        doc = {"cases": SAMPLE["cases"]}
+        with self.assertRaises(CompileError) as ctx:
+            build_file_ir(doc)
+        self.assertIn("顶层", str(ctx.exception))
+        self.assertIn("batch", str(ctx.exception))
+
+    def test_init_commands_grouped_by_device_give_one_row_per_device(self):
+        doc = {**SAMPLE, "init_commands": {"APV_1": ["clear sdns all"],
+                                           "APV_0": ["clear sdns all", "clear slb all"]}}
+        rows = build_file_ir(doc).init_rows
+        self.assertEqual([(r.test_object, r.method, r.data) for r in rows],
+                         [("APV_0", "cmds_config", "clear sdns all\nclear slb all"),
+                          ("APV_1", "cmds_config", "clear sdns all")])
+
+    def test_init_commands_for_an_unknown_device_are_refused(self):
+        for bad in ({"APV_3": ["clear sdns all"]}, {"APV_0": "clear sdns all"}, "clear sdns all"):
+            with self.assertRaises(CompileError):
+                build_file_ir({**SAMPLE, "init_commands": bad})
+
+
+class OutRootTests(unittest.TestCase):
+
+    def test_out_that_already_names_the_batch_is_not_nested_again(self):
+        tmp = Path(tempfile.mkdtemp(prefix="ist_out_"))
+        cases = tmp / "cases.json"
+        cases.write_text(json.dumps(SAMPLE, ensure_ascii=False), encoding="utf-8")
+        for out in (tmp / "compile_outputs", tmp / "compile_outputs" / "unit_batch"):
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPTS / "compile_excel.py"), "--cases", str(cases),
+                 "--out", str(out)], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            stats = json.loads(proc.stdout)
+            self.assertEqual(stats["batch_dir"], str((tmp / "compile_outputs" / "unit_batch").resolve()))
+        self.assertTrue((tmp / "compile_outputs" / "unit_batch" / "case.xlsx").is_file())
+        self.assertFalse((tmp / "compile_outputs" / "unit_batch" / "unit_batch").exists())
+
+    def test_cli_error_names_the_cases_file(self):
+        tmp = Path(tempfile.mkdtemp(prefix="ist_out_"))
+        cases = tmp / "cases.json"
+        cases.write_text(json.dumps({"cases": SAMPLE["cases"]}), encoding="utf-8")
+        proc = subprocess.run([sys.executable, str(SCRIPTS / "compile_excel.py"), "--cases",
+                               str(cases), "--out", str(tmp)], capture_output=True, text=True)
+        out = json.loads(proc.stdout)
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(out["cases"], str(cases))
+        self.assertIn("顶层缺少 batch", out["error"])
+
 
 class EmitStructureTests(unittest.TestCase):
 

@@ -28,7 +28,7 @@
 
 - fd 级原子写盘：staging inode（O_EXCL+O_NOFOLLOW）→ fsync → 硬链备份 → `os.replace` → 目录 fsync → 读回复核 → 失败验证回滚（`cex_core/ist_emit/xlsx_emit.py`，全链 `dir_fd` 绑定校验）
 - 目的地必须形如 `<输出根>/<单段批次名>/case.xlsx`；拒绝符号链接与多硬链目标
-- 数据区清空后按真语义布局：Author 行（C=0）→ init 行（C=1，`APV_0::cmds_config` 共享前置块）→ 各 case 步骤行（C=2+i 起递增，首行带 A/B/D，续行仅 E-I）→ case 间空行 → 末尾哨兵 case（`999999999999999`/P9/`time::sleep 1`，框架延迟执行契约）
+- 数据区清空后按真语义布局：Author 行（C=0）→ init 行（C=1，`APV_0::cmds_config` 共享前置块；`init_commands` 按设备分组时每台一条，E 为该设备）→ 各 case 步骤行（C=2+i 起递增，首行带 A/B/D，续行仅 E-I）→ case 间空行 → 末尾哨兵 case（`999999999999999`/P9/`time::sleep 1`，框架延迟执行契约）
 - 模板继承单元格做凭据 redact（字面量源见下）
 
 ## 与 InfoTest 的三处行为差异（声明，勿删）

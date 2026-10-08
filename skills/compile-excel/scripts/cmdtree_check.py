@@ -12,7 +12,7 @@
 （原始 XML 带参数默认值，含凭据默认值）。
 
 查哪些行（与引擎 emit_xlsx_tool._ordered_apv_command_refs / _apv_command_lines_for_step 同一解释）：
-- 文件级 init_commands（每条一行）与每个案的步骤；步骤键名 e/f/g 与 E/F/G 都认
+- 文件级 init_commands（数组或按设备分组，每条一行）与每个案的步骤；步骤键名 e/f/g 与 E/F/G 都认
   （手写 cases.json 用小写，cex_author_emit 出件的用大写）；
 - E=APV_* 且 F 是 CLI 方法（cmd_config / cmds_config / cmd_enable）的步骤；cmds_config 的多行 G
   逐行拆开，每行是一条命令；
@@ -144,10 +144,18 @@ def _groups_from_cases(cases_path: Path) -> list[tuple[str, list[dict]]]:
     if not isinstance(data, dict):
         raise TypeError("cases JSON 顶层必须是对象")
     groups: list[tuple[str, list[dict]]] = []
-    init = [str(c) for c in data.get("init_commands") or [] if str(c).strip()]
-    if init:
-        # compile_excel 把 init_commands 合成一条 APV_0::cmds_config 共享前置块
-        groups.append((_INIT, [{"E": "APV_0", "F": "cmds_config", "G": "\n".join(init)}]))
+    raw_init = data.get("init_commands")
+    # compile_excel 把 init_commands 合成 cmds_config 共享前置块：数组是一条 APV_0 的，
+    # 按设备分组（{"APV_0": [...], "APV_1": [...]}）是每台一条
+    init_groups = raw_init if isinstance(raw_init, dict) else {"APV_0": raw_init or []}
+    init_rows = []
+    for device, commands in init_groups.items():
+        init = [str(c) for c in commands or [] if str(c).strip()] \
+            if isinstance(commands, list) else []
+        if init:
+            init_rows.append({"E": str(device), "F": "cmds_config", "G": "\n".join(init)})
+    if init_rows:
+        groups.append((_INIT, init_rows))
     for case in data.get("cases") or []:
         if not isinstance(case, dict):
             continue

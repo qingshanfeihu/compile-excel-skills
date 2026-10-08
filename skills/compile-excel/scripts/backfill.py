@@ -2,8 +2,9 @@
 """backfill: 上机结果回填 —— 把一次上机的逐 case 判定追加进批足迹（footprint.jsonl）。
 
 对齐 ist-verify 的回填口径：
-- 每个 case 一行，判定原样来自 run_results.json（框架结果库的 pass / fail / not_run）；
-  只有真 PASS 才算写回记录，fail / not_run 带着失败断言留给返工环，不美化。
+- 每个 case 一行，判定原样来自 run_results.json（pass / fail / broken / not_run；broken 是库里有判定
+  但本案日志里没有框架收尾作证、或 pass 里有执行失败回显的空真）；
+  只有真 PASS 才算写回记录，fail / broken / not_run 带着失败断言留给返工环，不美化。
 - 回填不改 case.xlsx（E/F/G/H/I 契约与 marker 身份钉死），不改 cases.json（作者 IR）。
 - 每行带运行身份，全部取自 run_results.json：网关对账过的工作簿 SHA-256（上机跑的就是它）、
   task_id、投递与取回时间、结果通道。回执缺 xlsx_sha256 时才按工作区解析工作簿路径现算
@@ -105,12 +106,13 @@ def main() -> int:
         "finished": data.get("finished"),
         "result_channel": data.get("result_channel"),
         "batch": data.get("batch"),
+        **{key: data[key] for key in ("rc", "run_dir", "submit_autoid") if data.get(key) is not None},
     }
 
     out_path = results_path.parent / "footprint.jsonl"
     totals = data.get("totals") or {}
     summary = {"true_pass": totals.get("pass", 0), "fail": totals.get("fail", 0),
-               "not_run": totals.get("not_run", 0)}
+               "broken": totals.get("broken", 0), "not_run": totals.get("not_run", 0)}
     if _already_backfilled(out_path, task_id):
         print(json.dumps({"ok": True, "footprint": str(out_path), "appended": 0,
                           "note": f"task {task_id} 已经回填过，不重复追加", **summary},
@@ -129,6 +131,7 @@ def main() -> int:
                 "failed_checks": list(case.get("failed_checks") or []),
                 "attribution": (case.get("attribution") or {}).get("layer"),
                 "note": case.get("note"),
+                **({"broken_reason": case["broken_reason"]} if case.get("broken_reason") else {}),
                 "run": run_identity,
             }
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")

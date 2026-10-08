@@ -24,7 +24,26 @@ LOG_B = """2026-01-01 10:00:00 #######   begin case: 100000000000000002
 2026-01-01 10:00:05 ################# The failed check point num:   1   ####
 2026-01-01 10:00:05 #### Fail Num 1: fail to find: (?m)^IST_EXIT_STATUS=0\\r?$
 """ + "".join(f"2026-01-01 10:00:06 APV_0 sends command in config: no slb real tcp rs{i}\n"
-              for i in range(40))
+              for i in range(40)) + """2026-01-01 10:00:07 ######################      FAIL      ####################
+2026-01-01 10:00:07 #######   end case: 100000000000000002
+2026-01-01 10:00:07 #######   begin case: 999999999999999
+"""
+
+# 框架给跑完的案收尾：计数、PASS/FAIL 横幅，紧跟 end case（lib/check_point.py close + parser_case_id）
+LOG_A = """2026-01-01 09:59:00 #######   step2: 观察
+2026-01-01 09:59:00 APV_0 sends command in config: show slb real
+2026-01-01 09:59:01 #### Success Num 1: successed to find ok in :
+2026-01-01 09:59:01 slb real http r1 ok
+2026-01-01 09:59:01 #
+2026-01-01 09:59:01 ################# The failed check point num:   0   ####
+2026-01-01 09:59:01 #
+2026-01-01 09:59:01 ################# The passed check point num:   1   ####
+2026-01-01 09:59:01 #### Success Num 1: successed to find: ok
+2026-01-01 09:59:01 #
+2026-01-01 09:59:01 ######################      PASS      ####################
+2026-01-01 09:59:01 #######   end case: 100000000000000001
+2026-01-01 09:59:01 #######   begin case: 100000000000000002
+"""
 
 
 def _workspace(tmp_path: Path, monkeypatch) -> wsmod.Workspace:
@@ -62,7 +81,7 @@ def _fake_gateway(monkeypatch, *, log: str):
                     "case_ids": ["100000000000000001", "100000000000000002"]}
         if name == "case_results":
             return {"ok": True, "channel": "ready", "xlsx_sha256": "x",
-                    "cases": [{"case_id": "100000000000000001", "result": "pass"},
+                    "cases": [{"case_id": "100000000000000001", "result": "pass", "log": LOG_A},
                               {"case_id": "100000000000000002", "result": "fail", "log": log}]}
         raise AssertionError(name)
 

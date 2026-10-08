@@ -158,8 +158,8 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_case_status",
 		label: "CEX case status",
-		description: "State of a submitted run (running or done) with the tail of its log.",
-		snippet: "State of a submitted run (running or done) with the tail of its log.",
+		description: "State of a submitted run (running, done or lost) with the tail of its log. lost means the runner died without recording an end (gateway restart, OOM, operator kill): that run has no verdicts; resubmit the workbook.",
+		snippet: "State of a submitted run (running, done or lost) with the tail of its log.",
 		readOnly: true,
 		parameters: Type.Object({
 			"workspace": Type.Optional(Type.String()),
@@ -169,7 +169,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_case_results",
 		label: "CEX case results",
-		description: "Per-case framework verdicts of a finished run. Writes run_results.json and run_receipt.md next to the workbook, but only for the latest submission of that workbook: results of an older run are returned with receipt null and a note, and the receipt is left alone. Logs from earlier runs are marked and not used as evidence.",
+		description: "Per-case framework verdicts of a finished run. Writes run_results.json and run_receipt.md next to the workbook, but only for the latest submission of that workbook: results of an older run are returned with receipt null and a note, and the receipt is left alone. Logs from earlier runs are marked and not used as evidence. A pass or fail counts only when the case's own log ends with the framework's closing (PASS/FAIL banner, then end case); otherwise the case is broken (the run stopped inside it and the result row is a placeholder). A pass whose log shows an execution failure its assertions were not waiting for is broken too. Non-pass cases come with their device and trigger-host session dumps saved under evidence/<task_id>/<autoid>/.",
 		snippet: "Per-case framework verdicts of a finished run.",
 		readOnly: false,
 		parameters: Type.Object({

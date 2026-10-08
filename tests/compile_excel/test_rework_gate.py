@@ -184,3 +184,33 @@ def test_cases_of_another_batch_are_refused(tmp_path, fingerprint, capsys):
     doc["batch"] = "other_batch"
     code, out = _gate(batch_dir, doc, capsys=capsys)
     assert code == 2 and "other_batch" in out["error"]
+
+
+def test_results_and_rework_name_the_same_inputs(tmp_path, fingerprint, capsys):
+    """backfill 收 --results run_results.json；闸也收，与 --batch-dir 等价；--rework 是 --cases 的别名。"""
+    batch_dir = _batch(tmp_path, fingerprint)
+    doc = copy.deepcopy(DOC)
+    doc["cases"][1]["steps"][1]["g"] = "Version"
+    cases = batch_dir.parent / "next_cases.json"
+    cases.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    code = rework_gate.main(["--results", str(batch_dir / "run_results.json"),
+                             "--rework", str(cases)])
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0 and out["redispatch"] == [FAIL_ID], out
+    assert rework_gate.main(["--results", str(batch_dir / "cases.json"), "--cases", str(cases)]) == 2
+    assert "run_results.json" in json.loads(capsys.readouterr().out)["error"]
+    with pytest.raises(SystemExit) as both:
+        rework_gate.main(["--batch-dir", str(batch_dir), "--results",
+                          str(batch_dir / "run_results.json"), "--cases", str(cases)])
+    assert both.value.code == 2
+
+
+def test_a_broken_case_is_reworkable_like_a_fail(tmp_path, fingerprint, capsys):
+    batch_dir = _batch(tmp_path, fingerprint)
+    run = json.loads((batch_dir / "run_results.json").read_text(encoding="utf-8"))
+    run["cases"][1]["verdict"] = "broken"
+    (batch_dir / "run_results.json").write_text(json.dumps(run), encoding="utf-8")
+    doc = copy.deepcopy(DOC)
+    doc["cases"][1]["steps"][1]["g"] = "Version"
+    code, out = _gate(batch_dir, doc, capsys=capsys)
+    assert code == 0 and out["redispatch"] == [FAIL_ID], out

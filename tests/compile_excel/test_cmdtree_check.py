@@ -63,6 +63,17 @@ def test_both_key_cases_init_and_every_line_of_cmds_config_are_checked(tmp_path,
                                 ("202609260000000001", "slb frobnicate 1 2")]
 
 
+def test_init_commands_grouped_by_device_are_checked_on_every_device(tmp_path):
+    doc = {"batch": "t5", "init_commands": {"APV_0": ["slb bogushead foo bar"],
+                                            "APV_1": ["slb frobnicate 1 2"]}, "cases": [
+        {"autoid": "202609260000000005", "steps": [
+            {"e": "APV_0", "f": "cmd_config", "g": "show slb real http"},
+            {"e": "check_point", "f": "found", "g": "r1"}]}]}
+    code, report = _run(tmp_path, doc)
+    assert code == 1
+    assert _unknown(report) == [("init", "slb bogushead foo bar"), ("init", "slb frobnicate 1 2")]
+
+
 def test_executor_keywords_prompt_answers_and_no_forms_are_not_false_misses(tmp_path):
     """cex_author_emit 的真实出件：`,prompt=abort:` 之后的 YES、`,timeout=`、no 形态自己的参数契约。"""
     doc = {"batch": "t2", "cases": [{"autoid": "202609260000000002", "steps": [

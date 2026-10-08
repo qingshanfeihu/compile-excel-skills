@@ -21,6 +21,7 @@ compile_outputs/<batch>/cases.json）→ cex_scan_destructive → 上机；
 
 用法：
   python3 scripts/rework_gate.py --batch-dir compile_outputs/<batch> --cases compile_outputs/<batch>/cases.json
+  python3 scripts/rework_gate.py --results compile_outputs/<batch>/run_results.json --rework <本轮 cases.json>
   python3 scripts/rework_gate.py --batch-dir ... --cases ... --force --reason "<为什么整批判废重来>"
 退出码：0 = 闸通过（无上机历史、或 --force 带理由强过）；1 = 违反纪律（不写 rework.json）；
         2 = 输入缺失/非法（含 --force 没给 --reason）。
@@ -292,16 +293,28 @@ def run_gate(batch_dir: Path, cases_path: Path, *, force: bool = False,
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="返工纪律闸")
-    ap.add_argument("--batch-dir", required=True, help="compile_outputs/<batch>（run_results.json 所在目录）")
-    ap.add_argument("--cases", required=True,
+    prior = ap.add_mutually_exclusive_group(required=True)
+    prior.add_argument("--batch-dir", help="compile_outputs/<batch>（run_results.json 所在目录）")
+    prior.add_argument("--results", help="上一轮的 run_results.json（与 backfill.py 同一个参数；"
+                                         "等于给它所在目录作 --batch-dir）")
+    ap.add_argument("--cases", "--rework", dest="cases", required=True,
                     help="本轮要上机的 cases.json（脑图批用 cex_author_emit 出件的那份）")
     ap.add_argument("--force", action="store_true",
                     help="整批判废重来：pass 案的变化也放行，必须同时给 --reason")
     ap.add_argument("--reason", default="", help="--force 的理由，原样记进 rework.json")
     args = ap.parse_args(argv)
+    if args.results:
+        results = Path(args.results).expanduser().resolve()
+        if results.name != "run_results.json":
+            print(json.dumps({"ok": False, "error": (
+                f"--results 要给上一轮的 run_results.json，不是 {results.name}")},
+                ensure_ascii=False))
+            return 2
+        batch_dir = results.parent
+    else:
+        batch_dir = Path(args.batch_dir).expanduser().resolve()
     try:
-        code, result = run_gate(Path(args.batch_dir).expanduser().resolve(),
-                                Path(args.cases).expanduser().resolve(),
+        code, result = run_gate(batch_dir, Path(args.cases).expanduser().resolve(),
                                 force=args.force, reason=args.reason)
     except GateInputError as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))

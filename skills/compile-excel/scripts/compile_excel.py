@@ -11,7 +11,10 @@ fd 级原子写盘），内容由调用方（agent）决定。上游对齐：
 行为差异声明见 reference/excel-contract.md。
 
 用法：
-    python compile_excel.py --cases cases.json [--out DIR] [--no-sentinel] [--allow-edited-emit]
+    python compile_excel.py --cases cases.json [--out ROOT] [--no-sentinel] [--allow-edited-emit]
+
+--out 是产物根目录：产物写到 <ROOT>/<batch>/case.xlsx。ROOT 的最后一段就是批次名时（如
+--out compile_outputs/dc_rebuild，batch 为 dc_rebuild），直接写进它，不再套成 dc_rebuild/dc_rebuild/。
 
 脑图批的 cases.json 是 cex_author_emit 从引擎封存的机械用例展开的（顶层带 `_generated` 标记），
 cex_author_emit 自己调本模块的 compile_excel() 出件。命令行拿这样一份文件来编译，多半是手改过
@@ -22,7 +25,9 @@ cex_author_emit 自己调本模块的 compile_excel() 出件。命令行拿这�
 cases.json 契约：
     {
       "batch": "批次名",                 # 必填，单段路径成分，决定输出子目录
-      "init_commands": ["...", "..."],   # 可选，文件级共享前置（合为一条 cmds_config 块）
+      "init_commands": ["...", "..."],   # 可选，文件级共享前置（合为一条 APV_0::cmds_config 块）
+      # 也可按设备分组：{"APV_0": [...], "APV_1": [...]}——每台一条 cmds_config 块，按 APV_0/1/2
+      # 的顺序；每个案开跑前都在各自设备上重放（双机用例的对端清场放这里）
       "cases": [
         {
           "autoid": "202609236683010001",   # 必填：12-24 位纯数字（生产惯例 18 位）
@@ -77,7 +82,7 @@ def _step_field(step: dict, lower_key: str):
 def _validate_batch(batch: str) -> str:
     batch = str(batch or "").strip()
     if not batch:
-        raise CompileError("缺少 batch（批次名）")
+        raise CompileError("cases JSON 顶层缺少 batch 字段（批次名，决定产物目录 <--out>/<batch>/）")
     if "/" in batch or batch.startswith(".") or batch in {"/", "\\"}:
         raise CompileError(f"batch 名不安全: {batch!r}")
     return batch
@@ -160,6 +165,40 @@ def _build_sentinel() -> CaseIR:
     )
 
 
+INIT_DEVICES = ("APV_0", "APV_1", "APV_2")
+
+
+def _init_rows(raw) -> list[Row]:
+    """文件级共享前置 → init 行（C=1，框架在每个案开跑前按 E 列分派重放）。
+
+    数组：合为一条 APV_0::cmds_config（上游合并通道同型）；
+    按设备分组 {"APV_0": [...], "APV_1": [...]}：每台一条，按 APV_0/1/2 的顺序。"""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        groups = {"APV_0": raw}
+    elif isinstance(raw, dict):
+        unknown = sorted(str(k) for k in raw if k not in INIT_DEVICES)
+        if unknown:
+            raise CompileError(
+                f"cases JSON 顶层 init_commands 的键只能是 {'/'.join(INIT_DEVICES)}，不认 {unknown}")
+        groups = raw
+    else:
+        raise CompileError("cases JSON 顶层 init_commands 要么是命令数组，要么是 "
+                           '{"APV_0": [...], "APV_1": [...]} 这样按设备分组')
+    rows = []
+    for device in INIT_DEVICES:
+        commands = groups.get(device)
+        if commands is None:
+            continue
+        if not isinstance(commands, list):
+            raise CompileError(f"init_commands.{device} 必须是命令数组")
+        shared = "\n".join(str(c) for c in commands if str(c).strip()).strip()
+        if shared:
+            rows.append(Row(test_object=device, method="cmds_config", data=shared))
+    return rows
+
+
 def build_file_ir(doc: dict, *, sentinel: bool = True) -> FileIR:
     if not isinstance(doc, dict):
         raise CompileError("cases JSON 顶层必须是对象")
@@ -190,11 +229,7 @@ def build_file_ir(doc: dict, *, sentinel: bool = True) -> FileIR:
             title=str(case.get("description") or ""),
         ))
 
-    # 文件级共享前置：合为一条 cmds_config 块（上游合并通道同型）
-    init_commands = [str(c) for c in (doc.get("init_commands") or []) if str(c).strip()]
-    shared = "\n".join(init_commands).strip()
-    init_rows = ([Row(test_object="APV_0", method="cmds_config", data=shared)]
-                 if shared else [])
+    init_rows = _init_rows(doc.get("init_commands"))
 
     cases_out = [*case_irs, _build_sentinel()] if sentinel else case_irs
     return FileIR(feature=batch, author="IST-Core-agent", init_rows=init_rows,
@@ -254,6 +289,9 @@ def compile_excel(cases_path: str, out_dir: str, *, sentinel: bool = True) -> di
 
     fir = build_file_ir(doc, sentinel=sentinel)
     out_root = Path(out_dir).resolve()
+    # --out 是产物根目录；给的就是批次目录本身（末段 = 批次名）时直接写进去，不套成 <batch>/<batch>/
+    if out_root.name == fir.feature:
+        out_root = out_root.parent
     target = out_root / fir.feature / "case.xlsx"
     stats = emit_xlsx(fir, target, trusted_outputs_root=out_root)
     prov, defaulted = _build_provenance(doc, fir)
@@ -262,6 +300,7 @@ def compile_excel(cases_path: str, out_dir: str, *, sentinel: bool = True) -> di
     )
     stats["ok"] = True
     stats["batch"] = fir.feature
+    stats["batch_dir"] = str(out_root / fir.feature)
     stats["init_commands"] = len(fir.init_rows)
     stats["sources_defaulted"] = defaulted
     return stats
@@ -284,7 +323,8 @@ def _emit_marker(cases_path: str) -> str | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="compile_excel: 用例 JSON → case.xlsx")
     parser.add_argument("--cases", required=True, help="cases JSON 路径")
-    parser.add_argument("--out", default="compile_outputs", help="产物根目录")
+    parser.add_argument("--out", default="compile_outputs",
+                        help="产物根目录：写到 <out>/<batch>/case.xlsx（末段就是批次名时直接写进它）")
     parser.add_argument("--no-sentinel", action="store_true",
                         help="不垫末尾哨兵 case（默认垫，对齐 InfoTest emit 行为）")
     parser.add_argument("--allow-edited-emit", action="store_true",
@@ -306,7 +346,7 @@ def main() -> int:
     try:
         result = compile_excel(args.cases, args.out, sentinel=not args.no_sentinel)
     except CompileError as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        print(json.dumps({"ok": False, "cases": args.cases, "error": str(exc)}, ensure_ascii=False))
         return 1
     except Exception as exc:  # noqa: BLE001 — 出件层错误原样结构化转述
         print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"},

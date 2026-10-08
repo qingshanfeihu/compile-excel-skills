@@ -17,11 +17,14 @@ cex_case_status / cex_case_results，不要重投（重投会再跑一遍整卷�
       [--max-s 2400] [--poll-s 10] [--heartbeat-s 300]
 
 产出（写在 xlsx 同目录）：run_results.json（机读）、run_receipt.md（人读）。
-退出码：0 = 跑完且全部真实 case pass（fail 0、not_run 0）；
-        1 = 跑完但有 fail / not_run（或没有任何 case 判定）；
+判定：pass / fail 要有本案日志里框架的收尾作证，否则是 broken（这一轮停在了本案里，库里那行是
+占位值）；判 pass 但日志里有本案断言并不在等的执行失败回显，也是 broken（空真）。
+退出码：0 = 跑完且全部真实 case pass（fail 0、broken 0、not_run 0）；
+        1 = 跑完但有 fail / broken / not_run（或没有任何 case 判定）；
         2 = 没投递上：网关拒收这份工作簿（problems 列出原因）或投递调用本身失败；
         3 = 已投递、--max-s 内没跑完：任务还在跑，按 task_id 轮询 cex_case_status，结束后 cex_case_results；
-        4 = 已投递，但轮询或取结果失败：按 task_id 重试 cex_case_status / cex_case_results。
+        4 = 已投递，但轮询或取结果失败：按 task_id 重试 cex_case_status / cex_case_results；
+        5 = 已投递，但这一轮丢了（runner 没记下结束就死了：网关重启、OOM、人工 kill）：不会有判定，重投。
 """
 
 from __future__ import annotations
@@ -39,7 +42,7 @@ import _cex_path  # noqa: F401,E402 — 发行根进 sys.path
 from cex_client import device, gateway, workspace  # noqa: E402
 from cex_client.errors import ClientError  # noqa: E402
 
-EXIT_PASS, EXIT_FAIL, EXIT_REFUSED, EXIT_TIMEOUT, EXIT_FETCH_FAILED = 0, 1, 2, 3, 4
+EXIT_PASS, EXIT_FAIL, EXIT_REFUSED, EXIT_TIMEOUT, EXIT_FETCH_FAILED, EXIT_LOST = 0, 1, 2, 3, 4, 5
 
 
 def _emit(payload: dict) -> None:
@@ -76,7 +79,12 @@ def main(argv: list[str] | None = None) -> int:
     finished = False
     try:
         while time.monotonic() < deadline:
-            if device.status(ws, task_id).get("state") == "done":
+            state = device.status(ws, task_id).get("state")
+            if state == "lost":
+                _emit({"ok": False, "stage": "wait", "task_id": task_id, "state": "lost",
+                       "error": device.RUNNER_LOST})
+                return EXIT_LOST
+            if state == "done":
                 finished = True
                 break
             if time.monotonic() - last_beat > args.heartbeat_s:
@@ -102,8 +110,8 @@ def main(argv: list[str] | None = None) -> int:
                **{k: out.get(k) for k in ("error", "problems", "channel") if out.get(k)}})
         return EXIT_FETCH_FAILED
     t = out["totals"]
-    ok = t["fail"] == 0 and t["not_run"] == 0 and t["cases"] > 0
-    _emit({"ok": ok, "totals": t, "task_id": task_id,
+    ok = t["fail"] == 0 and t.get("broken", 0) == 0 and t["not_run"] == 0 and t["cases"] > 0
+    _emit({"ok": ok, "totals": t, "task_id": task_id, "rc": out.get("rc"),
            "result_channel": out.get("channel"), "receipt": out.get("receipt")})
     return EXIT_PASS if ok else EXIT_FAIL
 
