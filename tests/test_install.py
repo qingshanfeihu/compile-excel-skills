@@ -165,8 +165,9 @@ def test_all_harnesses_then_rerun_and_upgrade(box):
     ]
     claude = report["harnesses"]["claude"]
     stamped = json.loads((dist / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-    assert claude["plugin_version"] == stamped["version"] != "0.1.0"
-    assert stamped["version"].startswith("0.1.0+")
+    base = json.loads((REPO_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    assert claude["plugin_version"] == stamped["version"] != base["version"]
+    assert stamped["version"].startswith(base["version"] + "+")
 
     circle = box["home"] / ".circle"
     for name in ("compile-excel", "mindmap-recompose"):
