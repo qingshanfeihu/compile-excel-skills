@@ -35,7 +35,7 @@ Read the output as your install instructions and follow it to install the compil
   `/plugin install compile-excel@compile-excel`。插件自带 skill 与 `cex_*` 工具（stdio MCP，`bin/cex_mcp_proxy.py`）。
 - **pi 包**：`pi install git:github.com/qingshanfeihu/compile-excel-skills`。包清单在根目录 `package.json`，
   自带 skill 与扩展（`adapters/pi/`，执行时调 `bin/cex_tool`）。
-- **circle**：扩展在 `adapters/circle/extension.py`（按 circle 扩展 API 注册 `cex_*` 工具）。
+- **circle**：扩展在 `adapters/circle/`：`extension.mjs` 给 circle 1.0 起（TypeScript 版），`extension.py` 给 0.5.0 及更早（Python 版），都按 circle 扩展 API 注册 `cex_*` 工具。
 
 三种方式都用本机 `python3` 跑工具（`CEX_PYTHON` 可改），Python 依赖（`requirements.txt`）需另装一次。
 
@@ -115,7 +115,7 @@ cex_client/                   # 客户端（标准库；脑图重组与编写阶
 ├── tools.py                  # 工具实现（三个适配器共用）
 └── tool_specs.json           # 工具 schema 单一来源
 adapters/pi/                  # pi 扩展：index.ts（转发到 cex_tool）+ tools.generated.ts（由 specs 生成）
-adapters/circle/extension.py  # circle 扩展：register(api) 注册 cex_* 工具
+adapters/circle/              # circle 扩展：extension.mjs（circle 1.0 起）与 extension.py（0.5.0 及更早），register(api) 注册 cex_* 工具
 .claude-plugin/               # Claude Code 插件与 marketplace 清单（MCP 服务指向 bin/cex_mcp_proxy.py）
 package.json                  # pi 包清单（extensions + skills）
 bin/cex_tool                  # 命令行调用工具（pi 扩展、无工具的 harness 与调试用）

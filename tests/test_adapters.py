@@ -5,7 +5,8 @@
   真跑一遍包（tests/adapters/pi_e2e.mjs）。
 - Claude Code：插件与 marketplace 清单自洽；本机有 claude CLI 时跑 `claude plugin validate --strict`。
 - circle：按扩展 API 契约用假 api 注册并调用；有同级 circle 检出（或 CIRCLE_ROOT）时
-  再用 circle 真实的扩展宿主加载一遍。
+  再用 circle 真实的扩展宿主加载一遍。extension.py 对 0.5.0 及更早（Python 版），
+  extension.mjs 对 1.0 起（TypeScript 版，要本机有 node）。
 """
 
 from __future__ import annotations
@@ -24,6 +25,55 @@ from conftest import REPO_ROOT
 SPECS = json.loads((REPO_ROOT / "cex_client" / "tool_specs.json").read_text(encoding="utf-8"))["tools"]
 PI_NODE_MODULES = os.environ.get("PI_NODE_MODULES", "")
 CIRCLE_ROOT = Path(os.environ.get("CIRCLE_ROOT") or REPO_ROOT.parent / "circle")
+NODE = shutil.which("node")
+CIRCLE_MJS = REPO_ROOT / "adapters" / "circle" / "extension.mjs"
+# 假 circle api（TypeScript 版的 registerTool 形状）：注册后按 argv 里的脚本调用工具，结果打成 JSON
+_FAKE_TS_API = """
+const [url, calls] = process.argv.slice(1);
+class ToolError extends Error {}
+const tools = {};
+const api = {
+  ToolError,
+  registerTool(name, description, parameters, execute, options = {}) {
+    if (tools[name]) throw new Error('duplicate ' + name);
+    tools[name] = { description, parameters, execute, readOnly: Boolean(options.readOnly) };
+  },
+};
+await (await import(url)).register(api);
+const results = [];
+for (const [name, args, abortAfter] of JSON.parse(calls || '[]')) {
+  const controller = new AbortController();
+  if (abortAfter !== undefined) setTimeout(() => controller.abort(), abortAfter);
+  const started = Date.now();
+  try {
+    results.push({ ok: await tools[name].execute(args, { signal: controller.signal }) });
+  } catch (error) {
+    results.push({ error: error.message, toolError: error instanceof ToolError,
+                   name: error.name, ms: Date.now() - started });
+  }
+}
+console.log(JSON.stringify({
+  tools: Object.entries(tools).map(([name, t]) => [name, t.parameters, t.readOnly]),
+  results,
+}));
+"""
+
+
+def _with_specs(root: Path) -> Path:
+    """假发行根也要有 tool_specs.json：extension.mjs 注册时从 CEX_HOME 读它。"""
+    (root / "cex_client").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(REPO_ROOT / "cex_client" / "tool_specs.json", root / "cex_client" / "tool_specs.json")
+    return root
+
+
+def _run_ts_adapter(entry: Path, calls: list, env: dict[str, str] | None = None) -> dict:
+    if NODE is None:
+        pytest.skip("node is not installed")
+    proc = subprocess.run([NODE, "--input-type=module", "-e", _FAKE_TS_API, entry.as_uri(),
+                           json.dumps(calls)], capture_output=True, text=True, timeout=120,
+                          env=env or _env_without_workspace())
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
 def _env_without_workspace() -> dict[str, str]:
@@ -202,6 +252,49 @@ def test_circle_passes_arguments_on_stdin_and_reports_a_missing_interpreter(tmp_
         broken({})
 
 
+def test_circle_mjs_registers_the_spec_tools_and_reports_failures(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    out = _run_ts_adapter(CIRCLE_MJS, [
+        ["cex_status", {"workspace": str(project)}],
+        ["cex_init", {"workspace": str(project), "server": "http://127.0.0.1:9",
+                      "device_build": "B_1"}],
+        ["cex_status", {"workspace": str(project)}],
+        ["cex_sync", {"workspace": str(project)}],
+    ])
+    assert out["tools"] == [[s["name"], s["input_schema"], bool(s.get("read_only"))] for s in SPECS]
+    missing, created, status, sync = out["results"]
+    assert missing["toolError"] and "No workspace here" in missing["error"]
+    assert created["ok"]["ok"] is True
+    assert status["ok"]["logged_in"] is False and status["ok"]["device_build"] == "B_1"
+    assert sync["toolError"] and "not logged in" in sync["error"]
+
+
+def test_circle_mjs_passes_arguments_on_stdin_and_reports_a_missing_interpreter(tmp_path):
+    root = _with_specs(_recording_cex_tool(tmp_path / "dist"))
+    big = {"out_name": "b1", "cases": [{"autoid": str(i), "text": "x" * 1000} for i in range(300)]}
+    env = {**_env_without_workspace(), "CEX_HOME": str(root), "CEX_PYTHON": sys.executable}
+    out = _run_ts_adapter(CIRCLE_MJS, [["cex_recompose_submit_cases", big]], env)
+    reply = out["results"][0]["ok"]
+    assert reply["argv"] == ["cex_recompose_submit_cases", "-"]
+    assert reply["stdin"] > 300_000 and reply["keys"] == ["cases", "out_name"]
+    env["CEX_PYTHON"] = str(tmp_path / "no-such-python")
+    out = _run_ts_adapter(CIRCLE_MJS, [["cex_status", {}]], env)
+    assert out["results"][0]["toolError"] and "could not start" in out["results"][0]["error"]
+
+
+def test_circle_mjs_stops_the_tool_process_when_the_call_is_cancelled(tmp_path):
+    """esc 取消一次调用：子进程收到 SIGTERM，调用以 AbortError 结束，不等它跑完。"""
+    root = tmp_path / "dist"
+    (root / "bin").mkdir(parents=True)
+    (root / "bin" / "cex_tool").write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+    _with_specs(root)
+    env = {**_env_without_workspace(), "CEX_HOME": str(root), "CEX_PYTHON": sys.executable}
+    out = _run_ts_adapter(CIRCLE_MJS, [["cex_status", {}, 300]], env)
+    result = out["results"][0]
+    assert result["name"] == "AbortError" and result["ms"] < 10_000
+
+
 def test_cex_tool_reads_large_arguments_from_stdin(tmp_path):
     ws_dir = tmp_path / "project"
     ws_dir.mkdir()
@@ -265,3 +358,44 @@ def test_circle_extension_through_the_real_circle_host(tmp_path, monkeypatch):
     message = status.invoke({"type": "tool_call", "name": "cex_status", "id": "c1",
                              "args": {"workspace": str(tmp_path)}})
     assert message.status == "error" and "No workspace here" in message.content
+
+
+def test_circle_mjs_through_the_real_typescript_host(tmp_path):
+    """有同级 circle 1.0 检出（src/extensions.ts，装好 node_modules）时，用它真实的扩展宿主加载
+    install.py 写的那种 extension.mjs 入口。"""
+    host_source = CIRCLE_ROOT / "src" / "extensions.ts"
+    if NODE is None or not host_source.is_file() or not (CIRCLE_ROOT / "node_modules" / "tsx").is_dir():
+        pytest.skip(f"no circle 1.0 checkout with node_modules at {CIRCLE_ROOT} (set CIRCLE_ROOT)")
+    home = tmp_path / "circle-home"
+    entry = home / "extensions" / "compile-excel" / "extension.mjs"
+    entry.parent.mkdir(parents=True)
+    entry.write_text(f"const impl = {json.dumps(CIRCLE_MJS.as_uri())};\n"
+                     "export async function register(api) {\n"
+                     "  return (await import(impl + '?load=' + Date.now())).register(api);\n"
+                     "}\n", encoding="utf-8")
+    script = f"""
+import {{ ExtensionHost }} from {json.dumps(host_source.as_uri())};
+const host = await new ExtensionHost({{ home: {json.dumps(str(home))},
+  workspace: {json.dumps(str(tmp_path))}, trusted: false }}).load();
+const tools = host.tools();
+const status = tools.find((tool) => tool.name === 'cex_status');
+let error = '';
+try {{
+  await status.run({{ workspace: {json.dumps(str(tmp_path))} }},
+    {{ signal: new AbortController().signal, sessionId: 's' }});
+}} catch (caught) {{ error = caught.constructor.name + ': ' + caught.message; }}
+console.log(JSON.stringify({{
+  errors: host.extensions.map((ext) => ext.error),
+  tools: tools.map((tool) => [tool.name, tool.approval, tool.effect]),
+  error,
+}}));
+"""
+    proc = subprocess.run([NODE, "--import", "tsx", "--input-type=module", "-e", script],
+                          capture_output=True, text=True, timeout=120, cwd=CIRCLE_ROOT,
+                          env=_env_without_workspace())
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert out["errors"] == [""]
+    assert out["tools"] == [[s["name"], not s.get("read_only"),
+                             "read" if s.get("read_only") else "unknown"] for s in SPECS]
+    assert out["error"].startswith("ToolError") and "No workspace here" in out["error"]

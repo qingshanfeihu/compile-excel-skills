@@ -34,8 +34,9 @@
      plugin (skills + `cex_*` tools over MCP) with the `claude` CLI;
    - pi: `pi install <that directory>` (skills + extension);
    - circle: copies the skills to `~/.circle/skills/compile-excel` and
-     `~/.circle/skills/mindmap-recompose`, and writes the extension entry to
-     `~/.circle/extensions/compile-excel/extension.py`.
+     `~/.circle/skills/mindmap-recompose`, and writes the extension entries
+     `~/.circle/extensions/compile-excel/extension.py` (circle 0.5.0 and older) and
+     `extension.mjs` (circle 1.0 and later) next to each other.
 
    Read the report:
    - exit 3 (`installed_version` in the report): compile-excel is already installed. Tell the user

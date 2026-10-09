@@ -19,7 +19,8 @@
      副本，所以装完核对缓存副本与发行根逐文件一致、版本号就是这一版，不一致如实报失败；
    - pi：`pi install <发行根>`（本地路径包，不复制）；
    - circle：skills/ 下每个技能拷到 $CIRCLE_HOME/skills/<名字>（写 .cex_home 指回发行根），
-     扩展入口写到 $CIRCLE_HOME/extensions/compile-excel/extension.py（转到发行根里的实现）。
+     扩展入口写到 $CIRCLE_HOME/extensions/compile-excel/ 下：extension.py 给 circle 0.5.0 及更早，
+     extension.mjs 给 circle 1.0 起的 TypeScript 版，两个都转到发行根里的实现。
 4. 自检后打印一段 JSON 报告。不读、不写任何口令；登录在首次使用时由 skill 引导。
 --dry-run 不改任何东西，但只读的预检照做（marketplace / 插件清单、依赖探测），有问题照样报。
 
@@ -46,6 +47,8 @@ PLUGIN = "compile-excel@compile-excel"
 PLUGIN_MANIFEST = ".claude-plugin/plugin.json"
 INSTALL_RECORD = ".cex_install.json"
 SHIM_MARKER = "# compile-excel install.py"
+# circle 1.0 起（TypeScript 版）读 extension.mjs，入口开头是这一行
+MJS_MARKER = "// " + SHIM_MARKER
 # 不分发的目录：开发与测试、缓存、工作区状态与产物
 _SKIP_DIRS = {".git", "tests", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
               "node_modules", ".venv", "venv", ".compile-excel", "compile_outputs", ".circle",
@@ -62,7 +65,7 @@ DEP_MODULES = {"openpyxl": "openpyxl", "beautifulsoup4": "bs4", "PyYAML": "yaml"
 _REQUIRED = ("cex_core/__init__.py", "cex_client/tools.py", "bin/cex_tool", "bin/cex_mcp_proxy.py",
              "bin/cex_mcp",
              *(f"skills/{name}/SKILL.md" for name in SKILLS),
-             "adapters/circle/extension.py", "adapters/pi/index.ts",
+             "adapters/circle/extension.py", "adapters/circle/extension.mjs", "adapters/pi/index.ts",
              ".claude-plugin/plugin.json", "package.json", "requirements.txt")
 
 
@@ -316,6 +319,7 @@ class Installer:
                                    "move it away first")
         actions.extend(f"copy skill -> {skill}" for skill in skills)
         actions.append(f"write extension entry -> {ext_dir / 'extension.py'}")
+        actions.append(f"write extension entry -> {ext_dir / 'extension.mjs'}")
         if self.dry_run:
             return {"ok": True, "actions": actions}
         for skill in skills:
@@ -332,15 +336,27 @@ class Installer:
             f"{SHIM_MARKER}：入口转到发行根里的实现，升级发行根即可，不用改这里。\n"
             "import runpy\n\n"
             f"register = runpy.run_path({str(impl)!r})[\"register\"]\n", encoding="utf-8")
+        impl_mjs = self.prefix / "adapters" / "circle" / "extension.mjs"
+        (ext_dir / "extension.mjs").write_text(
+            f"{MJS_MARKER}：入口转到发行根里的实现，升级发行根即可，不用改这里。\n"
+            f"const impl = {json.dumps(impl_mjs.as_uri())};\n"
+            "export async function register(api) {\n"
+            "  // 每次加载都重读实现：/extensions reload 拿得到升级后的发行根\n"
+            "  const module = await import(impl + '?load=' + Date.now());\n"
+            "  return module.register(api);\n"
+            "}\n", encoding="utf-8")
         return {"ok": True, "actions": actions,
-                "note": "circle loads it once its extension API (C1) is available"}
+                "note": "circle 0.5.0 and older load extension.py, circle 1.0 and later extension.mjs"}
 
     @staticmethod
     def _ours(path: Path) -> bool:
         if (path / ".cex_home").is_file():
             return True
         entry = path / "extension.py"
-        return entry.is_file() and entry.read_text(encoding="utf-8").startswith(SHIM_MARKER)
+        if entry.is_file() and entry.read_text(encoding="utf-8").startswith(SHIM_MARKER):
+            return True
+        module = path / "extension.mjs"
+        return module.is_file() and module.read_text(encoding="utf-8").startswith(MJS_MARKER)
 
     # ── 4. 自检 ───────────────────────────────────────────
     def verify(self) -> dict[str, Any]:

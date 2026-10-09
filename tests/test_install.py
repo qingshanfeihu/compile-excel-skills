@@ -20,6 +20,8 @@ from pathlib import Path
 import pytest
 
 from conftest import REPO_ROOT
+from install import SHIM_MARKER
+from test_adapters import NODE, _run_ts_adapter
 
 INSTALL = REPO_ROOT / "install.py"
 SPEC_NAMES = [t["name"] for t in json.loads(
@@ -182,6 +184,12 @@ def test_all_harnesses_then_rerun_and_upgrade(box):
     made = api.tools["cex_init"]["execute"]({"workspace": str(project),
                                              "server": "http://127.0.0.1:9", "device_build": "B_1"})
     assert made["ok"] is True
+    # circle 1.0 起读 extension.mjs：同一个 CIRCLE_HOME 两版都能用
+    module = circle / "extensions" / "compile-excel" / "extension.mjs"
+    assert module.read_text(encoding="utf-8").startswith("// " + SHIM_MARKER)
+    if NODE is not None:
+        out = _run_ts_adapter(module, [], box["env"])
+        assert [name for name, _, _ in out["tools"]] == SPEC_NAMES
 
     rc, again = _install(box, "--harness", "circle")
     assert rc == 3 and again["installed_version"] == report["distribution"]["version"]
