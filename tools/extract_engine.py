@@ -695,11 +695,47 @@ def generate(root: Path) -> tuple[dict[Path, str], dict]:
     return files, manifest
 
 
+def _drift_compare():
+    """同目录的 drift_compare（本脚本也会被测试按文件路径加载，那时 tools/ 不一定在 sys.path 里）。"""
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import drift_compare
+
+    return drift_compare
+
+
+def _record_sanitized(out: Path, files: dict, drift: list[str]) -> int:
+    drift_compare = _drift_compare()
+    entries, refused = {}, []
+    for item in drift:
+        target = out / item
+        if not target.is_file() or not item.endswith(".py"):
+            refused.append(item)
+            continue
+        positions = drift_compare.literal_differences(target.read_text(encoding="utf-8"),
+                                                      files[Path(item)])
+        if positions is None:
+            refused.append(item)
+        elif positions:
+            entries[item] = positions
+    for item in refused:
+        print(f"not only literals, not recorded: {item}")
+    drift_compare.record(entries)
+    print(f"recorded {sum(len(v) for v in entries.values())} sanitized literals "
+          f"in {len(entries)} files")
+    return 1 if refused else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--infotest-root", required=True)
     parser.add_argument("--out", default=".")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--code-only", action="store_true",
+                        help="与 --check 合用：注释、文档字符串、已登记的脱敏字符串不算差异（tools/drift_compare.py）")
+    parser.add_argument("--record-sanitized", action="store_true",
+                        help="确认差异都是脱敏后，把不同的字符串位置登记进 tools/sanitized_literals.json")
     args = parser.parse_args(argv)
     root = Path(args.infotest_root).resolve()
     out = Path(args.out).resolve()
@@ -716,6 +752,13 @@ def main(argv: list[str] | None = None) -> int:
                    and (not (out / p).is_file()
                         or (out / p).read_text(encoding="utf-8") != files[p]))
     stale = sorted(str(p) for p in existing - set(files))
+    if args.record_sanitized:
+        return _record_sanitized(out, files, drift)
+    if args.check and args.code_only:
+        drift_compare = _drift_compare()
+        registry = drift_compare.load_registry()
+        drift = [item for item in drift if not (out / item).is_file() or not drift_compare.same_code(
+            item, (out / item).read_text(encoding="utf-8"), files[Path(item)], registry)]
     if args.check:
         for item in drift:
             print(f"drift: {item}")

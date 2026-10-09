@@ -47,7 +47,7 @@ def _manifest() -> dict:
 def test_engine_matches_a_fresh_extraction():
     proc = subprocess.run(
         [sys.executable, str(REPO_ROOT / "tools" / "extract_engine.py"),
-         "--infotest-root", str(INFOTEST_ROOT), "--check"],
+         "--infotest-root", str(INFOTEST_ROOT), "--check", "--code-only"],
         capture_output=True, text=True, timeout=300)
     assert proc.returncode == 0, "运行 tools/extract_engine.py 重新抽取：\n" + proc.stdout + proc.stderr
 

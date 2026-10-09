@@ -20,7 +20,7 @@ from conftest import INFOTEST_ROOT, REPO_ROOT, _sibling_checkout
 def test_extracted_code_matches_infotest_source():
     proc = subprocess.run(
         [sys.executable, str(REPO_ROOT / "tools" / "sync_from_infotest.py"),
-         "--infotest-root", str(INFOTEST_ROOT), "--check"],
+         "--infotest-root", str(INFOTEST_ROOT), "--check", "--code-only"],
         capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0, "运行 tools/sync_from_infotest.py 重新抽取：\n" + proc.stdout
 

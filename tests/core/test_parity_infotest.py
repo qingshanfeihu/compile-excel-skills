@@ -110,6 +110,9 @@ def test_scrub_matches_infotest(infotest):
     try:
         from main.defect_spec_source import contains_prohibited_declaration as it_prohibited
         from main.defect_spec_source import scrub_declaration_text as it_scrub
+        # InfoTest 的脱敏在第一次调用时才导入 main.ist_core（要 langgraph 等）：先导入一次，
+        # 缺依赖就跳过，免得在比对里炸成失败
+        import main.ist_core  # noqa: F401
     except ImportError as exc:
         pytest.skip(f"InfoTest 脱敏依赖不全：{exc}")
 

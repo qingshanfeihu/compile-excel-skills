@@ -23,6 +23,7 @@ import sys
 import tokenize
 from pathlib import Path
 
+import drift_compare  # 同目录（本脚本按路径直接运行）
 from extract_engine import scrub_prose  # 同目录的抽取脚本（本脚本按路径直接运行）
 
 VENDOR_HEADER = '''"""命令存在性与参数契约判定：读命令树投影（vendor_stdlib JSON），不读原始 XML。
@@ -234,13 +235,19 @@ def main() -> int:
     parser.add_argument("--infotest-root", required=True)
     parser.add_argument("--out", default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument("--check", action="store_true", help="只比对不写，有差异退出码 1")
+    parser.add_argument("--code-only", action="store_true",
+                        help="与 --check 合用：注释、文档字符串、已登记的脱敏字符串不算差异（tools/drift_compare.py）")
     args = parser.parse_args()
     out = Path(args.out).resolve()
     drift = []
+    registry = drift_compare.load_registry() if args.code_only else {}
     for rel, content in build(Path(args.infotest_root).resolve()).items():
         target = out / rel
         current = target.read_text(encoding="utf-8") if target.is_file() else None
         if current == content:
+            continue
+        if (args.check and args.code_only and current is not None
+                and drift_compare.same_code(rel, current, content, registry)):
             continue
         drift.append(rel)
         if not args.check:
