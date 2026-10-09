@@ -9,6 +9,8 @@
 - 审查补的：没给 workspace 时先找已有工作区；沿用的指纹在服务端改用正式证书后退回系统证书；
   cex_sync 按参数里的通道选构建；取 CA 与探活限大小、限总时长；PEM 严格解析（拼接的第二张、
   非法字符都拒绝）；没选构建号时文档检索与命令树核对不崩；同一服务端的不同写法不算换服务端。
+- 真网关：证书用服务端 ces tls gateway 签发、网关凭 [server] ca_file 信任服务端，编译助手经它租床、
+  查状态、还床；不配 ca_file 时网关报的是怎么改配置。
 """
 
 from __future__ import annotations
@@ -1041,3 +1043,82 @@ def test_login_start_explains_the_browser_certificate_warning(tmp_path, monkeypa
     plain = tmp_path / "plain"
     wsmod.init(plain, server="http://127.0.0.1:9")
     assert connect.browser_certificate_note(wsmod.Workspace(plain.resolve())) == ""
+
+
+# ── 真网关：证书用 ces tls gateway 签发，网关凭 ca_file 信任服务端 ────────────────
+def test_real_gateway_with_a_certificate_from_ces_tls_gateway(tls_server, tmp_path, monkeypatch):
+    """三方都只认服务端的内置 CA：编译助手 →（工作区 ca.pem）→ 网关 →（[server] ca_file）→ 服务端。"""
+    if not (SERVER_ROOT / "gateway" / "vendor" / "cex_core" / "__init__.py").is_file():
+        pytest.skip("服务端检出的 gateway/vendor/cex_core 没生成过（tools/sync_gateway_vendor.py）")
+    monkeypatch.delenv("CEX_WORKSPACE", raising=False)
+    srv = tls_server
+    data, cert = srv["data"], srv["cert"]
+    cfg_root = tmp_path / "cfg"
+    cfg_root.mkdir()
+    (cfg_root / "install.json").write_text(json.dumps({
+        "data": str(data), "port": int(srv["base"].rsplit(":", 1)[1]), "host": "127.0.0.1",
+        "tls_cert": str(cert), "tls_key": str(cert.with_name("server.key"))}), encoding="utf-8")
+    env = {**os.environ, "CES_CONFIG_ROOT": str(cfg_root)}
+
+    def ces(*argv: str) -> subprocess.CompletedProcess:
+        proc = subprocess.run([sys.executable, str(SERVER_ROOT / "ces_main.py"), *argv],
+                              capture_output=True, text=True, timeout=120, env=env,
+                              cwd=SERVER_ROOT, check=False)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        return proc
+
+    tls_dir, secret = tmp_path / "gw-tls", tmp_path / "gateway-client.secret"
+    ces("tls", "gateway", "127.0.0.1", "--out", str(tls_dir))
+    ces("clients", "add", "gateway", "--scopes", "introspect bundles:read", "--out", str(secret))
+    apv = tmp_path / "apv_src"
+    for sub in ("lib", "conf", "smoke_test/sdns"):
+        (apv / sub).mkdir(parents=True)
+    config = tmp_path / "gateway.toml"
+    config.write_text(
+        "[server]\n"
+        f'url = "{srv["base"]}"\nclient_id = "gateway"\nclient_secret_file = "{secret}"\n'
+        f'ca_file = "{tls_dir / "ca.pem"}"\nbuild = "{SAMPLE_BUILD}"\n'
+        "[listen]\n"
+        f'host = "127.0.0.1"\nport = 0\ntls_cert = "{tls_dir / "gateway.pem"}"\n'
+        f'tls_key = "{tls_dir / "gateway.key"}"\n'
+        "[framework]\n"
+        f'apv_src = "{apv}"\npy38 = "{sys.executable}"\nconf_name = "bed"\n'
+        f'staging_parent = "{apv / "smoke_test" / "sdns"}"\ndefault_module = "sdns"\n'
+        "[state]\n"
+        f'dir = "{tmp_path / "gw-state"}"\n', encoding="utf-8")
+    sys.path.insert(0, str(SERVER_ROOT))
+    try:
+        from gateway.config import load
+        from gateway.introspect import IntrospectError, ServerClient
+        from gateway.service import build_server
+        from gateway.tools import Gateway
+    finally:
+        sys.path.remove(str(SERVER_ROOT))
+
+    # 不配 ca_file：网关连服务端时证书不受信任，报的是配置怎么改
+    with pytest.raises(IntrospectError, match="ca_file"):
+        ServerClient(srv["base"], "gateway", secret).introspect("not-a-token")
+
+    httpd = build_server(Gateway(load(config)))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    gateway_url = f"https://127.0.0.1:{httpd.server_address[1]}/mcp"
+    try:
+        ces("config", "set", "gateway.url", gateway_url)
+        ws_dir = tmp_path / "project"
+        ws_dir.mkdir()
+        init = tools.call("cex_init", {"workspace": str(ws_dir),
+                                       "server": f"{srv['base']}#ca={srv['fp']}"})
+        assert init["ok"], init
+        _login(ws_dir, srv)
+        fetched = tools.call("cex_client_config", {"workspace": str(ws_dir)})
+        assert fetched["ok"], fetched
+        acquired = tools.call("cex_bed_lease", {"workspace": str(ws_dir), "action": "acquire"})
+        assert acquired["ok"] and acquired.get("lease_id"), acquired
+        status = tools.call("cex_bed_lease", {"workspace": str(ws_dir), "action": "status"})
+        assert status["ok"] and status["leased"] is True, status
+        released = tools.call("cex_bed_lease", {"workspace": str(ws_dir), "action": "release"})
+        assert released["ok"], released
+    finally:
+        ces("config", "unset", "gateway.url")
+        httpd.shutdown()
+        httpd.server_close()
