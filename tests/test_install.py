@@ -147,7 +147,7 @@ def test_dry_run_reports_what_the_real_run_would_refuse(box, tmp_path):
     assert rc == 1 and "/old/copy" in report["harnesses"]["claude"]["error"]
 
 
-def test_all_harnesses_then_rerun_and_upgrade(box):
+def test_all_harnesses_then_rerun_and_upgrade(box, ces_stub):
     rc, report = _install(box, "--harness", "all")
     assert rc == 0 and report["ok"], report
     dist = box["dist"]
@@ -182,7 +182,7 @@ def test_all_harnesses_then_rerun_and_upgrade(box):
     project = box["tmp"] / "project"
     project.mkdir()
     made = api.tools["cex_init"]["execute"]({"workspace": str(project),
-                                             "server": "http://127.0.0.1:9", "device_build": "B_1"})
+                                             "server": ces_stub, "device_build": "B_1"})
     assert made["ok"] is True
     # circle 1.0 起读 extension.mjs：同一个 CIRCLE_HOME 两版都能用
     module = circle / "extensions" / "compile-excel" / "extension.mjs"

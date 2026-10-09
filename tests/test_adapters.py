@@ -132,11 +132,12 @@ def test_pi_extension_typechecks_against_real_pi_types(tmp_path):
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
-def test_pi_runs_the_package_with_a_scripted_model(tmp_path):
+def test_pi_runs_the_package_with_a_scripted_model(tmp_path, ces_stub):
     work = _pi_workdir(tmp_path)
     shutil.copy2(REPO_ROOT / "tests" / "adapters" / "pi_e2e.mjs", work / "pi_e2e.mjs")
-    proc = subprocess.run(["node", str(work / "pi_e2e.mjs"), str(REPO_ROOT)], capture_output=True,
-                          text=True, timeout=300, cwd=work, env=_env_without_workspace())
+    proc = subprocess.run(["node", str(work / "pi_e2e.mjs"), str(REPO_ROOT), ces_stub],
+                          capture_output=True, text=True, timeout=300, cwd=work,
+                          env=_env_without_workspace())
     assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-2000:]
     report = json.loads(proc.stdout.strip().splitlines()[-1])
     assert report["extensionErrors"] == []
@@ -146,7 +147,7 @@ def test_pi_runs_the_package_with_a_scripted_model(tmp_path):
     # 没有工作区 → 失败；建工作区 → 成功；按 pi 会话的 cwd 找到工作区 → 成功；未登录同步 → 失败
     assert calls == [("cex_status", True), ("cex_init", False), ("cex_status", False),
                      ("cex_sync", True)]
-    assert "not logged in" in report["calls"][3]["text"]
+    assert "还没有登录" in report["calls"][3]["text"]
 
 
 # ── Claude Code ─────────────────────────────────────────────────────
@@ -200,7 +201,8 @@ def _load_circle_extension():
     return module
 
 
-def test_circle_extension_registers_the_spec_tools_and_reports_failures(tmp_path, monkeypatch):
+def test_circle_extension_registers_the_spec_tools_and_reports_failures(tmp_path, monkeypatch,
+                                                                       ces_stub):
     monkeypatch.delenv("CEX_WORKSPACE", raising=False)
     monkeypatch.delenv("CEX_HOME", raising=False)
     api = _FakeCircleApi()
@@ -216,11 +218,11 @@ def test_circle_extension_registers_the_spec_tools_and_reports_failures(tmp_path
     with pytest.raises(api.ToolError, match="No workspace here"):
         api.tools["cex_status"]["execute"]({"workspace": str(project)})
     created = api.tools["cex_init"]["execute"]({"workspace": str(project),
-                                                "server": "http://127.0.0.1:9", "device_build": "B_1"})
+                                                "server": ces_stub, "device_build": "B_1"})
     assert created["ok"] is True
     status = api.tools["cex_status"]["execute"]({"workspace": str(project)})
     assert status["logged_in"] is False and status["device_build"] == "B_1"
-    with pytest.raises(api.ToolError, match="not logged in"):
+    with pytest.raises(api.ToolError, match="还没有登录"):
         api.tools["cex_sync"]["execute"]({"workspace": str(project)})
 
 
@@ -252,13 +254,12 @@ def test_circle_passes_arguments_on_stdin_and_reports_a_missing_interpreter(tmp_
         broken({})
 
 
-def test_circle_mjs_registers_the_spec_tools_and_reports_failures(tmp_path):
+def test_circle_mjs_registers_the_spec_tools_and_reports_failures(tmp_path, ces_stub):
     project = tmp_path / "project"
     project.mkdir()
     out = _run_ts_adapter(CIRCLE_MJS, [
         ["cex_status", {"workspace": str(project)}],
-        ["cex_init", {"workspace": str(project), "server": "http://127.0.0.1:9",
-                      "device_build": "B_1"}],
+        ["cex_init", {"workspace": str(project), "server": ces_stub, "device_build": "B_1"}],
         ["cex_status", {"workspace": str(project)}],
         ["cex_sync", {"workspace": str(project)}],
     ])
@@ -267,7 +268,7 @@ def test_circle_mjs_registers_the_spec_tools_and_reports_failures(tmp_path):
     assert missing["toolError"] and "No workspace here" in missing["error"]
     assert created["ok"]["ok"] is True
     assert status["ok"]["logged_in"] is False and status["ok"]["device_build"] == "B_1"
-    assert sync["toolError"] and "not logged in" in sync["error"]
+    assert sync["toolError"] and "还没有登录" in sync["error"]
 
 
 def test_circle_mjs_passes_arguments_on_stdin_and_reports_a_missing_interpreter(tmp_path):
@@ -295,10 +296,10 @@ def test_circle_mjs_stops_the_tool_process_when_the_call_is_cancelled(tmp_path):
     assert result["name"] == "AbortError" and result["ms"] < 10_000
 
 
-def test_cex_tool_reads_large_arguments_from_stdin(tmp_path):
+def test_cex_tool_reads_large_arguments_from_stdin(tmp_path, ces_stub):
     ws_dir = tmp_path / "project"
     ws_dir.mkdir()
-    args = {"workspace": str(ws_dir), "server": "http://127.0.0.1:9", "device_build": "B_1",
+    args = {"workspace": str(ws_dir), "server": ces_stub, "device_build": "B_1",
             "channel": "stable"}
     proc = subprocess.run([sys.executable, str(REPO_ROOT / "bin" / "cex_tool"), "cex_init", "-"],
                           input=json.dumps(args), capture_output=True, text=True, timeout=60,

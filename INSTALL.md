@@ -53,8 +53,9 @@
 
 5. **Tell the user**: where it was installed, which harnesses were set up, that a **new session**
    (or `/reload-plugins` in Claude Code, `/reload` in pi) picks it up, and that on first use in a
-   project folder the skill asks for the server URL and the device build, then signs in through the
-   browser. Installing never needs a password; do not ask for one.
+   project folder the skill asks for the connection string the administrator gave
+   (`https://host:8900#ca=...`), then signs in through the browser. Installing never needs a
+   password; do not ask for one.
 
 ## Native alternatives
 

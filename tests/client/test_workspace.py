@@ -117,7 +117,7 @@ def test_plaintext_policy():
     assert wsmod.check_server_url("http://127.0.0.1:8900", allow_insecure_http=False)
     assert wsmod.check_server_url("http://localhost:8900/", allow_insecure_http=False)
     assert wsmod.check_server_url("https://ces.example.test", allow_insecure_http=False)
-    with pytest.raises(ClientError, match="clear text"):
+    with pytest.raises(ClientError, match="明文"):
         wsmod.check_server_url("http://10.0.0.5:8900", allow_insecure_http=False)
     assert wsmod.check_server_url("http://10.0.0.5:8900", allow_insecure_http=True)
     for bad in ("ftp://x", "https://user:pw@ces.example.test", "not a url", ""):

@@ -7,11 +7,12 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from . import auth, bugs, bundle, device, gateway, manual_search, portal
+from . import auth, bugs, bundle, connect, device, gateway, manual_search, portal
 from . import workspace as wsmod
 from .errors import ClientError
 
@@ -28,24 +29,56 @@ def _ws(args: dict[str, Any]) -> wsmod.Workspace:
     return wsmod.require(Path(start).expanduser() if start else None)
 
 
+def _init_root(args: dict[str, Any]) -> Path:
+    """cex_init 落在哪个文件夹：给了 workspace 就是它；没给时与其他工具一样先找已有的工作区
+    （CEX_WORKSPACE，或从当前目录往上找），免得在子目录里报缺地址、或新建一个嵌套的工作区；
+    都没有才新建在 CEX_WORKSPACE 指的文件夹（设了的话，其他工具认的就是它）或当前目录。"""
+    if args.get("workspace"):
+        return Path(str(args["workspace"])).expanduser()
+    found = wsmod.find(None)
+    if found is not None:
+        return found.root
+    explicit = os.environ.get("CEX_WORKSPACE", "").strip()
+    return Path(explicit).expanduser() if explicit else Path.cwd()
+
+
 def cex_init(args: dict[str, Any]) -> dict[str, Any]:
-    root = Path(args.get("workspace") or ".").expanduser()
-    ws = wsmod.init(root, server=str(args.get("server") or ""),
-                    device_build=str(args.get("device_build") or ""),
-                    channel=str(args.get("channel") or "stable"),
-                    insecure_lan=bool(args.get("insecure_lan")))
-    return {"ok": True, "workspace": str(ws.root), "server": ws.server,
-            "device_build": ws.device_build,
-            "next": "Call cex_login_start to sign in, then cex_sync to fetch compile data."}
+    root = _init_root(args)
+    insecure = args.get("insecure_lan")
+    ws = connect.setup(root, server=str(args.get("server") or ""),
+                       device_build=str(args.get("device_build") or ""),
+                       channel=str(args.get("channel") or ""),
+                       insecure_lan=None if insecure is None else bool(insecure))
+    build = ws.selected_build
+    out = {"ok": True, "workspace": str(ws.root), "server": ws.server,
+           "tls": connect.tls_summary(ws), "device_build": build or None, "channel": ws.channel}
+    try:
+        auth.load_token(ws)
+        logged_in = True
+    except ClientError:
+        logged_in = False
+    if logged_in:
+        out["next"] = ("Still logged in. Call cex_sync to fetch compile data." if build else
+                       "Still logged in. cex_sync picks the device build when the server publishes "
+                       "only one; otherwise set the user's choice with cex_init device_build.")
+    else:
+        out["next"] = ("Call cex_login_start to sign in, then cex_sync to fetch compile data."
+                       + ("" if build else " The device build is chosen after login."))
+    return out
 
 
 def cex_status(args: dict[str, Any]) -> dict[str, Any]:
     ws = wsmod.find(Path(args["workspace"]).expanduser() if args.get("workspace") else None)
     if ws is None:
         return {"ok": False, "workspace": None,
-                "next": "No workspace here; call cex_init with the server URL and device build."}
+                "next": "No workspace here; call cex_init with the connection string the "
+                        "administrator gave (https://host:8900#ca=<fingerprint>)."}
+    build = ws.selected_build
     status: dict[str, Any] = {"ok": True, "workspace": str(ws.root), "server": ws.server,
-                              "device_build": ws.device_build, "channel": ws.channel}
+                              "tls": connect.tls_summary(ws), "device_build": build or None,
+                              "device_build_selected": bool(build), "channel": ws.channel}
+    if not build:
+        status["device_build_hint"] = wsmod.NO_DEVICE_BUILD
     try:
         token = auth.load_token(ws)
         status["logged_in"] = True
@@ -53,19 +86,38 @@ def cex_status(args: dict[str, Any]) -> dict[str, Any]:
     except ClientError as exc:
         status["logged_in"] = False
         status["login_hint"] = str(exc)
-    cached = bundle.cached_manifest(ws)
+    cached = bundle.cached_manifest(ws) if build else None
     status["bundle"] = ({"bundle_id": cached.get("bundle_id"), "created_at": cached.get("created_at")}
                         if cached else None)
     return status
 
 
 def cex_login_start(args: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, **auth.start_login(_ws(args))}
+    ws = _ws(args)
+    out = {"ok": True, **auth.start_login(ws)}
+    # 服务端用自带的根证书时浏览器会报证书不受信任：给用户一段说明和核对用的服务器证书指纹
+    note = connect.browser_certificate_note(ws)
+    if note:
+        out["browser_certificate"] = note
+        out["next"] = ("Show the user the URL and code, and relay browser_certificate to them word "
+                       "for word before they open the URL: the browser will warn about the "
+                       "certificate, and the note tells them what to check. They sign in with "
+                       "their username and access code in a browser. Then call cex_login_wait.")
+    return out
 
 
 def cex_login_wait(args: dict[str, Any]) -> dict[str, Any]:
+    ws = _ws(args)
     timeout = float(args.get("timeout_s") or 60)
-    return auth.wait_login(_ws(args), timeout_s=min(max(timeout, 1.0), 300.0))
+    out = auth.wait_login(ws, timeout_s=min(max(timeout, 1.0), 300.0))
+    if out.get("ok") and not ws.selected_build:
+        # 登录成功、工作区还没有构建号：服务端在本通道上只有一个构建就自动选，多个就列出来让用户选
+        try:
+            out.update(connect.choose_build(ws))
+        except ClientError as exc:
+            out["device_build_note"] = (f"登录成功，但没取到构建列表（{exc}）：稍后调用 cex_sync 会再选一次；"
+                                        "也可以用 cex_init 的 device_build 直接指定")
+    return out
 
 
 def cex_logout(args: dict[str, Any]) -> dict[str, Any]:
@@ -73,7 +125,19 @@ def cex_logout(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def cex_sync(args: dict[str, Any]) -> dict[str, Any]:
-    return bundle.sync(_ws(args), channel=args.get("channel") or None)
+    ws = _ws(args)
+    channel = str(args.get("channel") or "")
+    picked: dict[str, Any] = {}
+    if not ws.selected_build:
+        # 登录时没选成（当时服务端还没发布、或没取到列表）：同步前再选一次，按这次要同步的通道选
+        auth.load_token(ws)
+        picked = connect.choose_build(ws, channel)
+        if not picked["device_build"]:
+            raise ClientError(picked["device_build_note"])
+    out = bundle.sync(ws, channel=channel or None)
+    if picked:
+        out["device_build_note"] = picked["device_build_note"]
+    return out
 
 
 def cex_client_config(args: dict[str, Any]) -> dict[str, Any]:
@@ -123,7 +187,7 @@ def cex_docs_query(args: dict[str, Any]) -> dict[str, Any]:
         local_note = (local_note + " " if local_note else "") + (
             f"Skipped unreadable local manuals: {skipped_names}.")
     out = {"ok": local_available or server_searched, "query": query,
-           "build": ws.device_build, "bundle_id": local.get("bundle_id"),
+           "build": ws.selected_build or None, "bundle_id": local.get("bundle_id"),
            "manuals_searched": local.get("manuals_searched", 0),
            "manuals_skipped": skipped,
            "server_searched": server_searched,

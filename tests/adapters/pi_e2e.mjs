@@ -1,7 +1,7 @@
 // 用真 pi（SDK + faux 脚本模型）跑一遍 compile-excel 包：包清单 → skill 发现 → 扩展加载 →
 // 模型发起的工具调用 → 成功与失败（isError）语义。由 tests/test_adapters.py 在装了 pi 的
 // node_modules 旁边运行；输出一行 JSON 给 Python 断言。
-//   node pi_e2e.mjs <compile-excel 包根目录>
+//   node pi_e2e.mjs <compile-excel 包根目录> <只答探活的假服务端地址>
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +15,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 
 const packageRoot = process.argv[2];
+const server = process.argv[3];
 const base = mkdtempSync(join(tmpdir(), "cex-pi-"));
 const agentDir = join(base, "agent");
 const project = join(base, "project");
@@ -27,7 +28,7 @@ const faux = registerFauxProvider({ models: [{ id: "faux-1" }] });
 faux.setResponses([
 	fauxAssistantMessage([fauxToolCall("cex_status", {})], { stopReason: "toolUse" }),
 	fauxAssistantMessage(
-		[fauxToolCall("cex_init", { workspace: project, server: "http://127.0.0.1:9", device_build: "B_1" })],
+		[fauxToolCall("cex_init", { workspace: project, server, device_build: "B_1" })],
 		{ stopReason: "toolUse" },
 	),
 	fauxAssistantMessage([fauxToolCall("cex_status", {})], { stopReason: "toolUse" }),

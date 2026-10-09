@@ -3,22 +3,22 @@
  "tools": [
   {
    "name": "cex_init",
-   "description": "Create or update the compile-excel workspace in a project folder. Stores the server URL and device build in <folder>/.compile-excel/config.json. Run once per folder before logging in. Pointing an existing workspace at another server drops the old session, the cached organisation config and any bed lease.",
+   "description": "Create or update the compile-excel workspace in a project folder. First checks that the address answers as compile-excel-server and, for a connection string, that the server's built-in CA matches its fingerprint; only then stores the server, channel and device build in <folder>/.compile-excel/config.json (and the verified CA in ca.pem). Run once per folder before logging in. Pointing an existing workspace at another server (or another CA) drops the old session, the cached organisation config and any bed lease. To only set the device build or channel of an existing workspace, omit server: nothing is re-checked and the session is kept.",
    "read_only": false,
    "input_schema": {
     "type": "object",
     "properties": {
      "server": {
       "type": "string",
-      "description": "compile-excel-server base URL (https, or http on loopback)."
+      "description": "The connection string the administrator gave (https://host:8900#ca=<SHA-256 fingerprint of the server's CA certificate>), passed exactly as given, or a plain server URL (https, or http on loopback). The default server port is 8900. Required for a new workspace; omit it to keep the configured server."
      },
      "device_build": {
       "type": "string",
-      "description": "Execution build identifier the bundles are published under."
+      "description": "Optional. Execution build the bundles are published under. Leave it out: after login it is chosen automatically when the server publishes exactly one build on the channel; when there are several, cex_login_wait lists them and you pass the one the user picks here."
      },
      "workspace": {
       "type": "string",
-      "description": "Folder to initialise; defaults to the current directory."
+      "description": "Folder to initialise. Defaults to the existing workspace found the same way as the other tools (CEX_WORKSPACE, or the current directory and its parents); only when there is none, a new one is created in the CEX_WORKSPACE folder or the current directory."
      },
      "channel": {
       "type": "string",
@@ -26,23 +26,19 @@
        "stable",
        "candidate"
       ],
-      "description": "Bundle channel to sync; defaults to stable."
+      "description": "Bundle channel to sync; defaults to stable (an existing workspace keeps its channel)."
      },
      "insecure_lan": {
       "type": "boolean",
       "description": "Allow plain http to a non-loopback server on a trusted lab network."
      }
     },
-    "required": [
-     "server",
-     "device_build"
-    ],
     "additionalProperties": false
    }
   },
   {
    "name": "cex_status",
-   "description": "Report the workspace state: server, device build, whether the user is logged in, and which bundle is synced.",
+   "description": "Report the workspace state: server, how its certificate is verified (tls), the device build and whether one is chosen yet, whether the user is logged in, and which bundle is synced.",
    "read_only": true,
    "input_schema": {
     "type": "object",
@@ -56,7 +52,7 @@
   },
   {
    "name": "cex_login_start",
-   "description": "Start the OAuth device login. Returns a URL and a user code; show both to the user, who signs in with their username and access code in a browser. Then call cex_login_wait. The login asks for every permission the tools use (including jumphost:admin for cex_init_device); the server grants only those the account holds.",
+   "description": "Start the OAuth device login. Returns a URL and a user code; show both to the user, who signs in with their username and access code in a browser. Then call cex_login_wait. When the workspace trusts the server's built-in CA (a connection string with #ca=), the result also has browser_certificate: a note in Chinese saying the browser will warn that the certificate is not trusted and why, giving the server certificate's SHA-256 fingerprint to compare in the browser's certificate details before continuing, and how to make the system trust the CA. Relay it to the user word for word, before they open the URL; do not shorten or translate it. The login asks for every permission the tools use (including jumphost:admin for cex_init_device); the server grants only those the account holds.",
    "read_only": false,
    "input_schema": {
     "type": "object",
@@ -70,7 +66,7 @@
   },
   {
    "name": "cex_login_wait",
-   "description": "Wait for the user to approve the device login started by cex_login_start. Returns pending if they have not approved within timeout_s; call again in that case.",
+   "description": "Wait for the user to approve the device login started by cex_login_start. Returns pending if they have not approved within timeout_s; call again in that case. On success, when the workspace has no device build yet, picks the server's only build on the channel, or returns the builds to choose from (set the user's choice with cex_init device_build).",
    "read_only": false,
    "input_schema": {
     "type": "object",
@@ -102,7 +98,7 @@
   },
   {
    "name": "cex_sync",
-   "description": "Download the compile data bundle for the workspace's device build into .compile-excel/bundle/<build>/, verifying every file against the manifest SHA-256. Falls back to a verified local cache when the server is unreachable and says so.",
+   "description": "Download the compile data bundle for the workspace's device build into .compile-excel/bundle/<build>/, verifying every file against the manifest SHA-256. Falls back to a verified local cache when the server is unreachable and says so. When no device build is chosen yet, picks the server's only build on the channel first.",
    "read_only": false,
    "input_schema": {
     "type": "object",
@@ -153,7 +149,7 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 10,
-      "description": "Maximum results per source (1–10, default 3); online results can contain up to twice this number."
+      "description": "Maximum results per source (1\u201310, default 3); online results can contain up to twice this number."
      }
     },
     "required": [
@@ -497,7 +493,7 @@
       "items": {
        "type": "object"
       },
-      "description": "Machine-mindmap case objects (autoid, contract, origin, …)."
+      "description": "Machine-mindmap case objects (autoid, contract, origin, \u2026)."
      }
     },
     "required": [

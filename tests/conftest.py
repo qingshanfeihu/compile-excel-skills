@@ -7,8 +7,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -60,3 +63,30 @@ def pytest_runtest_makereport(item, call):
         report.outcome = "failed"
         report.longrepr = (f"{REQUIRE_INFOTEST_ENV} is set, so this InfoTest-dependent test must run "
                            f"(INFOTEST_ROOT resolved to {INFOTEST_ROOT}): {reason}")
+
+
+@pytest.fixture()
+def ces_stub():
+    """只答探活的假服务端地址：cex_init 先探活，不连真服务端的测试拿它当 server。"""
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            return
+
+        def do_GET(self):
+            found = self.path == "/healthz"
+            body = json.dumps({"ok": True, "service": "compile-excel-server"} if found
+                              else {"detail": "Not Found"}).encode()
+            self.send_response(200 if found else 404)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        do_POST = do_GET
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}"
+    httpd.shutdown()
+    httpd.server_close()

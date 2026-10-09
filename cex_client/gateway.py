@@ -3,6 +3,7 @@
 - 网关地址只取服务端下发的客户端常量 `gateway.url`（cex_client_config 缓存在工作区
   client_config.json，记着取自哪个服务端）；工作区 config.json 里的字段不能改指令牌的去向。
   明文 http 策略与服务端地址一致（回环或显式 insecure_lan）；不跟随重定向。
+  https 用工作区的校验上下文：网关证书与服务端证书由同一个内置 CA 签发。
 - 租约（lease_id + fencing token）存工作区 `.compile-excel/lease.json`（0600），工具调用时自动带上；
   fencing token 不出现在任何工具结果里，不让模型抄写它。
 - 每次提交记在 `.compile-excel/tasks.json`：task_id → 工作簿路径与提交序号，用于把结果写回工作簿所在目录。
@@ -20,6 +21,7 @@ from .workspace import (
     Workspace,
     check_server_url,
     read_private_json,
+    same_server,
     state_lock,
     write_private_json,
 )
@@ -42,14 +44,15 @@ def gateway_url(ws: Workspace) -> str:
     cfg = ws.config()
     cached = read_private_json(ws.client_config_path) or {}
     source = cached.get(CLIENT_CONFIG_SOURCE)
-    if source is not None and source != ws.server:
+    if source is not None and not same_server(source, ws.server):
         raise ClientError("the cached organisation config came from another server; call "
                           "cex_client_config again")
     url = str((cached.get("gateway") or {}).get("url") or "")
     if not url:
         raise ClientError("no gateway address; call cex_client_config (the server publishes "
                           "gateway.url)")
-    return check_server_url(url, allow_insecure_http=bool(cfg.get("allow_insecure_http")))
+    return check_server_url(url, allow_insecure_http=bool(cfg.get("allow_insecure_http")),
+                            what="网关")
 
 
 def call_tool_raw(ws: Workspace, name: str, arguments: dict[str, Any],
@@ -62,7 +65,8 @@ def call_tool_raw(ws: Workspace, name: str, arguments: dict[str, Any],
     if int(token.get("expires_at") or 0) < time.time() + 30:
         token = auth._refresh(ws, token)
     for attempt in (0, 1):
-        status, raw = auth.http("POST", url, data=body, timeout=timeout, headers={
+        status, raw = auth.http("POST", url, data=body, timeout=timeout,
+                                context=ws.ssl_context(), headers={
             "Authorization": f"Bearer {token['access_token']}",
             "Content-Type": "application/json", "Accept": "application/json"})
         auth.refuse_redirect(status, "the gateway")

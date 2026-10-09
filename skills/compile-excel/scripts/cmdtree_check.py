@@ -74,6 +74,18 @@ def _workspace(start: Path):
     return wsmod.find(start)
 
 
+def _selected_build(ws) -> str:
+    """工作区已选的构建号；还没选、或配置读不出时是空串（ws.device_build 在没选时会抛错）。"""
+    if ws is None:
+        return ""
+    from cex_client.errors import ClientError
+
+    try:
+        return ws.selected_build
+    except ClientError:
+        return ""
+
+
 def _find_tree(explicit: str) -> tuple[Path | None, str]:
     """返回 (树路径, build 标签)。原始 XML 只认显式路径，不在任何目录里自动找。"""
     path = Path(explicit).expanduser()
@@ -360,12 +372,18 @@ def main() -> int:
               "source": str(src), "checked": 0, "ok": 0, "unknown": [], "warnings": []}
 
     ws = _workspace(src.parent)
-    want_build = ws.device_build if ws is not None else ""
+    want_build = _selected_build(ws)
     if build and want_build and build.lower() not in want_build.lower():
         report["warnings"].append(
             f"树 build={build} 与工作区 device_build={want_build} 不一致——"
             "树判定可能不代表床固件，建议换对应 build 的树"
         )
+    elif build and ws is not None and not want_build:
+        # 只是警告用的比对：工作区还没选构建号（或配置读不出）时说明比不了，不报错
+        from cex_client.workspace import NO_DEVICE_BUILD
+
+        report["warnings"].append(f"工作区{NO_DEVICE_BUILD}；暂时没法核对树 build={build} "
+                                  "是否对应床固件")
     _check_with_tree(lines, is_item, children, report)
     report["ok_flag"] = not report["unknown"]
     print(json.dumps(report, ensure_ascii=False, indent=1))

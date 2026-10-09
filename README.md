@@ -41,11 +41,17 @@ Read the output as your install instructions and follow it to install the compil
 
 ## 首次使用
 
-在项目文件夹里对 agent 说“编译这份脑图”之类即可，skill 按 SKILL.md 引导：
+先向管理员要一行“连接串”，形如 `https://192.168.1.20:8900#ca=3f2a…`（`#ca=` 后面是服务器自带根证书的指纹，
+共 64 位）。然后在项目文件夹里对编程助手说“编译这份脑图”之类即可，技能按 `SKILL.md` 一步步引导：
 
-1. `cex_init`：填服务端地址和被测床的 device build（问你，不猜）；
-2. `cex_login_start` / `cex_login_wait`：浏览器里用用户名 + 访问码授权，对话里不出现任何口令；
-3. `cex_client_config`、`cex_sync`：取组织常量与编译数据包（逐件 SHA-256 校验）；
+1. `cex_init`：把连接串原样交给它（编程助手会问你要，不会猜）。保存之前先连一次服务器：核对证书指纹、
+   确认这个地址上确实是编译数据服务，任何一步对不上都直接拒绝，什么都不保存。构建号不用填；
+2. `cex_login_start` / `cex_login_wait`：在浏览器里用用户名和访问码授权，对话里不出现任何口令。
+   服务器用自带根证书时浏览器会提示证书不受信任：编程助手会给出服务器证书的指纹，在浏览器的证书详情里
+   核对一致再继续（想不再提示，可把 `.compile-excel/ca.pem` 加入系统信任，命令随说明一起给出）。
+   登录后自动选构建号：服务器上只有一个就直接用；有多个会列出来让你挑，再用 `cex_init` 的
+   `device_build` 指定（登录状态保留）；
+3. `cex_client_config`、`cex_sync`：取组织常量与编译数据包（逐个文件核对哈希）；
 4. 需要缺陷单时 `cex_portal_login_*` 扫码登录门户，`cex_bug_get` 按单号取单（脱敏后存 `defects/`）；
 5. 输入是人工脑图时，先用 `mindmap-recompose` 技能重组成机械脑图（`cex_recompose_*`，每个案过编译
    引擎自己的提交检查）并密封；
@@ -55,8 +61,17 @@ Read the output as your install instructions and follow it to install the compil
    纯步骤文本不走这一段，直接写 `cases.json` 交给 `scripts/compile_excel.py`；
 7. 静态验收、上机、返工、回填，产物在 `compile_outputs/<批次>/`。
 
-文件夹里唯一的凭据是 `.compile-excel/token.json`（0600，目录自带 `.gitignore`）；门户会话存在用户级
-`~/.cache/compile-excel/`（0600），不进文件夹。
+连不上时，工具会用中文说清原因和办法，常见的几种：
+
+- 地址里漏了端口，打到了同一台机器上的别的网站：提示这个地址上的不是编译数据服务，并给出带默认端口
+  `8900` 的地址；最省事的是直接用连接串；
+- 只填了地址、没带指纹：提示证书不受信任，改用完整的连接串；
+- 指纹对不上：可能连到了冒充的服务器，也可能连接串抄错了，请找管理员核对；
+- 证书里没有你填的这个地址：请管理员在 `ces` 菜单里重新签发证书，把这个地址加上。
+
+文件夹里唯一的凭据是 `.compile-excel/token.json`（只有本人可读写，目录自带 `.gitignore`）；核对过的
+根证书存在 `.compile-excel/ca.pem`；门户会话存在用户级 `~/.cache/compile-excel/`（只有本人可读写），
+不进文件夹。
 
 ## 目录
 
@@ -101,6 +116,7 @@ cex_core/                     # 判据与出件共享库（harness 无关）
                               #   范围、边界、对拍见 MANIFEST.json 与 docs/engine-parity.md §7–§10
 cex_client/                   # 客户端（标准库；脑图重组与编写阶段另需 pydantic、langchain-core）
 ├── workspace.py              # 唯一路径解析器：<文件夹>/.compile-excel/
+├── connect.py                # 连接串解析；cex_init 探活、核对内置 CA；登录后自动选构建号
 ├── auth.py / bundle.py       # 设备流登录与令牌轮换；数据包同步
 ├── gateway.py / device.py    # 网关 MCP 客户端、租约；提交、状态、结果与回执
 ├── fingerprints.py           # 用例卷面逐案指纹（投递时记进 run_results.json，返工闸用同一份算法比对）

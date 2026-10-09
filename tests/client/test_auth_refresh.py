@@ -163,7 +163,7 @@ def test_a_transient_token_failure_keeps_the_session(tmp_path, fake):
 def test_an_unreachable_server_keeps_the_session(tmp_path):
     ws = _workspace(tmp_path, "http://127.0.0.1:9", expired=True)
     out = tools.call("cex_client_config", {"workspace": str(ws.root)})
-    assert out["ok"] is False and "unreachable" in out["error"]
+    assert out["ok"] is False and "连不上" in out["error"]
     assert ws.token_path.exists()
 
 

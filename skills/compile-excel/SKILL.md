@@ -110,11 +110,19 @@ stop, because compiling is impossible without it.
 
 Call `cex_status` with the project folder.
 
-- `ok: false` (no workspace): ask the user for the server URL and the device build of the bed
-  they will run on, then `cex_init`. Details: `references/workspace-setup.md`.
+- `ok: false` (no workspace): ask the user for the connection string their administrator gave
+  (`https://host:8900#ca=<fingerprint>`) and pass it to `cex_init` as `server`, exactly as given.
+  Leave `device_build` out; it is chosen after login. Errors from `cex_init` are in Chinese and
+  say what to fix; relay them. Details: `references/workspace-setup.md`.
 - `logged_in: false`: `cex_login_start`, show the user `verification_uri` and `user_code`, then
   `cex_login_wait`; call it again while it returns `pending`. The user types their username and
-  access code into the server's page, not into the conversation. Never invent a token.
+  access code into the server's page, not into the conversation. Never invent a token. When the
+  result has `browser_certificate`, relay it word for word first: it explains the browser's
+  certificate warning and the fingerprint to compare.
+- No device build yet (`device_build_selected: false`): the successful `cex_login_wait` picks it
+  when the server publishes only one. When it returns `builds` instead, ask the user which one the
+  bed runs and call `cex_init` with only `device_build` (no `server`; the session is kept). Never
+  guess a build.
 - `cex_client_config` once per session (it publishes the gateway and portal addresses).
 - `cex_sync` every session. `source: server` = fresh; `source: cache` = the server was
   unreachable and the cached bundle is in use: tell the user its `note` (bundle id and date).

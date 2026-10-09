@@ -15,22 +15,22 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_init",
 		label: "CEX init",
-		description: "Create or update the compile-excel workspace in a project folder. Stores the server URL and device build in <folder>/.compile-excel/config.json. Run once per folder before logging in. Pointing an existing workspace at another server drops the old session, the cached organisation config and any bed lease.",
+		description: "Create or update the compile-excel workspace in a project folder. First checks that the address answers as compile-excel-server and, for a connection string, that the server's built-in CA matches its fingerprint; only then stores the server, channel and device build in <folder>/.compile-excel/config.json (and the verified CA in ca.pem). Run once per folder before logging in. Pointing an existing workspace at another server (or another CA) drops the old session, the cached organisation config and any bed lease. To only set the device build or channel of an existing workspace, omit server: nothing is re-checked and the session is kept.",
 		snippet: "Create or update the compile-excel workspace in a project folder.",
 		readOnly: false,
 		parameters: Type.Object({
-			"server": Type.String({"description": "compile-excel-server base URL (https, or http on loopback)."}),
-			"device_build": Type.String({"description": "Execution build identifier the bundles are published under."}),
-			"workspace": Type.Optional(Type.String({"description": "Folder to initialise; defaults to the current directory."})),
-			"channel": Type.Optional(StringEnum(["stable", "candidate"] as const, {"description": "Bundle channel to sync; defaults to stable."})),
+			"server": Type.Optional(Type.String({"description": "The connection string the administrator gave (https://host:8900#ca=<SHA-256 fingerprint of the server's CA certificate>), passed exactly as given, or a plain server URL (https, or http on loopback). The default server port is 8900. Required for a new workspace; omit it to keep the configured server."})),
+			"device_build": Type.Optional(Type.String({"description": "Optional. Execution build the bundles are published under. Leave it out: after login it is chosen automatically when the server publishes exactly one build on the channel; when there are several, cex_login_wait lists them and you pass the one the user picks here."})),
+			"workspace": Type.Optional(Type.String({"description": "Folder to initialise. Defaults to the existing workspace found the same way as the other tools (CEX_WORKSPACE, or the current directory and its parents); only when there is none, a new one is created in the CEX_WORKSPACE folder or the current directory."})),
+			"channel": Type.Optional(StringEnum(["stable", "candidate"] as const, {"description": "Bundle channel to sync; defaults to stable (an existing workspace keeps its channel)."})),
 			"insecure_lan": Type.Optional(Type.Boolean({"description": "Allow plain http to a non-loopback server on a trusted lab network."})),
 		}, { additionalProperties: false }),
 	},
 	{
 		name: "cex_status",
 		label: "CEX status",
-		description: "Report the workspace state: server, device build, whether the user is logged in, and which bundle is synced.",
-		snippet: "Report the workspace state: server, device build, whether the user is logged in, and which bundle is synced.",
+		description: "Report the workspace state: server, how its certificate is verified (tls), the device build and whether one is chosen yet, whether the user is logged in, and which bundle is synced.",
+		snippet: "Report the workspace state: server, how its certificate is verified (tls), the device build and whether one is chosen yet, whether the user is logged in, and which bundle is synced.",
 		readOnly: true,
 		parameters: Type.Object({
 			"workspace": Type.Optional(Type.String()),
@@ -39,7 +39,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_login_start",
 		label: "CEX login start",
-		description: "Start the OAuth device login. Returns a URL and a user code; show both to the user, who signs in with their username and access code in a browser. Then call cex_login_wait. The login asks for every permission the tools use (including jumphost:admin for cex_init_device); the server grants only those the account holds.",
+		description: "Start the OAuth device login. Returns a URL and a user code; show both to the user, who signs in with their username and access code in a browser. Then call cex_login_wait. When the workspace trusts the server's built-in CA (a connection string with #ca=), the result also has browser_certificate: a note in Chinese saying the browser will warn that the certificate is not trusted and why, giving the server certificate's SHA-256 fingerprint to compare in the browser's certificate details before continuing, and how to make the system trust the CA. Relay it to the user word for word, before they open the URL; do not shorten or translate it. The login asks for every permission the tools use (including jumphost:admin for cex_init_device); the server grants only those the account holds.",
 		snippet: "Start the OAuth device login.",
 		readOnly: false,
 		parameters: Type.Object({
@@ -49,7 +49,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_login_wait",
 		label: "CEX login wait",
-		description: "Wait for the user to approve the device login started by cex_login_start. Returns pending if they have not approved within timeout_s; call again in that case.",
+		description: "Wait for the user to approve the device login started by cex_login_start. Returns pending if they have not approved within timeout_s; call again in that case. On success, when the workspace has no device build yet, picks the server's only build on the channel, or returns the builds to choose from (set the user's choice with cex_init device_build).",
 		snippet: "Wait for the user to approve the device login started by cex_login_start.",
 		readOnly: false,
 		parameters: Type.Object({
@@ -70,7 +70,7 @@ export const CEX_TOOLS: CexToolSpec[] = [
 	{
 		name: "cex_sync",
 		label: "CEX sync",
-		description: "Download the compile data bundle for the workspace's device build into .compile-excel/bundle/<build>/, verifying every file against the manifest SHA-256. Falls back to a verified local cache when the server is unreachable and says so.",
+		description: "Download the compile data bundle for the workspace's device build into .compile-excel/bundle/<build>/, verifying every file against the manifest SHA-256. Falls back to a verified local cache when the server is unreachable and says so. When no device build is chosen yet, picks the server's only build on the channel first.",
 		snippet: "Download the compile data bundle for the workspace's device build into .compile-excel/bundle/<build>/, verifying every file against the manifest SHA-256.",
 		readOnly: false,
 		parameters: Type.Object({

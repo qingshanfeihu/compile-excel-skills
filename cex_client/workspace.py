@@ -2,7 +2,8 @@
 
 布局：
   <文件夹>/.compile-excel/            0700，自带 .gitignore（整目录不入库）
-      config.json                    服务端地址、device_build、通道
+      config.json                    服务端地址、device_build、通道、ca_sha256（连接串里的 CA 指纹）
+      ca.pem                         核对过指纹的服务端内置 CA 证书（连接串带 #ca= 时才有）
       token.json                     OAuth 令牌（0600）；文件夹里唯一的凭据
       login_pending.json             设备流进行中的临时状态（0600）
       client_config.json             服务端下发的组织常量缓存
@@ -18,19 +19,22 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import fcntl
 import hashlib
 import ipaddress
 import json
 import os
 import re
+import ssl
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from .errors import ClientError
 
@@ -39,6 +43,11 @@ OUTPUTS_DIR = "compile_outputs"
 CONFIG_SCHEMA = "cex.workspace/v1"
 _SAFE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _BAD_COMPONENT_CHARS = set('\\:*?"<>|')
+DEFAULT_SERVER_PORT = 8900
+CONNECTION_STRING_FORM = f"https://主机:{DEFAULT_SERVER_PORT}#ca=指纹"
+NO_DEVICE_BUILD = "还没有选构建号：登录后会自动选；服务端有多个构建时，用 cex_init 的 device_build 指定"
+# 同一份 CA（按指纹）只建一次 SSL 上下文：同步时每个 blob 一次请求
+_SSL_CONTEXTS: dict[str, ssl.SSLContext] = {}
 
 
 def safe_component(value: Any, what: str) -> str:
@@ -62,26 +71,110 @@ def safe_relative_path(value: Any) -> str:
     return text
 
 
-def check_server_url(url: str, *, allow_insecure_http: bool) -> str:
-    """服务端地址：https 放行；http 只放行回环地址，或工作区显式允许了局域网明文。"""
+def is_loopback_host(host: str | None) -> bool:
+    host = (host or "").strip("[]")
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def check_server_url(url: str, *, allow_insecure_http: bool, what: str = "服务端") -> str:
+    """服务端（或网关）地址：https 放行；http 只放行回环地址，或工作区显式允许了局域网明文。"""
     url = (url or "").strip().rstrip("/")
     parts = urlsplit(url)
+    fix = (f"最好直接用管理员给的连接串（形如 {CONNECTION_STRING_FORM}）" if what == "服务端"
+           else "网关地址由服务端下发，请管理员核对 gateway.url")
     if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise ClientError(f"server must be an http(s) URL: {url!r}")
+        raise ClientError(f"{what}地址不对（{url!r}）：要写成 https://主机:端口；{fix}")
+    try:
+        port = parts.port
+    except ValueError:
+        port = -1
+    if port is not None and not 0 < port < 65536:
+        raise ClientError(f"{what}地址里的端口不对（{url!r}）：端口是 1–65535 的数字；{fix}")
     if parts.username or parts.password:
-        raise ClientError("server URL must not carry credentials")
-    if parts.scheme == "http" and not allow_insecure_http:
-        host = parts.hostname
-        loopback = host == "localhost"
-        try:
-            loopback = loopback or ipaddress.ip_address(host).is_loopback
-        except ValueError:
-            pass
-        if not loopback:
-            raise ClientError(
-                "plain http to a non-loopback server sends the token in clear text; use https, "
-                "or re-run cex_init with insecure_lan=true if this is a trusted lab network")
+        raise ClientError(f"{what}地址里不能带用户名或口令（{parts.hostname}）：去掉 @ 及前面的部分")
+    if parts.scheme == "http" and not allow_insecure_http and not is_loopback_host(parts.hostname):
+        raise ClientError(
+            f"明文 http 连非本机的{what}（{parts.hostname}）会把登录令牌明文发到网络上：请改用 https，{fix}。"
+            f"确认是可信实验网、{what}确实只开了明文时，才在 cex_init 里加 insecure_lan=true 放行")
     return url
+
+
+_DEFAULT_PORTS = {"https": 443, "http": 80}
+
+
+def normalize_server_url(url: str) -> str:
+    """同一个服务端的不同写法统一成一种（判断"是不是同一个服务端"、写进配置都用它）：协议与主机名
+    小写，https 去掉 :443、http 去掉 :80，IPv6 用 urlsplit 解出的地址（再写成最短形式）加方括号，
+    去掉末尾的 /。解析不了的原样返回（由 check_server_url 报错）。"""
+    text = (url or "").strip().rstrip("/")
+    try:
+        parts = urlsplit(text)
+        port = parts.port
+    except ValueError:
+        return text
+    scheme, host = parts.scheme.lower(), parts.hostname
+    if scheme not in _DEFAULT_PORTS or not host:
+        return text
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if address is not None and address.version == 6:
+        host = f"[{address.compressed}]"
+    if port is not None and port != _DEFAULT_PORTS[scheme]:
+        host += f":{port}"
+    return urlunsplit((scheme, host, parts.path.rstrip("/"), parts.query, ""))
+
+
+def same_server(a: Any, b: Any) -> bool:
+    """两个地址是不是同一个服务端（按规范化后的写法比较；空的不算）。"""
+    left, right = str(a or "").strip(), str(b or "").strip()
+    return bool(left and right) and normalize_server_url(left) == normalize_server_url(right)
+
+
+_PEM_BEGIN = "-----BEGIN CERTIFICATE-----"
+_PEM_END = "-----END CERTIFICATE-----"
+
+
+def _whole_der_sequence(der: bytes) -> bool:
+    """DER 是一个完整的 SEQUENCE，长度正好到末尾（后面不许再拖别的字节）。"""
+    if len(der) < 2 or der[0] != 0x30:
+        return False
+    if der[1] < 0x80:
+        return 2 + der[1] == len(der)
+    count = der[1] & 0x7F
+    if not 1 <= count <= 4 or len(der) < 2 + count:
+        return False
+    return 2 + count + int.from_bytes(der[2:2 + count], "big") == len(der)
+
+
+def pem_to_der(pem: str) -> bytes:
+    """严格解析恰好一张证书的 PEM，返回 DER。ssl.PEM_cert_to_DER_cert 解码宽松：拼接的第二张、
+    夹在中间的非法字符都会被悄悄吞掉，按它算指纹可被绕过。这里只认：首尾只有空白、恰好一个
+    BEGIN/END CERTIFICATE 块、块内只有 base64 字符与换行（严格解码）、解出来是一个完整的 DER 序列。
+    不合要求抛 ValueError。"""
+    text = pem.strip()
+    if not (text.startswith(_PEM_BEGIN) and text.endswith(_PEM_END)) or text.count("-----") != 4:
+        raise ValueError("not exactly one PEM certificate block")
+    body = re.sub(r"[\r\n]+", "", text[len(_PEM_BEGIN):-len(_PEM_END)])
+    try:
+        der = base64.b64decode(body, validate=True)
+    except (binascii.Error, ValueError):
+        raise ValueError("the PEM body is not strict base64") from None
+    if not _whole_der_sequence(der):
+        raise ValueError("the PEM body is not one DER certificate")
+    return der
+
+
+def ca_fingerprint(pem: str) -> str:
+    """CA 证书 DER 编码的 SHA-256（64 位小写十六进制），与连接串里 #ca= 后面的指纹同一算法。
+    按 pem_to_der 严格解析；不是恰好一张 PEM 证书时抛 ValueError。"""
+    return hashlib.sha256(pem_to_der(pem)).hexdigest()
 
 
 @dataclass
@@ -113,6 +206,10 @@ class Workspace:
         return self.state_dir / "lease.json"
 
     @property
+    def ca_path(self) -> Path:
+        return self.state_dir / "ca.pem"
+
+    @property
     def outputs_dir(self) -> Path:
         return self.root / OUTPUTS_DIR
 
@@ -131,12 +228,47 @@ class Workspace:
     @property
     def server(self) -> str:
         cfg = self.config()
-        return check_server_url(str(cfg.get("server") or ""),
-                                allow_insecure_http=bool(cfg.get("allow_insecure_http")))
+        return normalize_server_url(check_server_url(
+            str(cfg.get("server") or ""), allow_insecure_http=bool(cfg.get("allow_insecure_http"))))
 
     @property
     def device_build(self) -> str:
-        return safe_component(self.config().get("device_build"), "device_build")
+        build = self.config().get("device_build")
+        if not build:
+            raise ClientError(NO_DEVICE_BUILD)
+        return safe_component(build, "device_build")
+
+    @property
+    def selected_build(self) -> str:
+        """已选的构建号；还没选时是空串（不抛错，给 cex_status 这类只报告状态的地方用）。"""
+        return str(self.config().get("device_build") or "")
+
+    def ssl_context(self) -> ssl.SSLContext | None:
+        """发往服务端、网关的 https 用哪个校验上下文：连接串带了 CA 指纹时是"系统证书库 + 工作区
+        ca.pem"（每次按配置里的指纹核对 ca.pem）；没带指纹返回 None，只用系统证书库（或 SSL_CERT_FILE）。
+        ca.pem 按 pem_to_der 严格解析，只信任解出的那一张（文件被追加了别的证书就整份拒绝）。"""
+        expected = str(self.config().get("ca_sha256") or "")
+        if not expected:
+            return None
+        broken = ("工作区里的 CA 证书（.compile-excel/ca.pem）{}：请用管理员给的连接串"
+                  f"（形如 {CONNECTION_STRING_FORM}）重新执行 cex_init")
+        if self.ca_path.is_symlink() or not self.ca_path.is_file():
+            raise ClientError(broken.format("不见了"))
+        try:
+            der = pem_to_der(self.ca_path.read_text(encoding="ascii"))
+        except (OSError, UnicodeError, ValueError):
+            raise ClientError(broken.format("读不出来，或不是恰好一张证书")) from None
+        if hashlib.sha256(der).hexdigest() != expected:
+            raise ClientError(broken.format("与配置里记的指纹不一致，可能被改动过"))
+        context = _SSL_CONTEXTS.get(expected)
+        if context is None:
+            context = ssl.create_default_context()
+            try:
+                context.load_verify_locations(cadata=der)
+            except ssl.SSLError:
+                raise ClientError(broken.format("读不出来，或不是恰好一张证书")) from None
+            _SSL_CONTEXTS[expected] = context
+        return context
 
     @property
     def channel(self) -> str:
@@ -291,15 +423,22 @@ def find(start: Path | None = None) -> Workspace | None:
 def require(start: Path | None = None) -> Workspace:
     ws = find(start)
     if ws is None:
-        raise ClientError("no compile-excel workspace here; run cex_init in the project folder first")
+        raise ClientError("这里还没有 compile-excel 工作区：先在项目文件夹里执行 cex_init"
+                          f"（server 用管理员给的连接串，形如 {CONNECTION_STRING_FORM}）")
     return ws
 
 
-def init(root: Path, *, server: str, device_build: str, channel: str = "stable",
-         insecure_lan: bool = False) -> Workspace:
+def init(root: Path, *, server: str, device_build: str = "", channel: str = "stable",
+         insecure_lan: bool = False, ca_sha256: str = "", ca_pem: str = "") -> Workspace:
+    """写工作区配置（不联网；探活与核对 CA 在 connect.setup 里做完才调这里）。
+    ca_sha256/ca_pem 是核对过的内置 CA；不给就删掉旧的 ca.pem，只用系统证书库。
+    地址按 normalize_server_url 规范化后保存，"是不是同一个服务端"也按规范化的写法判断。"""
     root = Path(root).expanduser().resolve()
-    check_server_url(server, allow_insecure_http=insecure_lan)
-    safe_component(device_build, "device_build")
+    server = normalize_server_url(check_server_url(server, allow_insecure_http=insecure_lan))
+    if device_build:
+        safe_component(device_build, "device_build")
+    if ca_sha256 and ca_fingerprint(ca_pem) != ca_sha256:
+        raise ClientError("CA 证书与指纹对不上，拒绝保存：请用管理员给的连接串重新执行 cex_init")
     ws = Workspace(root)
     ws.state_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(ws.state_dir, 0o700)
@@ -312,10 +451,16 @@ def init(root: Path, *, server: str, device_build: str, channel: str = "stable",
             previous = ws.config()
         except ClientError:
             previous = {}
-    if previous and previous.get("server") != server.rstrip("/"):
-        # 换服务端：令牌、服务端下发的组织常量（网关地址等）、租约、进行中的登录都属于旧服务端，丢掉
+    if previous and (not same_server(previous.get("server"), server)
+                     or str(previous.get("ca_sha256") or "") != ca_sha256):
+        # 换服务端（或换了信任的 CA）：令牌、服务端下发的组织常量（网关地址等）、租约、
+        # 进行中的登录都属于旧的那个，丢掉
         for stale in (ws.token_path, ws.client_config_path, ws.lease_path, ws.pending_login_path):
             stale.unlink(missing_ok=True)
-    ws.save_config({"server": server.rstrip("/"), "device_build": device_build,
-                    "channel": channel, "allow_insecure_http": bool(insecure_lan)})
+    if ca_sha256:
+        write_file_safely(ws.root, ws.ca_path, ca_pem.encode("ascii"), mode=0o644)
+    else:
+        ws.ca_path.unlink(missing_ok=True)
+    ws.save_config({"server": server, "device_build": device_build, "channel": channel,
+                    "allow_insecure_http": bool(insecure_lan), "ca_sha256": ca_sha256})
     return ws

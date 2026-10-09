@@ -8,7 +8,7 @@ from typing import Any
 
 from . import bundle
 from .errors import ClientError
-from .workspace import Workspace, safe_component
+from .workspace import NO_DEVICE_BUILD, Workspace, safe_component
 
 _TERM_RE = re.compile(r"[A-Za-z0-9_]+|[一-鿿]")
 _MAX_QUERY_CHARS = 512
@@ -62,7 +62,12 @@ def query(ws: Workspace, text: str, limit: int) -> dict[str, Any]:
     terms = _terms(text)
     if not terms:
         raise ClientError("q is required")
-    build = ws.device_build
+    build = ws.selected_build
+    if not build:
+        # 还没选构建号：本地手册没得查（与"没有同步数据"同一分支），服务端文档照查
+        return {"ok": False, "build": None, "error": NO_DEVICE_BUILD,
+                "next": "Log in (cex_login_start / cex_login_wait picks the device build) or set "
+                        "it with cex_init device_build, then call cex_sync."}
     with bundle.locked(ws, build, shared=True):
         manifest = bundle.cached_manifest(ws, build)
         if manifest is None:
