@@ -11,7 +11,7 @@ cex_recompose_seal ─► cex_bed_lease acquire ─► cex_bed_topology ─► c
       (pending shapes? ─► cex_criterion_record, see criterion.md)
   per case: read the card ─► write blocks ─► cex_author_submit_case
             ─► fix every violation / resolve or note every advisory ─► resubmit
-  ─► cex_author_emit (ok: true) ─► cex_scan_destructive ─► scripts/run_device.py
+  ─► cex_author_emit (ok: true) ─► cex_scan_destructive ─► run_device.js
 ```
 
 ## Read the card first
@@ -340,6 +340,6 @@ wrong: re-read the violation's `detail` and `legal_form` instead of resubmitting
 ## After a failed run
 
 Rework only the failed cases, and only in their mechanical cases: fix the blocks, resubmit with
-`cex_author_submit_case`, `cex_author_emit`, then `scripts/rework_gate.py` on the emitted
+`cex_author_submit_case`, `cex_author_emit`, then `rework_gate.js` on the emitted
 `compile_outputs/<batch>/cases.json`, `cex_scan_destructive`, and the run (SKILL.md §9). Never
-edit the emitted `cases.json`: the next emit overwrites it, and `compile_excel.py` refuses it.
+edit the emitted `cases.json`: the next emit overwrites it, and `compile_excel.js` refuses it.

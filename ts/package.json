@@ -1,9 +1,12 @@
 {
   "name": "compile-excel",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "compile-excel skill - TypeScript rewrite with Windows support",
   "type": "commonjs",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "cex_tool": "dist/bin/cex_tool.js",
     "cex_mcp": "dist/bin/cex_mcp_proxy.js"
@@ -12,7 +15,7 @@
     "build": "tsc -p tsconfig.json && npm run copy-assets",
     "copy-assets": "node scripts/copy-assets.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test dist/tests/"
+    "test": "tsc -p tsconfig.json && node --test \"dist/tests/*.test.js\""
   },
   "dependencies": {
     "cheerio": "^1.0.0",

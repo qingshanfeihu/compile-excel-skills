@@ -24,7 +24,7 @@ const _TMP_PREFIX = ".case.xlsx.tmp.";
 const _BACKUP_PREFIX = ".case.xlsx.previous.";
 const _REDACTED_TEMPLATE_CREDENTIAL = "<已移除凭据>";
 
-export const TEMPLATE_PATH = path.resolve(__dirname, "..", "..", "..", "..", "templates", "case_template.xlsx");
+export const TEMPLATE_PATH = path.resolve(__dirname, "..", "..", "..", "templates", "case_template.xlsx");
 
 export interface RuntimeTemplateSelection {
   path: string;
@@ -231,6 +231,85 @@ function _setRow(sheet: Worksheet, r: number, cols: Record<number, unknown>): vo
   }
 }
 
+function _decodeCellAddress(address: string): { col: number; row: number } | null {
+  const m = /^([A-Z]+)([0-9]+)$/.exec(address);
+  if (!m) return null;
+  let col = 0;
+  for (const ch of m[1]) col = col * 26 + (ch.charCodeAt(0) - 64);
+  return { col, row: Number.parseInt(m[2], 10) };
+}
+
+function _encodeCellAddress(col: number, row: number): string {
+  let c = col;
+  let letters = "";
+  while (c > 0) {
+    const rem = (c - 1) % 26;
+    letters = String.fromCharCode(65 + rem) + letters;
+    c = Math.floor((c - 1) / 26);
+  }
+  return `${letters}${row}`;
+}
+
+// exceljs expands a template's range sqref (E30:E5000) into one model entry per
+// cell, and its writer re-merges them in lexicographic address order, which
+// emits duplicated overlapping ranges (E30:E5000 + E100:E5000). Cells parsed
+// from one dataValidation node share the same validation object, so collapse
+// each object identity back into maximal rectangles and key the model by range;
+// range-keyed entries pass through the writer verbatim.
+export function _restoreRangeDataValidations(sheet: Worksheet): void {
+  const holder = (sheet as unknown as { dataValidations?: { model?: Record<string, unknown> } }).dataValidations;
+  const model = holder?.model;
+  if (!model) return;
+  const groups = new Map<object, Map<number, number[]>>();
+  for (const [address, spec] of Object.entries(model)) {
+    if (spec === null || spec === undefined) continue;
+    const cell = _decodeCellAddress(address);
+    if (cell === null) continue;
+    let cols = groups.get(spec as object);
+    if (!cols) {
+      cols = new Map();
+      groups.set(spec as object, cols);
+    }
+    const rows = cols.get(cell.col) ?? [];
+    rows.push(cell.row);
+    cols.set(cell.col, rows);
+  }
+  const merged: Record<string, unknown> = {};
+  for (const [spec, cols] of groups) {
+    const shapes = new Map<string, number[]>();
+    for (const [col, rowList] of cols) {
+      rowList.sort((a, b) => a - b);
+      let start = rowList[0];
+      for (let i = 1; i <= rowList.length; i++) {
+        if (i === rowList.length || rowList[i] !== rowList[i - 1] + 1) {
+          const shape = `${start}:${rowList[i - 1]}`;
+          const list = shapes.get(shape) ?? [];
+          list.push(col);
+          shapes.set(shape, list);
+          start = rowList[i];
+        }
+      }
+    }
+    for (const [shape, colList] of shapes) {
+      colList.sort((a, b) => a - b);
+      const [top, bottom] = shape.split(":").map(Number) as [number, number];
+      let startCol = colList[0];
+      for (let i = 1; i <= colList.length; i++) {
+        if (i === colList.length || colList[i] !== colList[i - 1] + 1) {
+          const left = startCol;
+          const right = colList[i - 1];
+          const single = left === right && top === bottom;
+          merged[single
+            ? _encodeCellAddress(left, top)
+            : `${_encodeCellAddress(left, top)}:${_encodeCellAddress(right, bottom)}`] = spec;
+          startCol = colList[i];
+        }
+      }
+    }
+  }
+  if (holder) holder.model = merged;
+}
+
 function _sanitizeInheritedTemplateCredentials(workbook: Workbook): void {
   const literals = Array.from(mirror_credential_literals())
     .filter((v) => v)
@@ -277,6 +356,8 @@ async function _buildWorkbook(
   const sel = selection ?? select_runtime_template();
   const wb = new Workbook();
   await wb.xlsx.load(sel.content as unknown as ArrayBuffer);
+  const [preSheet] = resolve_execution_sheet(wb, { allow_legacy: false });
+  _restoreRangeDataValidations(preSheet);
   _sanitizeInheritedTemplateCredentials(wb);
   const [sheet, layout] = resolve_execution_sheet(wb, { allow_legacy: false });
   const colA = sheet.getColumn(1);

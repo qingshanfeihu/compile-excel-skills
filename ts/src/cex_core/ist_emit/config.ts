@@ -8,12 +8,14 @@ const _CONFIG_PATH =
     : path.join(_ROOT, "runtime", "compiler_config.json");
 
 function _load_file_config(): Record<string, unknown> {
+  // 缺省路径通常不存在（纯默认值运行），与 Python 版一致静默跳过；
+  // 只有文件存在但读/解析失败才告警。
   try {
-    if (fs.statSync(_CONFIG_PATH).isFile()) {
+    if (fs.existsSync(_CONFIG_PATH) && fs.statSync(_CONFIG_PATH).isFile()) {
       return JSON.parse(fs.readFileSync(_CONFIG_PATH, "utf-8"));
     }
   } catch (exc) {
-    console.warn(`配置文件读取/解析失败: ${_CONFIG_PATH}`, exc);
+    console.warn(`配置文件读取/解析失败: ${_CONFIG_PATH}`, exc instanceof Error ? exc.message : exc);
   }
   return {};
 }

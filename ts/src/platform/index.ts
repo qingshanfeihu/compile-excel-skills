@@ -90,65 +90,109 @@ export interface FileLock {
 }
 
 const LOCK_POLL_MS = 50;
+// flock releases when the holder dies; an O_EXCL lockfile does not, so a
+// crash between acquire and release would wedge every later caller forever.
+// The lockfile carries the holder's pid and start time: a lock whose pid is
+// gone (or improbably old) is taken over.
+const LOCK_STALE_MS = 10 * 60 * 1000;
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e: any) {
+    return e && e.code === "EPERM";
+  }
+}
+
+function lockIsStale(lockPath: string): boolean {
+  let pid = 0;
+  let startMs = 0;
+  try {
+    const info = JSON.parse(fs.readFileSync(lockPath, "utf8")) as { pid?: number; started_ms?: number };
+    pid = Number(info.pid) || 0;
+    startMs = Number(info.started_ms) || 0;
+  } catch {
+    // unreadable payload: a fresh file is a holder between create and write
+    try {
+      return Date.now() - fs.statSync(lockPath).mtimeMs > 5000;
+    } catch {
+      return true;
+    }
+  }
+  if (pid > 0 && pid !== process.pid && processAlive(pid)) {
+    if (startMs > 0 && Date.now() - startMs > LOCK_STALE_MS) {
+      // held for implausibly long: treat as stale even with a live pid
+      // (pid reuse after a crash can otherwise keep a dead lock alive)
+      return true;
+    }
+    return false;
+  }
+  return pid !== process.pid;
+}
+
+function writeLockPayload(fd: number): void {
+  fs.writeSync(fd, JSON.stringify({ pid: process.pid, started_ms: Date.now() }));
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function tryTakeLock(lockPath: string): number | null {
+  try {
+    const fd = fs.openSync(lockPath, "wx");
+    writeLockPayload(fd);
+    return fd;
+  } catch (e: any) {
+    if (e && (e.code === "EEXIST" || e.code === "EACCES" || e.code === "EPERM")) {
+      if (lockIsStale(lockPath)) {
+        try {
+          fs.unlinkSync(lockPath);
+        } catch {}
+      }
+      return null;
+    }
+    throw e;
+  }
+}
+
+function releaseLockFd(fd: number, lockPath: string): void {
+  try {
+    fs.closeSync(fd);
+  } catch {}
+  try {
+    fs.unlinkSync(lockPath);
+  } catch {}
+}
 
 export async function acquireLock(lockPath: string, timeoutMs = 30000): Promise<FileLock> {
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   const deadline = Date.now() + timeoutMs;
-  let fd: number | null = null;
-  while (fd === null) {
-    try {
-      fd = fs.openSync(lockPath, "wx");
-    } catch (e: any) {
-      if (e && (e.code === "EEXIST" || e.code === "EACCES" || e.code === "EPERM")) {
-        if (Date.now() > deadline) {
-          throw new Error(`timed out acquiring lock ${lockPath}`);
-        }
-        await new Promise((r) => setTimeout(r, LOCK_POLL_MS));
-        continue;
-      }
-      throw e;
+  for (;;) {
+    const fd = tryTakeLock(lockPath);
+    if (fd !== null) {
+      return { release: () => releaseLockFd(fd, lockPath) };
     }
+    if (Date.now() > deadline) {
+      throw new Error(`timed out acquiring lock ${lockPath}`);
+    }
+    await new Promise((r) => setTimeout(r, LOCK_POLL_MS));
   }
-  const fdHeld = fd;
-  return {
-    release() {
-      try {
-        fs.closeSync(fdHeld);
-      } catch {}
-      try {
-        fs.unlinkSync(lockPath);
-      } catch {}
-    },
-  };
 }
 
 export function acquireLockSync(lockPath: string, timeoutMs = 30000): FileLock {
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    try {
-      const fd = fs.openSync(lockPath, "wx");
-      return {
-        release() {
-          try {
-            fs.closeSync(fd);
-          } catch {}
-          try {
-            fs.unlinkSync(lockPath);
-          } catch {}
-        },
-      };
-    } catch (e: any) {
-      if (e && (e.code === "EEXIST" || e.code === "EACCES" || e.code === "EPERM")) {
-        if (Date.now() > deadline) {
-          throw new Error(`timed out acquiring lock ${lockPath}`);
-        }
-        const waitUntil = Date.now() + LOCK_POLL_MS;
-        while (Date.now() < waitUntil) {}
-        continue;
-      }
-      throw e;
+    const fd = tryTakeLock(lockPath);
+    if (fd !== null) {
+      return { release: () => releaseLockFd(fd, lockPath) };
     }
+    if (Date.now() > deadline) {
+      throw new Error(`timed out acquiring lock ${lockPath}`);
+    }
+    sleepSync(LOCK_POLL_MS);
   }
 }
 

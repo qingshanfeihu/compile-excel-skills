@@ -9,7 +9,7 @@ license: Proprietary
 Compile case content into a `case.xlsx` the device framework can actually run, then run it on
 the bed and bring the verdicts back. Wrong structure does not fail loudly: the framework
 silently skips case rows and reports a **vacuous pass**. That is why structure is owned by
-scripts, never by hand-rolled openpyxl.
+scripts, never by hand-rolled xlsx tooling.
 
 The project folder is the workspace. Compile data, the OAuth token and all products live
 there (`.compile-excel/` for state, `compile_outputs/` for products). The folder holds exactly
@@ -24,13 +24,13 @@ portal session sits in a private per-user cache. Nothing secret passes through t
 | Compile a mindmap | `mindmap-recompose` skill (seal) → `cex_bed_lease acquire` → `cex_bed_topology` → `cex_author_prepare` → one `cex_author_submit_case` per case → `cex_author_emit` ([authoring](references/authoring.md)) |
 | Type a new verdict shape | `cex_author_prepare` stops at `criterion_pending` → `cex_criterion_record` ([criterion](references/criterion.md)) |
 | Look up manual text / a command's manual line | `cex_docs_query` searches the current build's locally synced manuals first, then online server documents; `cex_lang_query` `{"kind": "param", "name": "<head>"}` |
-| Ground commands against the build | `cex_cmd_check` while authoring; `scripts/cmdtree_check.py` as the gate for hand-written cases |
-| Compile plain step text (no mindmap) | You write `compile_outputs/<batch>/cases.json` → `scripts/cmdtree_check.py` → `scripts/compile_excel.py` |
-| Static acceptance | `scripts/verify_batch.py` + `cex_scan_destructive` |
-| Run on the bed (上机) | `cex_bed_lease acquire` → `cex_env_prepare` → `scripts/run_device.py` (or `cex_case_submit` / `cex_case_status` / `cex_case_results`) → `cex_bed_lease release` |
-| Rework a mindmap batch (返工) | `cex_author_submit_case` for the failed cases → `cex_author_emit` → `scripts/rework_gate.py` on the emitted `cases.json` → `cex_scan_destructive` → rerun |
-| Rework plain step text (返工) | fix the failed cases in `cases.json` → `scripts/rework_gate.py` → compile → verify → `cex_scan_destructive` → rerun |
-| Backfill results (回填) | `scripts/backfill.py` → `footprint.jsonl` |
+| Ground commands against the build | `cex_cmd_check` while authoring; `cmdtree_check.js` as the gate for hand-written cases |
+| Compile plain step text (no mindmap) | You write `compile_outputs/<batch>/cases.json` → `cmdtree_check.js` → `compile_excel.js` |
+| Static acceptance | `verify_batch.js` + `cex_scan_destructive` |
+| Run on the bed (上机) | `cex_bed_lease acquire` → `cex_env_prepare` → `run_device.js` (or `cex_case_submit` / `cex_case_status` / `cex_case_results`) → `cex_bed_lease release` |
+| Rework a mindmap batch (返工) | `cex_author_submit_case` for the failed cases → `cex_author_emit` → `rework_gate.js` on the emitted `cases.json` → `cex_scan_destructive` → rerun |
+| Rework plain step text (返工) | fix the failed cases in `cases.json` → `rework_gate.js` → compile → verify → `cex_scan_destructive` → rerun |
+| Backfill results (回填) | `backfill.js` → `footprint.jsonl` |
 | Verification failed | `references/gotchas.md` feedback → fix table |
 
 ## Tools
@@ -41,11 +41,16 @@ they are listed with the plugin prefix (`mcp__plugin_compile-excel_compile-excel
 harness exposes none of them, call the same tools from a shell:
 
 ```bash
-CEX_HOME="$(python3 scripts/_cex_path.py)"          # prints the distribution root
-python3 "$CEX_HOME/bin/cex_tool" list                 # tool names and argument schemas
-python3 "$CEX_HOME/bin/cex_tool" cex_status '{"workspace": "<project folder>"}'
-python3 "$CEX_HOME/bin/cex_tool" cex_author_submit_case - < args.json   # argument object via stdin
+CEX_HOME="$(node scripts/_cex_path.js)"              # prints the distribution root
+node "$CEX_HOME/dist/bin/cex_tool.js" list             # tool names and argument schemas
+node "$CEX_HOME/dist/bin/cex_tool.js" cex_status '{"workspace": "<project folder>"}'
+node "$CEX_HOME/dist/bin/cex_tool.js" cex_author_submit_case - < args.json   # argument object via stdin
 ```
+
+Skill scripts live in the same distribution: run them as
+`node "$CEX_HOME/dist/skills_scripts/<name>.js"` (compile_excel / verify_batch / run_device /
+rework_gate / backfill / cmdtree_check). Resolve `CEX_HOME` once per session with
+`node scripts/_cex_path.js` from this skill's directory.
 
 Every tool takes `workspace` (the project folder); when it is omitted the tool uses
 `$CEX_WORKSPACE`, else the nearest folder above the current directory that has `.compile-excel/`.
@@ -54,12 +59,12 @@ Results are JSON with `ok`; on `ok: false` read `error` / `problems` and relay t
 ## Requirements for every output
 
 1. **The only paths to a workbook are `cex_author_emit` (mindmap batches) and
-   `scripts/compile_excel.py` gated by `scripts/cmdtree_check.py` (plain step text).**
+   `compile_excel.js` gated by `cmdtree_check.js` (plain step text).**
    The execution header sits at row 29 (not row 1), the contract marker and the
    `IST_EXECUTION_SHEET` defined-name must survive, and hand-rolled sheets misalign the
    C/E/F/G columns: the framework then finds no case rows and passes vacuously. A mindmap
    batch's `cases.json` is the engine's expansion of its sealed cases: it changes only through
-   `cex_author_submit_case` + `cex_author_emit`. `compile_excel.py` refuses it (it carries the
+   `cex_author_submit_case` + `cex_author_emit`. `compile_excel.js` refuses it (it carries the
    `_generated` marker) unless the user asks for `--allow-edited-emit`, and then the product is no
    longer the engine-sealed batch; say so in the report.
 2. **Every case carries at least one check_point that can pass.** The framework passes a case
@@ -72,16 +77,16 @@ Results are JSON with `ok`; on `ok: false` read `error` / `problems` and relay t
    `test_env` probe, and `cmd` (which runs in the device's Linux root shell, not the CLI). A step
    with `h` (save_as) stores its output in a register and leaves the result alone; `cmds_config`
    and `time::sleep` return nothing. An assertion with no un-`h` step before it, or whose nearest
-   one is not an observation, is dangling: `verify_batch.py` fails it and the engine rejects it
+   one is not an observation, is dangling: `verify_batch.js` fails it and the engine rejects it
    (`dangling_assertion`); on the device a missing result makes the framework reject the file or
    raise at that row, and no later case runs. See `references/gotchas.md` before choosing methods.
 5. **Expected values come from sources, never from the device.** A check_point's expectation
    is author text, spec, manual, defect ticket, config binding or capability XML, cited in its
    `source`. Output from `cex_probe_show` or a failed run is the *actual* side: use it to
    understand a failure, never copy it into an expectation to make a case pass.
-6. **A product ships only when** `verify_batch.py` fails 0, `cex_scan_destructive` finds
+6. **A product ships only when** `verify_batch.js` fails 0, `cex_scan_destructive` finds
    nothing, and the on-device run has fail 0, broken 0 and not_run 0.
-7. **Rework goes through `scripts/rework_gate.py`**: the cases you rerun must come from the prior
+7. **Rework goes through `rework_gate.js`**: the cases you rerun must come from the prior
    fail set, and prior-pass cases are locked: every row of them, and the shared `init_commands`,
    must stay exactly as they ran. Never recompile a passing case away silently; a wholesale
    restart needs `--force --reason "<why>"` and is recorded.
@@ -89,7 +94,7 @@ Results are JSON with `ok`; on `ok: false` read `error` / `problems` and relay t
    `cex_env_prepare`, the run, `cex_probe_show`, `cex_init_device`) and release it as soon as that
    work is done: authoring reads the stored bed facts and needs no lease, so release it after
    `cex_bed_topology` when writing the cases will take long and acquire it again for the run.
-   `heartbeat` during long work (`run_device.py` does so while it waits); the lease lapses after
+   `heartbeat` during long work (`run_device.js` does so while it waits); the lease lapses after
    the `expires_in_s` that `acquire` reports. When `acquire` reports the bed is leased by someone
    else, tell the user who holds it and for how long, and wait for their call instead of retrying
    in a loop.
@@ -99,12 +104,13 @@ Results are JSON with `ok`; on `ok: false` read `error` / `problems` and relay t
 ### 1. Dependency probe (every compile, before anything)
 
 ```bash
-python3 -c "import openpyxl"
+node --version                                                  # needs v20 or newer
+node -e "require.resolve('exceljs', {paths:[process.env.CEX_HOME]})"
 ```
 
-If it is missing, tell the user and get confirmation before
-`pip install -r "$CEX_HOME/requirements.txt"`. Never install silently; if the user declines,
-stop, because compiling is impossible without it.
+If Node is too old, tell the user and stop until a newer one is on PATH. If the module probe
+fails, tell the user and get confirmation before `npm install --omit=dev` inside `$CEX_HOME`.
+Never install silently; if the user declines, stop, because compiling is impossible without it.
 
 ### 2. Workspace, login, compile data
 
@@ -242,7 +248,7 @@ parameters fit" for a list of candidate commands (at most 200 per call). Before 
 the gate:
 
 ```bash
-python3 scripts/cmdtree_check.py --cases <workspace>/compile_outputs/<batch>/cases.json
+node "$CEX_HOME/dist/skills_scripts/cmdtree_check.js" --cases <workspace>/compile_outputs/<batch>/cases.json
 ```
 
 Whether a command exists on this build is decided by the command-tree projection alone. The gate
@@ -257,7 +263,7 @@ rows included). Exit 2 = no projection yet: run `cex_sync`.
 ### 7. Compile
 
 ```bash
-python3 scripts/compile_excel.py --cases <workspace>/compile_outputs/<batch>/cases.json \
+node "$CEX_HOME/dist/skills_scripts/compile_excel.js" --cases <workspace>/compile_outputs/<batch>/cases.json \
     --out <workspace>/compile_outputs
 ```
 
@@ -281,7 +287,7 @@ whenever it exists.
 ### 8. Static verification (every time)
 
 ```bash
-python3 scripts/verify_batch.py --xlsx <workspace>/compile_outputs/<batch>/case.xlsx
+node "$CEX_HOME/dist/skills_scripts/verify_batch.js" --xlsx <workspace>/compile_outputs/<batch>/case.xlsx
 ```
 
 Then `cex_scan_destructive` with the same `xlsx`. The first is the structural gate: structure,
@@ -304,7 +310,7 @@ plain step text is fixed in `cases.json`, then recompiled and re-verified.
 3. Run the workbook:
 
    ```bash
-   python3 scripts/run_device.py --xlsx <workspace>/compile_outputs/<batch>/case.xlsx
+   node "$CEX_HOME/dist/skills_scripts/run_device.js" --xlsx <workspace>/compile_outputs/<batch>/case.xlsx
    ```
 
    It submits through the gateway, prints `task_id` to stderr as soon as the gateway accepts the
@@ -356,10 +362,10 @@ failed cases, in this order:
   (`cex_author_submit_case`) → `cex_author_emit` → the rework gate on the emitted
   `compile_outputs/<batch>/cases.json` → `cex_scan_destructive` → rerun.
 - **Plain step text:** fix the failed cases in `cases.json` per `references/gotchas.md` → the
-  rework gate → compile → `verify_batch.py` → `cex_scan_destructive` → rerun.
+  rework gate → compile → `verify_batch.js` → `cex_scan_destructive` → rerun.
 
 ```bash
-python3 scripts/rework_gate.py --batch-dir <workspace>/compile_outputs/<batch> \
+node "$CEX_HOME/dist/skills_scripts/rework_gate.js" --batch-dir <workspace>/compile_outputs/<batch> \
     --cases <workspace>/compile_outputs/<batch>/cases.json
 ```
 
@@ -381,7 +387,7 @@ stay listed as overridden and the reason is recorded in `rework.json`.
 ### 10. Backfill (回填)
 
 ```bash
-python3 scripts/backfill.py --results <workspace>/compile_outputs/<batch>/run_results.json
+node "$CEX_HOME/dist/skills_scripts/backfill.js" --results <workspace>/compile_outputs/<batch>/run_results.json
 ```
 
 Appends every case verdict of the run to `footprint.jsonl` (append-only; once per `task_id`).
@@ -405,7 +411,7 @@ not run (e.g. no bed lease) instead of implying they passed.
 
 - `compile_outputs/<batch>/` holds `case.xlsx`, `provenance.json`, `run_results.json`,
   `run_receipt.md` and `footprint.jsonl` with this run appended;
-- `verify_batch.py` fails 0, `cex_scan_destructive` is clean, and the on-device run has
+- `verify_batch.js` fails 0, `cex_scan_destructive` is clean, and the on-device run has
   fail 0, broken 0 and not_run 0 (or the user accepted the remaining failures after seeing the
   evidence);
 - the bed lease is released;
@@ -423,10 +429,11 @@ not run (e.g. no bed lease) instead of implying they passed.
   `abs_found` (literal) or escaping.
 - **A `found` G that matches the command itself is a false pass**: an expectation that is a
   word of the observation command matches the echoed command line, not the output.
-  `verify_batch.py` rejects this; make G specific enough to match only a data line.
+  `verify_batch.js` rejects this; make G specific enough to match only a data line.
 
 ## Dependencies
 
-python3 (3.9+) · openpyxl (probe first, install only with user consent) · beautifulsoup4 and
-PyYAML for `cex_bug_get`. The client itself uses only the standard library. The on-device
-stage needs the gateway the server publishes (`cex_client_config`) and a bed lease.
+Node.js ≥ 20 · the distribution's npm dependencies installed once by the installer or with
+user consent via `npm install --omit=dev` in `$CEX_HOME` (exceljs, fast-xml-parser, yaml, zod,
+cheerio). No Python runtime is needed. The on-device stage needs the gateway the server
+publishes (`cex_client_config`) and a bed lease.

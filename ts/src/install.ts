@@ -16,7 +16,7 @@ const SHIM_MARKER = "# compile-excel install.py";
 const MJS_MARKER = "// " + SHIM_MARKER;
 const SKIP_DIRS = new Set([".git", "tests", "__pycache__", ".pytest_cache", ".ruff_cache",
   ".mypy_cache", "node_modules", ".venv", "venv", ".compile-excel", "compile_outputs",
-  ".circle", ".agents", "dist"]);
+  ".circle", ".agents"]);
 const SKIP_FILES = new Set(["_identities.json", "token.json", "lease.json", "login_pending.json",
   "client_config.json", "tasks.json", ".DS_Store", ".cex_home", INSTALL_RECORD]);
 const SKIP_SUFFIXES = [".pyc", ".pyo", ".tmp"];
@@ -28,7 +28,8 @@ const REQUIRED = [
   path.join("dist", "bin", "cex_mcp_proxy.js"),
   ...SKILLS.map((n) => path.join("skills", n, "SKILL.md")),
   path.join("adapters", "circle", "extension.mjs"),
-  path.join("adapters", "claude-plugin", "plugin.json"),
+  path.join(".claude-plugin", "plugin.json"),
+  path.join(".claude-plugin", "marketplace.json"),
   "package.json",
 ];
 
@@ -63,7 +64,7 @@ function walkFiles(root: string, base = root): string[] {
   return out;
 }
 
-function distributableFiles(root: string): string[] {
+export function distributableFiles(root: string): string[] {
   let listed: string[] | null = null;
   if (fs.existsSync(path.join(root, ".git")) && which("git")) {
     try {
@@ -82,6 +83,12 @@ function distributableFiles(root: string): string[] {
       const st = fs.lstatSync(p);
       if (!excluded(rel) && st.isFile() && !st.isSymbolicLink()) out.add(rel);
     } catch {}
+  }
+  // dist/ is build output and gitignored, but the installed copy must run:
+  // git ls-files never lists it, so add it explicitly.
+  const distDir = path.join(root, "dist");
+  if (fs.existsSync(distDir)) {
+    for (const rel of walkFiles(distDir, root)) out.add(rel);
   }
   return [...out].sort();
 }
@@ -130,15 +137,15 @@ function rmrf(p: string): void {
   fs.rmSync(p, { recursive: true, force: true });
 }
 
-class Installer {
+export class Installer {
   constructor(public prefix: string, public dryRun: boolean) {}
 
-  run(argv: string[], actions: string[], opts: { timeout?: number; check?: boolean; readonly?: boolean } = {}): string | null {
-    const { timeout = 300000, check = true, readonly = false } = opts;
-    actions.push("$ " + argv.join(" "));
+  run(argv: string[], actions: string[], opts: { timeout?: number; check?: boolean; readonly?: boolean; cwd?: string } = {}): string | null {
+    const { timeout = 300000, check = true, readonly = false, cwd } = opts;
+    actions.push("$ " + (cwd ? `cd ${cwd} && ` : "") + argv.join(" "));
     if (this.dryRun && !readonly) return null;
     try {
-      return execFileSync(argv[0], argv.slice(1), { timeout, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      return execFileSync(argv[0], argv.slice(1), { timeout, cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     } catch (e: any) {
       if (check) {
         const detail = String(e.stderr || e.stdout || e.message || "").trim().slice(-600);
@@ -207,6 +214,11 @@ class Installer {
     makeExecutable(path.join(staged, "dist", "bin", "cex_tool.js"));
     makeExecutable(path.join(staged, "dist", "bin", "cex_mcp_proxy.js"));
     if (fs.existsSync(this.prefix)) fs.renameSync(this.prefix, old);
+    // an upgrade must not drop the dependencies the previous install installed
+    const installedDeps = path.join(old, "node_modules");
+    if (fs.existsSync(installedDeps)) {
+      fs.renameSync(installedDeps, path.join(staged, "node_modules"));
+    }
     fs.renameSync(staged, this.prefix);
     rmrf(old);
     return report;
@@ -233,7 +245,7 @@ class Installer {
     });
     report.missing = missing;
     if (missing.length && install) {
-      this.run(["npm", "install", "--omit=dev", "--no-audit", "--no-fund"], report.actions, { timeout: 900000 });
+      this.run(["npm", "install", "--omit=dev", "--no-audit", "--no-fund"], report.actions, { timeout: 900000, cwd: probeRoot });
       report.missing = [];
     } else if (missing.length) {
       report.next = `ask the user, then: npm install in ${probeRoot} (or re-run install with --install-deps)`;
@@ -456,4 +468,6 @@ function main(argv: string[]): number {
   return report.ok ? 0 : 1;
 }
 
-process.exit(main(process.argv.slice(2)));
+if (require.main === module) {
+  process.exit(main(process.argv.slice(2)));
+}

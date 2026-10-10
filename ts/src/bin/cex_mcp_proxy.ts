@@ -1,8 +1,13 @@
 #!/usr/bin/env node
+import fs from "node:fs";
+import path from "node:path";
 import readline from "node:readline";
 import * as tools from "../cex_client/tools";
 
-const SERVER_INFO = { name: "compile-excel", version: "0.3.0" };
+const PKG_VERSION = String(
+  JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "..", "package.json"), "utf8")).version || "0",
+);
+const SERVER_INFO = { name: "compile-excel", version: PKG_VERSION };
 const DEFAULT_PROTOCOL = "2025-06-18";
 
 function result(msgId: any, value: any) {

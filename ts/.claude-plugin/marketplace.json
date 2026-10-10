@@ -1,0 +1,16 @@
+{
+  "name": "compile-excel",
+  "owner": {
+    "name": "qingshanfeihu"
+  },
+  "metadata": {
+    "description": "compile-excel: test-case compilation and on-device runs for the InfoTest bed."
+  },
+  "plugins": [
+    {
+      "name": "compile-excel",
+      "source": "./",
+      "description": "Compile test cases (mindmap / case list / steps) into a device-ready case.xlsx and run them on the test bed through the jumphost gateway; products land in your project folder."
+    }
+  ]
+}

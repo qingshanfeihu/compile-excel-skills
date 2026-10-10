@@ -1,10 +1,10 @@
 # Gotchas：上机必炸的写法与 lint 反馈→修法对照
 
 来源：InfoTest structural_gate 实测判例（2026-09 真实返工两轮验证）与测试框架 test_xlsx 的执行语义。
-本地 `verify_batch.py` 是结构验收，**不判语义**；下表有的错本地就拦，有的引擎侧才拦。
+本地 `verify_batch.js` 是结构验收，**不判语义**；下表有的错本地就拦，有的引擎侧才拦。
 
 脑图批（`cex_author_emit` 出件）的修法落在机械用例上：改块、`cex_author_submit_case` 重交、再
-`cex_author_emit`。不要改出件的 `cases.json`——`compile_excel.py` 认得出件标记，会拒绝编译它。
+`cex_author_emit`。不要改出件的 `cases.json`——`compile_excel.js` 认得出件标记，会拒绝编译它。
 下表的修法按手写 `cases.json` 写。
 
 ## lint 反馈→修法对照表
@@ -15,7 +15,7 @@
 | `dangling_assertion` / verify 的 `no dangling check_point` | 断言读框架 result：本案里最近一条**不带 H** 的非断言步骤的返回值。没有这样的步骤、或它不是观察，就悬空：没有 result 时框架 preflight 整卷拒跑，result 为 None 时运行到这一行抛错，后面的案都不跑 | 保证断言**正上方**（中间只隔带 H 的步或别的断言）是一个**无 h** 的观察步 |
 | `dangling_assertion`（成因A） | 最近那条无 h 的步骤不是观察：`cmds_config` 与 `time::sleep` 返回 None，`cmd_enable` 引擎也不算观察 | 在断言前补一步观察（`cmd_config` 的 show…），配置放在它前面 |
 | `dangling_assertion`（成因B） | 前面的观察步都带 `h`（save_as）——捕获进变量，**不更新 framework result**；案首直接断言同理 | 简单断言：去掉 `h`；要比对变量：三步捕获形式（下节） |
-| CLI 命令写成 `APV_0::cmd` | `cmd` 在设备的 Linux root shell 里执行（框架 `APV.cmd` → root shell），`show …` 这类 CLI 命令在 shell 里跑不起来，断言读到的是 shell 的报错 | CLI 命令一律 `cmd_config`；`cmd` 只放 shell 命令（`ls`、`cat`、`/ca/bin/…`）。`cmdtree_check.py` 对 `cmd` 里的 CLI 命令给警告 |
+| CLI 命令写成 `APV_0::cmd` | `cmd` 在设备的 Linux root shell 里执行（框架 `APV.cmd` → root shell），`show …` 这类 CLI 命令在 shell 里跑不起来，断言读到的是 shell 的报错 | CLI 命令一律 `cmd_config`；`cmd` 只放 shell 命令（`ls`、`cat`、`/ca/bin/…`）。`cmdtree_check.js` 对 `cmd` 里的 CLI 命令给警告 |
 | `autoid_malformed` / 边界丢失 | autoid 非 18 位数字（或 <12 位） | 12-24 位纯数字，生产惯例 18 位 |
 | `found` 自匹配失败 | 期望文本含正则元字符（`.` `+` `@` `$` 等），框架按**正则**编译 G | 字面比对用 `abs_found`；或逐个转义（`10\.1\.1\.1`） |
 | **`found` 期望值包含命令关键词** | G="version" 会匹配到上一步命令 "show version"，引擎判定为自匹配、假通过 | **期望值必须比命令更具体**：改 `g="Version:"`（带冒号/前缀）或 `g="V[0-9]"`（正则匹配版本号格式），让期望匹配输出而非命令本身 |
@@ -55,6 +55,6 @@
 ## verify 的语义边界
 
 - `verify_batch` 全绿 ≠ 语义正确：它判结构、悬空断言、恒真族、出处边车与 init 隔离；G 的语法与
-  命令是否在这个 build 上存在它不判（后者是 `cmdtree_check.py`），期望对不对更不判。
+  命令是否在这个 build 上存在它不判（后者是 `cmdtree_check.js`），期望对不对更不判。
 - 语义终判是上机：经网关跑框架、取结果库判定（SKILL.md 第 9 步）。没上机就在汇报里明说
   "语义终判未跑"，不要拿 verify_batch 的结果顶替。

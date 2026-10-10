@@ -13,17 +13,19 @@
 - `src/bin/cex_tool.ts` — `cex_tool list | <name> - | <name> '<json>'`
 - `src/bin/cex_mcp_proxy.ts` — stdio MCP 服务（Claude Code / Codex 等）
 - `src/install.ts` — 安装器：`node dist/install.js --harness circle|claude|pi|all [--upgrade] [--install-deps] [--dry-run]`
-- `adapters/` — harness 适配（circle extension.mjs、claude plugin.json、cex_mcp 启动 shim）
-- `skills/` — 模型说明（SKILL.md 等，内容沿用原版）
+- `adapters/` — harness 适配（circle extension.mjs、cex_mcp 启动 shim）
+- `skills/` — 模型说明（SKILL.md 等；命令入口是 `node "$CEX_HOME/dist/..."`，`scripts/_cex_path.js` 解析发行根）
 
-## 构建
+## 构建与测试
 
 ```
 npm install
 npm run build
+npm test
 ```
 
 `npm run build` 产出 `dist/` 并把 `tool_specs.json`、xlsx 模板、YAML 选择器等资源拷到 dist。
+`npm test` 编译后跑 `node --test`（编译往返、数据验证保持、平台锁、配置静默、版本一致、安装清单）。
 
 ## 冒烟验证
 
