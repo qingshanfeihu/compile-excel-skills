@@ -19,7 +19,7 @@ portal session sits in a private per-user cache. Nothing secret passes through t
 | Task | Approach |
 |---|---|
 | First use in this folder | `cex_status` → `cex_init` → `cex_login_start` / `cex_login_wait` → `cex_client_config` → `cex_sync` ([workspace setup](references/workspace-setup.md)) |
-| Every session | `cex_status`; log in again only if `logged_in` is false; `cex_sync` |
+| Every session | `cex_status`; log in again only if `logged_in` is false; `cex_sync`. When `cex_status` reports `update_available: true`, tell the user and upgrade only with their consent (re-run the installer with `--upgrade` from the repository checkout; `--rollback` restores the previous version if the new one misbehaves) |
 | Read a defect ticket as source | `cex_portal_login_start` → user scans → `cex_portal_login_wait` → `cex_bug_get` |
 | Compile a mindmap | `mindmap-recompose` skill (seal) → `cex_bed_lease acquire` → `cex_bed_topology` → `cex_author_prepare` → one `cex_author_submit_case` per case → `cex_author_emit` ([authoring](references/authoring.md)) |
 | Type a new verdict shape | `cex_author_prepare` stops at `criterion_pending` → `cex_criterion_record` ([criterion](references/criterion.md)) |

@@ -65,13 +65,74 @@ export async function cexInit(args: Record<string, unknown>): Promise<Record<str
   return out;
 }
 
+const UPSTREAM_REPO = (() => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "..", "package.json"), "utf8"));
+    const url = String(pkg.repository || "");
+    const m = /github\.com[/:]([^/]+\/[^/.]+?)(?:\.git)?$/i.exec(url);
+    if (m) return m[1];
+  } catch {}
+  return "qingshanfeihu/compile-excel-skills";
+})();
+
+export function installedVersion(): string {
+  try {
+    return String(JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "..", "package.json"), "utf8")).version || "unknown");
+  } catch {
+    return "unknown";
+  }
+}
+
+// Best-effort upstream check; offline or rate-limited callers just get null.
+export async function latestUpstreamRelease(): Promise<string | null> {
+  try {
+    const reply = await fetch(`https://api.github.com/repos/${UPSTREAM_REPO}/releases/latest`, {
+      headers: { accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!reply.ok) return null;
+    const data = JSON.parse(await reply.text()) as { tag_name?: string };
+    const tag = String(data.tag_name || "");
+    return tag.startsWith("v") ? tag.slice(1) : tag || null;
+  } catch {
+    return null;
+  }
+}
+
+function newerThan(candidate: string, base: string): boolean {
+  const c = candidate.split(".").map((p) => Number.parseInt(p, 10));
+  const b = base.split(".").map((p) => Number.parseInt(p, 10));
+  if (![...c, ...b].every(Number.isFinite)) return candidate !== base;
+  for (let i = 0; i < Math.max(c.length, b.length); i++) {
+    const d = (c[i] || 0) - (b[i] || 0);
+    if (d !== 0) return d > 0;
+  }
+  return false;
+}
+
+export async function versionStatus(): Promise<Record<string, unknown>> {
+  const installed = installedVersion();
+  const out: Record<string, unknown> = { installed_version: installed, upstream_repo: UPSTREAM_REPO };
+  const latest = await latestUpstreamRelease();
+  out.latest_upstream_release = latest;
+  if (latest && newerThan(latest, installed)) {
+    out.update_available = true;
+    out.update_hint = `A new compile-excel ${latest} is published (installed: ${installed}). Ask the user, then re-run the installer with --upgrade; --rollback switches back if the new version misbehaves.`;
+  } else {
+    out.update_available = false;
+  }
+  return out;
+}
+
 export async function cexStatus(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const versions = await versionStatus();
   const ws = find(args.workspace ? path.resolve(String(args.workspace)) : undefined);
   if (ws === null) {
     return {
       ok: false,
       workspace: null,
       next: "No workspace here; call cex_init with the connection string the administrator gave (https://host:8900#ca=<fingerprint>).",
+      ...versions,
     };
   }
   const build = ws.selectedBuild;
@@ -83,6 +144,7 @@ export async function cexStatus(args: Record<string, unknown>): Promise<Record<s
     device_build: build || null,
     device_build_selected: Boolean(build),
     channel: ws.channel,
+    ...versions,
   };
   if (!build) status.device_build_hint = NO_DEVICE_BUILD;
   try {

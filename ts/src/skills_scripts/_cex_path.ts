@@ -9,6 +9,22 @@ function isHome(p: string): boolean {
   return fs.existsSync(path.join(p, "dist", "cex_client", "tools.js"));
 }
 
+// 0.3.1+ installs use a versions layout: <root>/versions/<v>/ + <root>/current
+// (a ref file). Resolve such a root to its active version directory; flat
+// roots (development checkouts, pre-0.3.1 installs) pass through unchanged.
+function resolveCandidate(p: string): string | null {
+  if (isHome(p)) return path.resolve(p);
+  const ref = path.join(p, "current");
+  try {
+    const version = fs.readFileSync(ref, "utf8").trim();
+    if (version) {
+      const active = path.join(p, "versions", version);
+      if (isHome(active)) return path.resolve(active);
+    }
+  } catch {}
+  return null;
+}
+
 export function cex_home(): string | null {
   const candidates: string[] = [];
   if (process.env.CEX_HOME) candidates.push(process.env.CEX_HOME);
@@ -24,9 +40,10 @@ export function cex_home(): string | null {
     if (parent === dir) break;
     dir = parent;
   }
-  candidates.push(path.join(dataHome(), "current"));
+  candidates.push(dataHome());
   for (const candidate of candidates) {
-    if (isHome(candidate)) return path.resolve(candidate);
+    const resolved = resolveCandidate(candidate);
+    if (resolved !== null) return resolved;
   }
   return null;
 }
