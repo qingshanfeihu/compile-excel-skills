@@ -1,0 +1,13 @@
+node_modules/
+dist/
+runtime/
+*.log
+_tmp_*
+_conventions.json
+_convert_report.txt
+_curated.json
+_curated_line.txt
+.smoke/
+smoke_*
+errors.txt
+_errors.txt
