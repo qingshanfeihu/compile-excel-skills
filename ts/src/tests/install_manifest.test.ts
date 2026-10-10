@@ -117,6 +117,41 @@ test("sweepOrphans marks replaced versions and expires old ones", () => {
   }
 });
 
+test("an upgrade adopts a Python-era current/ directory as a rollback candidate", () => {
+  const prefix = fs.mkdtempSync(path.join(os.tmpdir(), "cex-prefix-"));
+  try {
+    // what 0.1.x left behind: <root>/current as a *directory* holding the distribution
+    fs.mkdirSync(path.join(prefix, "current", "cex_core"), { recursive: true });
+    fs.writeFileSync(path.join(prefix, "current", "cex_core", "__init__.py"), "", "utf8");
+    fs.writeFileSync(path.join(prefix, "current", "package.json"), JSON.stringify({ version: "0.1.0" }), "utf8");
+    const installer = new Installer(prefix, false);
+    installer.placeDistribution(true);
+    assert.ok(fs.existsSync(path.join(prefix, "versions", "legacy-0.1.0", "cex_core", "__init__.py")), "the python install must be kept under versions/");
+    assert.equal(fs.readFileSync(path.join(prefix, "current"), "utf8").trim(), installer.version(TS_ROOT), "current must become the ref file");
+  } finally {
+    fs.rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
+test("circle mounting refuses to replace a symlinked skill", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "cex-circle-"));
+  const previous = process.env.CIRCLE_HOME;
+  process.env.CIRCLE_HOME = home;
+  try {
+    fs.mkdirSync(path.join(home, "skills", "compile-excel"), { recursive: true });
+    fs.writeFileSync(path.join(home, "skills", "compile-excel", "SKILL.md"), "---\nname: compile-excel\n---\n", "utf8");
+    fs.symlinkSync("/tmp/definitely-not-here", path.join(home, "skills", "mindmap-recompose"));
+    const installer = new Installer(path.join(home, "dist"), false);
+    assert.throws(() => installer.circle(), /symlink/);
+    const st = fs.lstatSync(path.join(home, "skills", "mindmap-recompose"));
+    assert.ok(st.isSymbolicLink(), "the symlink must survive untouched");
+  } finally {
+    if (previous === undefined) delete process.env.CIRCLE_HOME;
+    else process.env.CIRCLE_HOME = previous;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("_cex_path resolves a versions layout through the current ref", async () => {
   const prefix = fs.mkdtempSync(path.join(os.tmpdir(), "cex-prefix-"));
   try {

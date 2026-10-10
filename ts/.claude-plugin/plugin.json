@@ -1,6 +1,6 @@
 {
   "name": "compile-excel",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Compile test cases (mindmap / case list / steps) into a device-ready case.xlsx and run them on the test bed through the jumphost gateway; products land in your project folder.",
   "author": {
     "name": "qingshanfeihu"

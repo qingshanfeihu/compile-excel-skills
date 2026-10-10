@@ -148,12 +148,15 @@ export class Installer {
   constructor(public prefix: string, public dryRun: boolean) {}
 
   currentRef(): string | null {
+    let st: fs.Stats;
     try {
-      const text = fs.readFileSync(path.join(this.prefix, CURRENT_REF), "utf8").trim();
-      return text || null;
+      st = fs.statSync(path.join(this.prefix, CURRENT_REF));
     } catch {
       return null;
     }
+    if (!st.isFile()) return null; // a *directory* named current is the Python-era layout
+    const text = fs.readFileSync(path.join(this.prefix, CURRENT_REF), "utf8").trim();
+    return text || null;
   }
 
   currentRoot(): string {
@@ -238,30 +241,38 @@ export class Installer {
   // Adopt a pre-0.3.1 flat install (or a Python-era install) as a rollback
   // candidate under versions/, then install the new release alongside it.
   recognizedInstall(): boolean {
-    return fs.existsSync(path.join(this.prefix, INSTALL_RECORD))
-      || fs.existsSync(path.join(this.prefix, "install.py"))
-      || fs.existsSync(path.join(this.prefix, "cex_core", "__init__.py"));
+    const flat = (rel: string) => fs.existsSync(path.join(this.prefix, rel));
+    return flat(INSTALL_RECORD) || flat("install.py") || flat(path.join("cex_core", "__init__.py"))
+      || flat(path.join(CURRENT_REF, "install.py")) || flat(path.join(CURRENT_REF, "cex_core", "__init__.py"));
   }
 
   adoptFlatLayout(actions: string[]): void {
     if (fs.existsSync(path.join(this.prefix, VERSIONS_DIR))) return;
+    // the Python 0.1.x layout kept the distribution in a *directory* named current
+    const pythonCurrent = fs.existsSync(path.join(this.prefix, CURRENT_REF))
+      && fs.statSync(path.join(this.prefix, CURRENT_REF)).isDirectory();
     const isOurs = fs.existsSync(path.join(this.prefix, INSTALL_RECORD));
-    const isPython = fs.existsSync(path.join(this.prefix, "install.py"))
-      || (fs.existsSync(path.join(this.prefix, "cex_core", "__init__.py")));
+    const isPython = pythonCurrent
+      || fs.existsSync(path.join(this.prefix, "install.py"))
+      || fs.existsSync(path.join(this.prefix, "cex_core", "__init__.py"));
     if (!isOurs && !isPython) {
       // an empty (or dotfile-only) directory is fine to install into
       const entries = fs.readdirSync(this.prefix).filter((n) => !n.startsWith("."));
       if (entries.length === 0) return;
       throw new InstallError(`${this.prefix} exists but was not written by this installer; choose another --prefix or move it away yourself`);
     }
-    const oldVersion = isPython ? "0.1.0" : this.installedVersion();
+    const oldRoot = pythonCurrent ? path.join(this.prefix, CURRENT_REF) : this.prefix;
+    let oldVersion = "0.1.0";
+    try {
+      oldVersion = String(JSON.parse(fs.readFileSync(path.join(oldRoot, "package.json"), "utf8")).version || "0.1.0");
+    } catch {}
     const held = `legacy-${oldVersion}`;
     actions.push(`adopt previous install as ${posix(path.join(VERSIONS_DIR, held))} (rollback candidate)`);
     if (this.dryRun) return;
     const versionsDir = path.join(this.prefix, VERSIONS_DIR);
     const stagedOld = this.prefix + ".adopting";
     fs.mkdirSync(path.dirname(this.prefix), { recursive: true });
-    fs.renameSync(this.prefix, stagedOld);
+    fs.renameSync(oldRoot, stagedOld);
     fs.mkdirSync(versionsDir, { recursive: true });
     fs.renameSync(stagedOld, path.join(versionsDir, held));
     fs.writeFileSync(path.join(versionsDir, held, ORPHAN_MARKER), String(Math.floor(Date.now() / 1000)), "utf8");
@@ -500,7 +511,15 @@ export class Installer {
     const skills = SKILLS.map((name) => path.join(home, "skills", name));
     const extDir = path.join(home, "extensions", "compile-excel");
     for (const target of [...skills, extDir]) {
-      if (fs.existsSync(target) && !Installer.ours(target)) {
+      let st: fs.Stats | null = null;
+      try {
+        st = fs.lstatSync(target);
+      } catch {}
+      if (st === null) continue;
+      if (st.isSymbolicLink()) {
+        throw new InstallError(`${target} is a symlink (a development checkout?); remove it yourself if you want the installed copy here`);
+      }
+      if (!Installer.ours(target)) {
         throw new InstallError(`${target} exists and was not written by this installer; move it away first`);
       }
     }
@@ -532,7 +551,18 @@ export class Installer {
     const entry = path.join(p, "extension.py");
     if (fs.existsSync(entry) && fs.readFileSync(entry, "utf8").startsWith(SHIM_MARKER)) return true;
     const module_ = path.join(p, "extension.mjs");
-    return fs.existsSync(module_) && fs.readFileSync(module_, "utf8").startsWith(MJS_MARKER);
+    if (fs.existsSync(module_) && fs.readFileSync(module_, "utf8").startsWith(MJS_MARKER)) return true;
+    // a skill directory this installer (or its Python predecessor) copied is
+    // recognised by its SKILL.md frontmatter name matching the folder
+    const skill = path.join(p, "SKILL.md");
+    if (fs.existsSync(skill)) {
+      try {
+        const head = fs.readFileSync(skill, "utf8").slice(0, 600);
+        const m = /^name:\s*(\S+)/m.exec(head);
+        if (m && SKILLS.includes(m[1]) && m[1] === path.basename(p)) return true;
+      } catch {}
+    }
+    return false;
   }
 
   verify(): any {
