@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // 找到 compile-excel 的 TypeScript 发行根（含 dist/cex_client/）并打印。
-// 顺序：1. 环境变量 CEX_HOME；2. skill 目录下的 .cex_home（安装器写入）；
+// 顺序：1. 环境变量 CEX_HOME；2. skill 目录下的 .cex_home（安装器写入，指向布局根）；
 // 3. 从本文件往上找（开发检出、插件缓存根）；4. 默认安装位
-//    （Windows %LOCALAPPDATA%\compile-excel\current，其余 ~/.local/share/compile-excel/current）。
+//    （Windows %LOCALAPPDATA%\compile-excel，其余 ~/.local/share/compile-excel）。
+// 0.3.1+ 的安装是 versions 布局：<root>/versions/<v>/ + <root>/current（ref 文件）；
+// 候选根没有 dist 时读 current 解析出激活的版本目录。平铺布局直接通过。
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -16,6 +18,18 @@ function isHome(p) {
   } catch {
     return false;
   }
+}
+
+function resolveCandidate(p) {
+  if (isHome(p)) return path.resolve(p);
+  try {
+    const version = fs.readFileSync(path.join(p, "current"), "utf8").trim();
+    if (version) {
+      const active = path.join(p, "versions", version);
+      if (isHome(active)) return path.resolve(active);
+    }
+  } catch {}
+  return null;
 }
 
 function dataHome() {
@@ -41,9 +55,10 @@ function cexHome() {
     if (parent === dir) break;
     dir = parent;
   }
-  candidates.push(path.join(dataHome(), "current"));
+  candidates.push(dataHome());
   for (const candidate of candidates) {
-    if (candidate && isHome(candidate)) return path.resolve(candidate);
+    const resolved = resolveCandidate(candidate);
+    if (resolved) return resolved;
   }
   return null;
 }

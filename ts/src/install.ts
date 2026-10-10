@@ -22,6 +22,10 @@ const SKIP_FILES = new Set(["_identities.json", "token.json", "lease.json", "log
 const SKIP_SUFFIXES = [".pyc", ".pyo", ".tmp"];
 const SKILLS = ["compile-excel", "mindmap-recompose"];
 const DEP_MODULES = ["exceljs", "yaml", "zod", "cheerio"];
+const VERSIONS_DIR = "versions";
+const CURRENT_REF = "current";
+const ORPHAN_MARKER = ".orphaned_at";
+const ORPHAN_GRACE_DAYS = 14;
 const REQUIRED = [
   path.join("dist", "cex_client", "tools.js"),
   path.join("dist", "bin", "cex_tool.js"),
@@ -138,7 +142,216 @@ function rmrf(p: string): void {
 }
 
 export class Installer {
+  // layoutRoot holds versions/<v>/ + current (a ref file) + shared node_modules.
+  // A pre-0.3.1 flat install (the root itself being the distribution) still
+  // resolves until it is upgraded.
   constructor(public prefix: string, public dryRun: boolean) {}
+
+  currentRef(): string | null {
+    try {
+      const text = fs.readFileSync(path.join(this.prefix, CURRENT_REF), "utf8").trim();
+      return text || null;
+    } catch {
+      return null;
+    }
+  }
+
+  currentRoot(): string {
+    const ref = this.currentRef();
+    if (ref !== null) return path.join(this.prefix, VERSIONS_DIR, ref);
+    return this.prefix;
+  }
+
+  installedVersion(): string {
+    const root = this.currentRoot();
+    try {
+      return String(JSON.parse(fs.readFileSync(path.join(root, INSTALL_RECORD), "utf8")).version || this.version(root));
+    } catch {
+      try {
+        return this.version(root);
+      } catch {
+        return "unknown";
+      }
+    }
+  }
+
+  listVersions(): { name: string; dir: string }[] {
+    const dir = path.join(this.prefix, VERSIONS_DIR);
+    let names: string[];
+    try {
+      names = fs.readdirSync(dir).filter((n) => fs.statSync(path.join(dir, n)).isDirectory() && !n.startsWith("."));
+    } catch {
+      return [];
+    }
+    return names.map((name) => ({ name, dir: path.join(dir, name) }));
+  }
+
+  static compareVersion(a: string, b: string): number {
+    const semver = (s: string) => s.split(".").map((p) => Number.parseInt(p, 10));
+    const an = semver(a);
+    const bn = semver(b);
+    if (an.every(Number.isFinite) && bn.every(Number.isFinite)) {
+      for (let i = 0; i < Math.max(an.length, bn.length); i++) {
+        const d = (an[i] || 0) - (bn[i] || 0);
+        if (d !== 0) return d;
+      }
+      return 0;
+    }
+    // legacy-* names sort oldest
+    const legacy = (s: string) => s.startsWith("legacy");
+    if (legacy(a) === legacy(b)) return a.localeCompare(b);
+    return legacy(a) ? -1 : 1;
+  }
+
+  writeCurrentRef(version: string): void {
+    const tmp = path.join(this.prefix, CURRENT_REF + ".tmp");
+    fs.writeFileSync(tmp, version + "\n", "utf8");
+    fs.renameSync(tmp, path.join(this.prefix, CURRENT_REF));
+  }
+
+  // Mark replaced versions and remove the ones whose grace window has passed,
+  // so a bad upgrade can still be rolled back for ORPHAN_GRACE_DAYS days.
+  sweepOrphans(keepVersion: string): string[] {
+    const actions: string[] = [];
+    const now = Date.now();
+    for (const { name, dir } of this.listVersions()) {
+      if (name === keepVersion) {
+        const marker = path.join(dir, ORPHAN_MARKER);
+        if (fs.existsSync(marker)) fs.rmSync(marker);
+        continue;
+      }
+      const marker = path.join(dir, ORPHAN_MARKER);
+      if (!fs.existsSync(marker)) {
+        if (!this.dryRun) fs.writeFileSync(marker, String(Math.floor(now / 1000)), "utf8");
+        actions.push(`mark ${posix(path.join(VERSIONS_DIR, name))} orphaned (retained ${ORPHAN_GRACE_DAYS} days for rollback)`);
+        continue;
+      }
+      const orphanedAt = Number(fs.readFileSync(marker, "utf8")) * 1000;
+      if (Number.isFinite(orphanedAt) && now - orphanedAt > ORPHAN_GRACE_DAYS * 86400 * 1000) {
+        if (!this.dryRun) fs.rmSync(dir, { recursive: true, force: true });
+        actions.push(`remove expired ${posix(path.join(VERSIONS_DIR, name))}`);
+      }
+    }
+    return actions;
+  }
+
+  // Adopt a pre-0.3.1 flat install (or a Python-era install) as a rollback
+  // candidate under versions/, then install the new release alongside it.
+  recognizedInstall(): boolean {
+    return fs.existsSync(path.join(this.prefix, INSTALL_RECORD))
+      || fs.existsSync(path.join(this.prefix, "install.py"))
+      || fs.existsSync(path.join(this.prefix, "cex_core", "__init__.py"));
+  }
+
+  adoptFlatLayout(actions: string[]): void {
+    if (fs.existsSync(path.join(this.prefix, VERSIONS_DIR))) return;
+    const isOurs = fs.existsSync(path.join(this.prefix, INSTALL_RECORD));
+    const isPython = fs.existsSync(path.join(this.prefix, "install.py"))
+      || (fs.existsSync(path.join(this.prefix, "cex_core", "__init__.py")));
+    if (!isOurs && !isPython) {
+      // an empty (or dotfile-only) directory is fine to install into
+      const entries = fs.readdirSync(this.prefix).filter((n) => !n.startsWith("."));
+      if (entries.length === 0) return;
+      throw new InstallError(`${this.prefix} exists but was not written by this installer; choose another --prefix or move it away yourself`);
+    }
+    const oldVersion = isPython ? "0.1.0" : this.installedVersion();
+    const held = `legacy-${oldVersion}`;
+    actions.push(`adopt previous install as ${posix(path.join(VERSIONS_DIR, held))} (rollback candidate)`);
+    if (this.dryRun) return;
+    const versionsDir = path.join(this.prefix, VERSIONS_DIR);
+    const stagedOld = this.prefix + ".adopting";
+    fs.mkdirSync(path.dirname(this.prefix), { recursive: true });
+    fs.renameSync(this.prefix, stagedOld);
+    fs.mkdirSync(versionsDir, { recursive: true });
+    fs.renameSync(stagedOld, path.join(versionsDir, held));
+    fs.writeFileSync(path.join(versionsDir, held, ORPHAN_MARKER), String(Math.floor(Date.now() / 1000)), "utf8");
+  }
+
+  placeDistribution(upgrade: boolean): any {
+    const missing = REQUIRED.filter((rel) => !fs.existsSync(path.join(SOURCE, rel)));
+    if (missing.length) {
+      throw new InstallError(`source checkout is incomplete (run npm run build first), missing: ${missing.join(", ")}`);
+    }
+    const files = distributableFiles(SOURCE);
+    const stamped = pluginVersion(SOURCE, files);
+    const version = this.version(SOURCE);
+    const root = this.currentRoot();
+    const report: any = { path: root, layout_root: this.prefix, version, plugin_version: stamped, files: files.length, actions: [] };
+    if (path.resolve(root) === SOURCE) {
+      report.actions.push("running from the installed copy; nothing to copy");
+      report.plugin_version = this.installedPluginVersion() || stamped;
+      return report;
+    }
+    if (this.currentRef() === null && fs.existsSync(this.prefix)) {
+      if (!upgrade && this.recognizedInstall()) throw new AlreadyInstalled(this.prefix, this.installedVersion());
+      this.adoptFlatLayout(report.actions);
+    }
+    if (this.currentRef() !== null && !upgrade && this.installedVersion() === version) {
+      throw new AlreadyInstalled(this.currentRoot(), version);
+    }
+    const versionsDir = path.join(this.prefix, VERSIONS_DIR);
+    const versionDir = path.join(versionsDir, version);
+    const staged = path.join(versionsDir, `.staging-${version}`);
+    report.actions.push(`copy ${files.length} distributable files ${SOURCE} -> ${posix(path.join(VERSIONS_DIR, version))}`);
+    report.actions.push(`stamp ${posix(PLUGIN_MANIFEST)} version ${stamped}`);
+    report.actions.push(`point ${CURRENT_REF} -> ${version}`);
+    if (this.dryRun) {
+      report.actions.push(...this.sweepOrphans(version));
+      return report;
+    }
+    rmrf(staged);
+    fs.mkdirSync(versionsDir, { recursive: true });
+    fs.mkdirSync(staged);
+    for (const rel of files) copyFile(path.join(SOURCE, rel), path.join(staged, rel));
+    const manifestPath = path.join(staged, PLUGIN_MANIFEST);
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    manifest.version = stamped;
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+    fs.writeFileSync(path.join(staged, INSTALL_RECORD), JSON.stringify({
+      version, plugin_version: stamped,
+      installed_at: Math.floor(Date.now() / 1000), source: SOURCE,
+    }, null, 1) + "\n", "utf8");
+    makeExecutable(path.join(staged, "dist", "bin", "cex_tool.js"));
+    makeExecutable(path.join(staged, "dist", "bin", "cex_mcp_proxy.js"));
+    // activate: swap in the version directory, then flip the ref; the ref file
+    // rename is atomic, so a crash leaves either the old or the new version
+    rmrf(versionDir);
+    fs.renameSync(staged, versionDir);
+    // keep npm metadata at the layout root so one shared node_modules serves
+    // every version (Node resolves upwards and finds it)
+    fs.copyFileSync(path.join(SOURCE, "package.json"), path.join(this.prefix, "package.json"));
+    if (fs.existsSync(path.join(SOURCE, "package-lock.json"))) {
+      fs.copyFileSync(path.join(SOURCE, "package-lock.json"), path.join(this.prefix, "package-lock.json"));
+    }
+    this.writeCurrentRef(version);
+    report.actions.push(...this.sweepOrphans(version));
+    return report;
+  }
+
+  rollback(target: string | null): any {
+    const versions = this.listVersions();
+    if (!versions.length) throw new InstallError(`no versions installed under ${this.prefix}`);
+    const current = this.currentRef();
+    let pick: { name: string; dir: string } | undefined;
+    if (target === null) {
+      pick = versions
+        .filter((v) => v.name !== current)
+        .sort((a, b) => Installer.compareVersion(b.name, a.name))[0];
+      if (!pick) throw new InstallError(`no other version to roll back to (current: ${current ?? "none"})`);
+    } else {
+      pick = versions.find((v) => v.name === target);
+      if (!pick) throw new InstallError(`version ${target} is not installed; available: ${versions.map((v) => v.name).join(", ")}`);
+      if (pick.name === current) throw new InstallError(`version ${target} is already current`);
+    }
+    const actions: string[] = [];
+    if (!this.dryRun) {
+      const marker = path.join(pick.dir, ORPHAN_MARKER);
+      if (fs.existsSync(marker)) fs.rmSync(marker);
+      this.writeCurrentRef(pick.name);
+    }
+    actions.push(`point ${CURRENT_REF} -> ${pick.name}`);
+    return { ok: true, rolled_back_to: pick.name, from: current ?? null, actions };
+  }
 
   run(argv: string[], actions: string[], opts: { timeout?: number; check?: boolean; readonly?: boolean; cwd?: string } = {}): string | null {
     const { timeout = 300000, check = true, readonly = false, cwd } = opts;
@@ -174,59 +387,9 @@ export class Installer {
     }
   }
 
-  placeDistribution(upgrade: boolean): any {
-    const missing = REQUIRED.filter((rel) => !fs.existsSync(path.join(SOURCE, rel)));
-    if (missing.length) {
-      throw new InstallError(`source checkout is incomplete (run npm run build first), missing: ${missing.join(", ")}`);
-    }
-    const files = distributableFiles(SOURCE);
-    const stamped = pluginVersion(SOURCE, files);
-    const report: any = { path: this.prefix, version: this.version(SOURCE), plugin_version: stamped, files: files.length, actions: [] };
-    if (path.resolve(this.prefix) === SOURCE) {
-      report.actions.push("running from the installed copy; nothing to copy");
-      report.plugin_version = this.installedPluginVersion() || stamped;
-      return report;
-    }
-    if (fs.existsSync(this.prefix)) {
-      if (!upgrade) throw new AlreadyInstalled(this.prefix, this.version(this.prefix));
-      if (!fs.existsSync(path.join(this.prefix, INSTALL_RECORD))) {
-        throw new InstallError(`${this.prefix} exists but was not written by this installer; choose another --prefix or move it away yourself`);
-      }
-    }
-    const staged = this.prefix + ".new";
-    const old = this.prefix + ".old";
-    report.actions.push(`copy ${files.length} distributable files ${SOURCE} -> ${this.prefix}`);
-    report.actions.push(`stamp ${posix(PLUGIN_MANIFEST)} version ${stamped}`);
-    if (this.dryRun) return report;
-    rmrf(staged);
-    rmrf(old);
-    fs.mkdirSync(path.dirname(this.prefix), { recursive: true });
-    fs.mkdirSync(staged);
-    for (const rel of files) copyFile(path.join(SOURCE, rel), path.join(staged, rel));
-    const manifestPath = path.join(staged, PLUGIN_MANIFEST);
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-    manifest.version = stamped;
-    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
-    fs.writeFileSync(path.join(staged, INSTALL_RECORD), JSON.stringify({
-      version: report.version, plugin_version: stamped,
-      installed_at: Math.floor(Date.now() / 1000), source: SOURCE,
-    }, null, 1) + "\n", "utf8");
-    makeExecutable(path.join(staged, "dist", "bin", "cex_tool.js"));
-    makeExecutable(path.join(staged, "dist", "bin", "cex_mcp_proxy.js"));
-    if (fs.existsSync(this.prefix)) fs.renameSync(this.prefix, old);
-    // an upgrade must not drop the dependencies the previous install installed
-    const installedDeps = path.join(old, "node_modules");
-    if (fs.existsSync(installedDeps)) {
-      fs.renameSync(installedDeps, path.join(staged, "node_modules"));
-    }
-    fs.renameSync(staged, this.prefix);
-    rmrf(old);
-    return report;
-  }
-
   installedPluginVersion(): string {
     try {
-      return String(JSON.parse(fs.readFileSync(path.join(this.prefix, PLUGIN_MANIFEST), "utf8")).version || "");
+      return String(JSON.parse(fs.readFileSync(path.join(this.currentRoot(), PLUGIN_MANIFEST), "utf8")).version || "");
     } catch {
       return "";
     }
@@ -304,9 +467,10 @@ export class Installer {
       report.error = `Claude Code still lists ${PLUGIN} at version ${JSON.stringify(entry.version)}, not ${JSON.stringify(wanted)}; its cached copy was not replaced`;
       return report;
     }
-    const differing = distributableFiles(this.prefix).filter((rel) => {
+    const root = this.currentRoot();
+    const differing = distributableFiles(root).filter((rel) => {
       const cached = path.join(cache, rel);
-      const installed = path.join(this.prefix, rel);
+      const installed = path.join(root, rel);
       try {
         return !fs.existsSync(cached) || !fs.readFileSync(cached).equals(fs.readFileSync(installed));
       } catch {
@@ -326,7 +490,7 @@ export class Installer {
     const actions: string[] = [];
     const pi = process.env.CEX_PI || which("pi");
     if (!pi) throw new InstallError("pi CLI not found on PATH (set CEX_PI to its path)");
-    this.run([pi, "install", this.prefix], actions);
+    this.run([pi, "install", this.currentRoot()], actions);
     return { ok: true, actions };
   }
 
@@ -345,14 +509,14 @@ export class Installer {
     if (this.dryRun) return { ok: true, actions };
     for (const skill of skills) {
       rmrf(skill);
-      const source = path.join(this.prefix, "skills", path.basename(skill));
+      const source = path.join(this.currentRoot(), "skills", path.basename(skill));
       for (const rel of distributableFiles(source)) {
         copyFile(path.join(source, rel), path.join(skill, rel));
       }
       fs.writeFileSync(path.join(skill, ".cex_home"), this.prefix + "\n", "utf8");
     }
     fs.mkdirSync(extDir, { recursive: true });
-    const implMjs = path.join(this.prefix, "adapters", "circle", "extension.mjs");
+    const implMjs = path.join(this.currentRoot(), "adapters", "circle", "extension.mjs");
     fs.writeFileSync(path.join(extDir, "extension.mjs"),
       `${MJS_MARKER}: entry forwards to the installed distribution root.\n`
       + `const impl = ${JSON.stringify("file://" + implMjs.split(path.sep).join("/"))};\n`
@@ -374,7 +538,7 @@ export class Installer {
   verify(): any {
     if (this.dryRun) return { ok: true, skipped: "dry run" };
     const report: any = { ok: false };
-    const toolsResult = this.runStatus([process.execPath, path.join(this.prefix, "dist", "bin", "cex_tool.js"), "list"], []);
+    const toolsResult = this.runStatus([process.execPath, path.join(this.currentRoot(), "dist", "bin", "cex_tool.js"), "list"], []);
     if (toolsResult && toolsResult.code === 0) {
       try {
         report.tools = JSON.parse(toolsResult.stdout).length;
@@ -389,12 +553,13 @@ export class Installer {
   }
 }
 
-function parseArgs(argv: string[]): { harnesses: Harness[]; prefix: string; upgrade: boolean; installDeps: boolean; dryRun: boolean } {
+function parseArgs(argv: string[]): { harnesses: Harness[]; prefix: string; upgrade: boolean; installDeps: boolean; dryRun: boolean; rollback: string | null | undefined } {
   const harnessArgs: string[] = [];
-  let prefix = path.join(dataHome(), "current");
+  let prefix = dataHome();
   let upgrade = false;
   let installDeps = false;
   let dryRun = false;
+  let rollback: string | null | undefined = undefined;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--harness") {
@@ -411,15 +576,23 @@ function parseArgs(argv: string[]): { harnesses: Harness[]; prefix: string; upgr
       installDeps = true;
     } else if (arg === "--dry-run") {
       dryRun = true;
+    } else if (arg === "--rollback") {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("--")) {
+        rollback = next;
+        i++;
+      } else {
+        rollback = null;
+      }
     } else {
       throw new InstallError(`unknown argument: ${arg}`);
     }
   }
-  if (!harnessArgs.length) throw new InstallError("usage: install --harness claude|pi|circle|all [--upgrade] [--install-deps] [--prefix DIR] [--dry-run]");
+  if (!harnessArgs.length) throw new InstallError("usage: install --harness claude|pi|circle|all [--upgrade] [--install-deps] [--prefix DIR] [--rollback [VERSION]] [--dry-run]");
   const harnesses: Harness[] = harnessArgs.includes("all")
     ? [...HARNESSES]
     : [...new Set(harnessArgs)] as Harness[];
-  return { harnesses, prefix: path.resolve(prefix), upgrade, installDeps, dryRun };
+  return { harnesses, prefix: path.resolve(prefix), upgrade, installDeps, dryRun, rollback };
 }
 
 function main(argv: string[]): number {
@@ -433,7 +606,11 @@ function main(argv: string[]): number {
   const installer = new Installer(parsed.prefix, parsed.dryRun);
   const report: any = { ok: false, dry_run: parsed.dryRun };
   try {
-    report.distribution = installer.placeDistribution(parsed.upgrade);
+    if (parsed.rollback !== undefined) {
+      report.rollback = installer.rollback(parsed.rollback);
+    } else {
+      report.distribution = installer.placeDistribution(parsed.upgrade);
+    }
   } catch (e: any) {
     if (e instanceof AlreadyInstalled) {
       report.error = e.message;

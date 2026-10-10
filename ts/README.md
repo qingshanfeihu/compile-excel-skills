@@ -12,9 +12,27 @@
 - `src/skills_scripts/` — skill 命令行脚本（compile_excel / verify_batch / run_device / rework_gate / backfill / cmdtree_check）
 - `src/bin/cex_tool.ts` — `cex_tool list | <name> - | <name> '<json>'`
 - `src/bin/cex_mcp_proxy.ts` — stdio MCP 服务（Claude Code / Codex 等）
-- `src/install.ts` — 安装器：`node dist/install.js --harness circle|claude|pi|all [--upgrade] [--install-deps] [--dry-run]`
+- `src/install.ts` — 安装器：`node dist/install.js --harness circle|claude|pi|all [--upgrade] [--install-deps] [--rollback [VERSION]] [--dry-run]`
 - `adapters/` — harness 适配（circle extension.mjs、cex_mcp 启动 shim）
 - `skills/` — 模型说明（SKILL.md 等；命令入口是 `node "$CEX_HOME/dist/..."`，`scripts/_cex_path.js` 解析发行根）
+
+## 安装布局与升级（0.3.1+）
+
+安装位是**版本化布局**（Windows 上 `%LOCALAPPDATA%\compile-excel`，其余 `~/.local/share/compile-excel`）：
+
+```
+<布局根>/
+  versions/<版本>/     # 每个版本一个完整发行根
+  current              # ref 文件，内容是激活的版本号
+  node_modules/        # 布局根共享，Node 向上解析自动命中
+  package.json         # npm 元数据，随每次安装同步到布局根
+```
+
+- **升级**：重跑安装器加 `--upgrade`。新版本先装进 `versions/`，再原子翻转 `current`；被替换的版本保留 14 天（`.orphaned_at` 标记，到期自动清理），期间可回退。
+- **回退**：`--rollback` 回到最近的旧版本，或 `--rollback <版本>` 指定；回退会重挂所选 harness。
+- **接管旧安装**：0.3.0 平铺布局或 0.1.x Python 安装在 `--upgrade` 时被收纳为 `versions/legacy-<旧版本>/`，作为回退候选。
+- **版本感知**：`cex_status` 报告 `installed_version` 与 `latest_upstream_release`（GitHub releases，离线时为 null），有新版时给 `update_available` 与升级提示。
+- 运行时状态（登录 token、租约、编译产物）都在**项目工作区**（`.compile-excel/`、`compile_outputs/`），升级/回退不碰它们。
 
 ## 构建与测试
 

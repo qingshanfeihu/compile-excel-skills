@@ -39,22 +39,95 @@ test("the install manifest ships dist/ and the claude plugin metadata", () => {
   assert.ok(!files.some((f) => f.startsWith("skills/compile-excel/scripts/") && f.endsWith(".py")), "no stale python skill scripts");
 });
 
-test("an upgrade keeps the previously installed node_modules", () => {
+test("a fresh install lands under versions/ with a current ref and shared npm metadata", () => {
   const prefix = fs.mkdtempSync(path.join(os.tmpdir(), "cex-prefix-"));
   try {
-    const first = new Installer(path.join(prefix, "dist-root"), false);
-    first.placeDistribution(false);
-    const markerDir = path.join(prefix, "dist-root", "node_modules", "exceljs");
-    fs.mkdirSync(markerDir, { recursive: true });
-    fs.writeFileSync(path.join(markerDir, "marker"), "kept", "utf8");
-    const second = new Installer(path.join(prefix, "dist-root"), false);
-    second.placeDistribution(true);
-    assert.equal(
-      fs.readFileSync(path.join(prefix, "dist-root", "node_modules", "exceljs", "marker"), "utf8"),
-      "kept",
-      "upgrade must carry node_modules into the new prefix",
-    );
-    assert.ok(!fs.existsSync(prefix + ".old"), "the old prefix must be cleaned up");
+    const installer = new Installer(prefix, false);
+    const report = installer.placeDistribution(false);
+    const version = report.version;
+    assert.ok(fs.existsSync(path.join(prefix, "versions", version, "dist", "bin", "cex_tool.js")), "version dir must hold the distribution");
+    assert.equal(fs.readFileSync(path.join(prefix, "current"), "utf8").trim(), version, "current ref must name the installed version");
+    assert.ok(fs.existsSync(path.join(prefix, "package.json")), "npm metadata must sit at the layout root for the shared node_modules");
+    assert.equal(installer.currentRoot(), path.join(prefix, "versions", version));
+    // reinstalling the same version without --upgrade refuses
+    assert.throws(() => new Installer(prefix, false).placeDistribution(false), /already installed/);
+  } finally {
+    fs.rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
+test("an upgrade adopts a flat 0.3.0 install as a rollback candidate", () => {
+  const prefix = fs.mkdtempSync(path.join(os.tmpdir(), "cex-prefix-"));
+  try {
+    // build a fake flat install: what 0.3.0 left behind
+    fs.mkdirSync(path.join(prefix, "dist"), { recursive: true });
+    fs.writeFileSync(path.join(prefix, ".cex_install.json"), "{}", "utf8");
+    fs.writeFileSync(path.join(prefix, "package.json"), JSON.stringify({ version: "0.3.0" }), "utf8");
+    const installer = new Installer(prefix, false);
+    const report = installer.placeDistribution(true);
+    const version = report.version;
+    assert.ok(fs.existsSync(path.join(prefix, "versions", "legacy-0.3.0")), "the flat install must be kept as a rollback candidate");
+    assert.ok(fs.existsSync(path.join(prefix, "versions", "legacy-0.3.0", ".orphaned_at")), "the adopted copy must be marked for eventual cleanup");
+    assert.equal(fs.readFileSync(path.join(prefix, "current"), "utf8").trim(), version);
+    assert.ok(fs.existsSync(path.join(prefix, "versions", version, "dist", "bin", "cex_tool.js")));
+    // rollback to the adopted copy
+    const rolled = installer.rollback("legacy-0.3.0");
+    assert.equal(rolled.ok, true);
+    assert.equal(fs.readFileSync(path.join(prefix, "current"), "utf8").trim(), "legacy-0.3.0");
+    assert.equal(installer.currentRoot(), path.join(prefix, "versions", "legacy-0.3.0"));
+  } finally {
+    fs.rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
+test("rollback without a target picks the newest older version", () => {
+  const prefix = fs.mkdtempSync(path.join(os.tmpdir(), "cex-prefix-"));
+  try {
+    const installer = new Installer(prefix, false);
+    installer.placeDistribution(true);
+    const version = installer.currentRef();
+    // plant an older version by hand
+    fs.mkdirSync(path.join(prefix, "versions", "0.0.1", "dist"), { recursive: true });
+    fs.writeFileSync(path.join(prefix, "versions", "0.0.1", "package.json"), JSON.stringify({ version: "0.0.1" }), "utf8");
+    const rolled = installer.rollback(null);
+    assert.equal(rolled.rolled_back_to, "0.0.1");
+    assert.notEqual(rolled.rolled_back_to, version);
+  } finally {
+    fs.rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
+test("sweepOrphans marks replaced versions and expires old ones", () => {
+  const prefix = fs.mkdtempSync(path.join(os.tmpdir(), "cex-prefix-"));
+  try {
+    const installer = new Installer(prefix, false);
+    installer.placeDistribution(true);
+    const current = installer.currentRef() as string;
+    const oldDir = path.join(prefix, "versions", "0.0.1");
+    fs.mkdirSync(oldDir, { recursive: true });
+    const actions = installer.sweepOrphans(current);
+    assert.ok(fs.existsSync(path.join(oldDir, ".orphaned_at")), "a replaced version gains the orphan marker");
+    // age it past the grace window and sweep again
+    fs.writeFileSync(path.join(oldDir, ".orphaned_at"), String(Math.floor(Date.now() / 1000) - 15 * 86400), "utf8");
+    installer.sweepOrphans(current);
+    assert.ok(!fs.existsSync(oldDir), "an expired orphan is removed");
+    assert.ok(actions.some((a) => a.includes("orphaned")), actions.join("; "));
+  } finally {
+    fs.rmSync(prefix, { recursive: true, force: true });
+  }
+});
+
+test("_cex_path resolves a versions layout through the current ref", async () => {
+  const prefix = fs.mkdtempSync(path.join(os.tmpdir(), "cex-prefix-"));
+  try {
+    const installer = new Installer(prefix, false);
+    installer.placeDistribution(true);
+    const out = execFileSync(
+      process.execPath,
+      [path.join(prefix, "versions", installer.currentRef() as string, "dist", "skills_scripts", "_cex_path.js")],
+      { env: { ...process.env, CEX_HOME: prefix }, timeout: 30000 },
+    ).toString("utf8").trim();
+    assert.equal(out, path.join(prefix, "versions", installer.currentRef() as string));
   } finally {
     fs.rmSync(prefix, { recursive: true, force: true });
   }
