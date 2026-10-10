@@ -1,0 +1,23 @@
+{
+  "name": "compile-excel",
+  "version": "0.2.0",
+  "description": "Compile test cases (mindmap / case list / steps) into a device-ready case.xlsx and run them on the test bed through the jumphost gateway; products land in your project folder.",
+  "author": {
+    "name": "qingshanfeihu"
+  },
+  "repository": "https://github.com/qingshanfeihu/compile-excel-skills",
+  "keywords": [
+    "test-cases",
+    "excel",
+    "compile",
+    "device-test"
+  ],
+  "mcpServers": {
+    "compile-excel": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/dist/bin/cex_mcp_proxy.js"
+      ]
+    }
+  }
+}

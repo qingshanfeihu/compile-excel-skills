@@ -1,0 +1,676 @@
+{
+ "schema": "cex.tool-specs/v1",
+ "tools": [
+  {
+   "name": "cex_init",
+   "description": "Create or update the compile-excel workspace in a project folder. First checks that the address answers as compile-excel-server and, for a connection string, that the server's built-in CA matches its fingerprint; only then stores the server, channel and device build in <folder>/.compile-excel/config.json (and the verified CA in ca.pem). Run once per folder before logging in. Pointing an existing workspace at another server (or another CA) drops the old session, the cached organisation config and any bed lease. To only set the device build or channel of an existing workspace, omit server: nothing is re-checked and the session is kept.",
+   "read_only": false,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "server": {
+      "type": "string",
+      "description": "The connection string the administrator gave (https://host:8900#ca=<SHA-256 fingerprint of the server's CA certificate>), passed exactly as given, or a plain server URL (https, or http on loopback). The default server port is 8900. Required for a new workspace; omit it to keep the configured server."
+     },
+     "device_build": {
+      "type": "string",
+      "description": "Optional. Execution build the bundles are published under. Leave it out: after login it is chosen automatically when the server publishes exactly one build on the channel; when there are several, cex_login_wait lists them and you pass the one the user picks here."
+     },
+     "workspace": {
+      "type": "string",
+      "description": "Folder to initialise. Defaults to the existing workspace found the same way as the other tools (CEX_WORKSPACE, or the current directory and its parents); only when there is none, a new one is created in the CEX_WORKSPACE folder or the current directory."
+     },
+     "channel": {
+      "type": "string",
+      "enum": [
+       "stable",
+       "candidate"
+      ],
+      "description": "Bundle channel to sync; defaults to stable (an existing workspace keeps its channel)."
+     },
+     "insecure_lan": {
+      "type": "boolean",
+      "description": "Allow plain http to a non-loopback server on a trusted lab network."
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_status",
+   "description": "Report the workspace state: server, how its certificate is verified (tls), the device build and whether one is chosen yet, whether the user is logged in, and which bundle is synced.",
+   "read_only": true,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_login_start",
+   "description": "Start the OAuth device login. Returns a URL and a user code; show both to the user, who signs in with their username and access code in a browser. Then call cex_login_wait. When the workspace trusts the server's built-in CA (a connection string with #ca=), the result also has browser_certificate: a note in Chinese saying the browser will warn that the certificate is not trusted and why, giving the server certificate's SHA-256 fingerprint to compare in the browser's certificate details before continuing, and how to make the system trust the CA. Relay it to the user word for word, before they open the URL; do not shorten or translate it. The login asks for every permission the tools use (including jumphost:admin for cex_init_device); the server grants only those the account holds.",
+   "read_only": false,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_login_wait",
+   "description": "Wait for the user to approve the device login started by cex_login_start. Returns pending if they have not approved within timeout_s; call again in that case. On success, when the workspace has no device build yet, picks the server's only build on the channel, or returns the builds to choose from (set the user's choice with cex_init device_build).",
+   "read_only": false,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "timeout_s": {
+      "type": "number",
+      "description": "Seconds to wait in this call (1-300, default 60)."
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_logout",
+   "description": "Revoke the workspace session on the server and delete the local token.",
+   "read_only": false,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_sync",
+   "description": "Download the compile data bundle for the workspace's device build into .compile-excel/bundle/<build>/, verifying every file against the manifest SHA-256. Falls back to a verified local cache when the server is unreachable and says so. When no device build is chosen yet, picks the server's only build on the channel first.",
+   "read_only": false,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "channel": {
+      "type": "string",
+      "enum": [
+       "stable",
+       "candidate"
+      ]
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_client_config",
+   "description": "Fetch the organisation constants published by the server (portal, defect tracker and gateway addresses) and cache them in the workspace. The gateway address is taken only from this cache, so call it again after switching servers.",
+   "read_only": false,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_docs_query",
+   "description": "Search verified manuals for the current build's bound manual version and, when available, server documents. Local manual matches come first with manual:<path>:<line> citations; server documents are marked separately and have no manual citation. Limit applies to each source independently, so online results can contain up to twice the limit. Offline results state that server documents were not searched. If neither source is available, reports a supply failure.",
+   "read_only": true,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "q": {
+      "type": "string",
+      "description": "Search terms."
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Maximum results per source (1\u201310, default 3); online results can contain up to twice this number."
+     }
+    },
+    "required": [
+     "q"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_cmd_check",
+   "description": "Check device commands against the synced command-tree projection: whether each command exists on this build and whether its parameters fit the recorded contract. This is the same judgment the engine uses; a miss means the command will not run on the device. Each result carries the resolved head and its command-tree path (src). At most 200 commands per call; a longer list is refused (not truncated), so split it.",
+   "read_only": true,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "commands": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 200
+     }
+    },
+    "required": [
+     "commands"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_scan_destructive",
+   "description": "Scan a compiled case workbook for device-wide destructive commands (whole-config wipes, factory restore, reboot/shutdown) with the rules from the synced domain grammar. Every row is scanned, including those after the 999999999999999 pseudo case; formula cells are findings (the framework runs their cached values); a finding may carry executed, the string the framework actually sends. Any finding means the workbook must not run on a shared bed.",
+   "read_only": true,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "xlsx": {
+      "type": "string",
+      "description": "Workbook path inside the workspace."
+     }
+    },
+    "required": [
+     "xlsx"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_bed_lease",
+   "read_only": false,
+   "description": "Manage your lease on the test bed through the jumphost gateway. acquire before any device work, heartbeat during long sessions, release when done, status to see who holds it. The lease (including its fencing token, which is never shown) is kept in the workspace; other device tools use it automatically.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "action": {
+      "type": "string",
+      "enum": [
+       "acquire",
+       "heartbeat",
+       "release",
+       "status"
+      ]
+     }
+    },
+    "required": [
+     "action"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_env_prepare",
+   "read_only": true,
+   "description": "Check the bed before running cases: framework present, devices reachable, device build matches the bundle build, safety rules available. Sends the workspace's device build so the gateway checks the device against it. Needs the lease.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_case_submit",
+   "read_only": false,
+   "description": "Submit a compiled workbook from the workspace to run on the bed. The gateway re-checks it (Excel contract, destructive commands, credential literals) and refuses on any finding. Returns task_id. Needs the lease.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "xlsx": {
+      "type": "string",
+      "description": "Workbook path inside the workspace."
+     },
+     "module": {
+      "type": "string",
+      "description": "Staging module; default is the gateway's."
+     }
+    },
+    "required": [
+     "xlsx"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_case_status",
+   "read_only": true,
+   "description": "State of a submitted run (running, done or lost) with the tail of its log. lost means the runner died without recording an end (gateway restart, OOM, operator kill): that run has no verdicts; resubmit the workbook.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "task_id": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "task_id"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_case_results",
+   "read_only": false,
+   "description": "Per-case framework verdicts of a finished run. Writes run_results.json and run_receipt.md next to the workbook, but only for the latest submission of that workbook: results of an older run are returned with receipt null and a note, and the receipt is left alone. Logs from earlier runs are marked and not used as evidence. A pass or fail counts only when the case's own log ends with the framework's closing (PASS/FAIL banner, then end case); otherwise the case is broken (the run stopped inside it and the result row is a placeholder). A pass whose log shows an execution failure its assertions were not waiting for is broken too. Non-pass cases come with their device and trigger-host session dumps saved under evidence/<task_id>/<autoid>/.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "task_id": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "task_id"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_probe_show",
+   "read_only": true,
+   "description": "Run one read-only show/get command on a bed device and return the output. Needs the lease.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "command": {
+      "type": "string"
+     },
+     "device_index": {
+      "type": "integer",
+      "minimum": 0
+     }
+    },
+    "required": [
+     "command"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_init_device",
+   "read_only": false,
+   "description": "Wipe and re-baseline bed devices over the serial console (needs jumphost:admin). step=prepare returns the exact plan and a one-time confirmation code; show the plan to the user and call step=confirm with the code only after they approve.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "step": {
+      "type": "string",
+      "enum": [
+       "prepare",
+       "confirm"
+      ]
+     },
+     "device_index": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "device_count": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "confirmation": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "step"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_portal_login_start",
+   "read_only": false,
+   "description": "Start a QR-code login to the company portal (needed before cex_bug_get). Saves the QR image to a private file and returns its path; ask the user to open it and scan it with the company app, then call cex_portal_login_wait. No password is ever asked for or stored.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_portal_login_wait",
+   "read_only": false,
+   "description": "Wait for the user to finish scanning the portal QR code. Returns pending if not yet scanned; call again in that case.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "timeout_s": {
+      "type": "number"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_portal_logout",
+   "read_only": false,
+   "description": "Forget the portal session stored on this machine.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_bug_get",
+   "read_only": false,
+   "description": "Fetch one defect ticket through the portal session with the user's own permissions, parse it and save the scrubbed result under defects/ in the workspace. Only ticket detail pages of the configured trackers are fetched. If the session expired, run the portal QR login again.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "backend": {
+      "type": "string",
+      "enum": [
+       "bugzilla",
+       "zentao",
+       "zentao_story"
+      ]
+     },
+     "ticket": {
+      "type": "string",
+      "description": "Ticket id, e.g. 12345, BUG-12345 or STORY-7."
+     }
+    },
+    "required": [
+     "backend",
+     "ticket"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_recompose_prepare",
+   "description": "Start recomposing a human mindmap (XMind JSON export inside the workspace) into a machine mindmap. Seals a snapshot, locates the governing spec in the synced spec generation, and opens a submission. Returns the case autoids, the governing spec (bound: a file path you can read; ambiguous: reference slices with zero signing power; no_governing_spec), the defect-spec status, and consistency_source_atoms. Pass spec=<file> when the user names the governing spec, or spec='none' when the user says no spec governs it. Calling it again for the same mindmap and the same spec outcome resumes: already recorded cases are listed. Without out_name the batch is named after the file (reduced to a safe name when the file name has spaces or non-ASCII characters; the result says which).",
+   "read_only": false,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "mindmap": {
+      "type": "string",
+      "description": "Path of the XMind JSON export, relative to the workspace."
+     },
+     "out_name": {
+      "type": "string",
+      "description": "Batch name for the outputs; defaults to a safe name derived from the file name."
+     },
+     "spec": {
+      "type": "string",
+      "description": "Governing spec file name the user named, or 'none' when the user says no spec governs it."
+     }
+    },
+    "required": [
+     "mindmap"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_recompose_submit_cases",
+   "description": "Record finished machine-mindmap cases for a prepared batch. The engine's checks run here (verbatim sourcing, anchors, consistency citations); a rejection lists the violations and records nothing, so fix those cases and submit again. Record cases as you finish them; resubmitting an autoid replaces it. Returns outstanding_autoids.",
+   "read_only": false,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "out_name": {
+      "type": "string"
+     },
+     "cases": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      },
+      "description": "Machine-mindmap case objects (autoid, contract, origin, \u2026)."
+     }
+    },
+    "required": [
+     "out_name",
+     "cases"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_recompose_seal",
+   "description": "Seal the recorded cases of a batch into machine_mindmap.json. Cases never recorded fall back to the author's original text and are listed in missing_autoids. Call it once all cases are recorded (or when you have to stop).",
+   "read_only": false,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "out_name": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "out_name"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_lang_query",
+   "description": "Look up the compile language before writing it: E/F contract, method signatures, dispatch, precedent usage, confirmation prompts, near-miss names, the language-document catalog, parameter contracts. kind is one of contract / signature / dispatch / usage / host / nearest / prompt_pattern / docs / param / complete / heads. Pass out_name while recomposing so command lookups are recorded for that batch.",
+   "read_only": true,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "kind": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "domain": {
+      "type": "string"
+     },
+     "query": {
+      "type": "string"
+     },
+     "position": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "out_name": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_bed_topology",
+   "read_only": true,
+   "description": "Fetch this bed's network facts and its service list (services: host, ip, proto, port, note) from the gateway and store them in the workspace; the authoring gates read them. Needs the lease. Pick VIPs and trigger hosts from the returned summary and backends from services (matching protocol and port); never guess an address.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "refresh": {
+      "type": "boolean",
+      "description": "Re-collect on the jump host instead of reusing the gateway's cached facts."
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_author_prepare",
+   "read_only": false,
+   "description": "Project a sealed machine mindmap into per-case contract cards and stamp every case for authoring. Each expectation carries its criterion type and allowed_slots: the exact [block_kind, operator] pairs the submission gate accepts (slot_rule explains how a binding is matched). Each card carries the case's concretizations (what step_structure refs point at). When a criterion shape is not yet adjudicated it stops and lists the shapes for cex_criterion_record. Needs cex_recompose_seal and cex_bed_topology first.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "out_name": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "out_name"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_criterion_record",
+   "read_only": false,
+   "description": "Record your criterion judgement for one pending shape (read its brief_path first). judgment is one object: criterion_type copied from the brief's catalogue, rationale (English), disclosure (Chinese), optionally manual_anchor_ids / tree_context_ids / behaviour_classes. The engine re-checks it; after the last shape the contracts are published.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "out_name": {
+      "type": "string"
+     },
+     "shape_key": {
+      "type": "string"
+     },
+     "judgment": {
+      "type": "object",
+      "description": "{criterion_type, rationale, disclosure, manual_anchor_ids?, tree_context_ids?, behaviour_classes?}"
+     }
+    },
+    "required": [
+     "out_name",
+     "shape_key",
+     "judgment"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_author_submit_case",
+   "read_only": false,
+   "description": "Submit one mechanical case (ist.mechanical-case body in the blocks language: schema, autoid, description, binding {}, init_commands, blocks, expectation_binding, escape_hatches; no seal). The engine's submission gates run (expansion, command tree, bed reachability, teardown, expectation bijection, criterion binding, provenance). A rejection lists every violation with its locus and a legal form; fix all and resubmit the complete body. Sealed cases are emitted by cex_author_emit.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "out_name": {
+      "type": "string"
+     },
+     "mechanical_case": {
+      "type": "object",
+      "description": "The complete ist.mechanical-case submission body."
+     }
+    },
+    "required": [
+     "out_name",
+     "mechanical_case"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_author_emit",
+   "read_only": false,
+   "description": "Expand every sealed mechanical case of the batch (the engine's own block expansion) into compile_outputs/<batch>/cases.json, compile case.xlsx and run verify_batch. Returns ok:false with error when a contracted case is not sealed (not_sealed_autoids) or its sealed file changed since sealing (not_emitted); the workbook then holds only the other cases.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "out_name": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "out_name"
+    ],
+    "additionalProperties": false
+   }
+  }
+ ]
+}
