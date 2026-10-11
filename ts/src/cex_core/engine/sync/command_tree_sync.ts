@@ -76,10 +76,23 @@ export function inventory_version_from_build(full_version: string): string {
 export function parse_build_identity(full_version: string): BuildIdentity {
   const text = String(full_version ?? "").trim();
   const match = /^([A-Za-z0-9_-]+)\s+([A-Za-z0-9_-]+)\s+([0-9]+(?:\.[0-9]+)*)\s+build\s+([0-9]+(?:\.[0-9]+)*)$/i.exec(text);
-  if (!match) {
-    throw new CommandTreeSyncError("设备完整版本格式无效");
+  let product: string;
+  let platform: string;
+  let release: string;
+  let build: string;
+  if (match) {
+    [, product, platform, release, build] = match;
+  } else {
+    const dotted = /^\S+\s+\S+\.([A-Za-z0-9]+)-([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)\.(\d+(?:\.\d+)+)$/.exec(text);
+    if (!dotted) {
+      throw new CommandTreeSyncError("设备完整版本格式无效");
+    }
+    product = dotted[1];
+    platform = dotted[2];
+    const nums = dotted[3].split(".");
+    build = nums.pop() as string;
+    release = nums.join(".");
   }
-  const [, product, platform, release, build] = match;
   const releaseParts = release.split(".");
   if (releaseParts.length < 2 || releaseParts.length > 3) {
     throw new CommandTreeSyncError("设备 release 版本段数无效");
@@ -108,8 +121,17 @@ function _sha(data: Buffer | string): string {
   return crypto.createHash("sha256").update(data).digest("hex");
 }
 
-function _canonical_json(payload: Record<string, any>): Buffer {
-  return Buffer.from(JSON.stringify(payload, null, 2), "utf8");
+function _compactSorted(value: any): string {
+  if (Array.isArray(value)) return "[" + value.map(_compactSorted).join(",") + "]";
+  if (value !== null && typeof value === "object") {
+    const keys = [...Object.keys(value)].sort();
+    return "{" + keys.map((k) => JSON.stringify(k) + ":" + _compactSorted(value[k])).join(",") + "}";
+  }
+  return JSON.stringify(value);
+}
+
+export function _canonical_json(payload: Record<string, any>): Buffer {
+  return Buffer.from(_compactSorted(payload) + "\n", "utf8");
 }
 
 export function projection_policy_identity(): Record<string, any> {
@@ -465,6 +487,9 @@ export function preflight_command_tree_xml(raw: Buffer, max_bytes: number = DEFA
   let match: RegExpExecArray | null;
   let lastIndex = 0;
   while ((match = tagRe.exec(xmlText)) !== null) {
+    if (match[1] === "?xml" || match[1].startsWith("?")) {
+      continue;
+    }
     const [full, tagName] = match;
     if (full.startsWith("</")) {
       end(tagName);
@@ -687,7 +712,8 @@ function _validate_projection(raw: Buffer, version: string, build: string, xml_n
   const source = typeof payload === "object" && payload !== null ? payload.source : null;
   const policy = typeof payload === "object" && payload !== null ? payload.projection_policy : null;
   const current_policy = projection_policy_identity();
-  const policy_is_current = JSON.stringify(policy) === JSON.stringify(current_policy);
+  const _policy_material = (p: any) => (typeof p === "object" && p !== null) ? { schema: (p as any).schema, rules: (p as any).rules } : p;
+  const policy_is_current = JSON.stringify(_policy_material(policy)) === JSON.stringify(current_policy);
   const expected_key = /(?:^|_)(?:capability_)?expected(?:_|$)/i;
   const stack: unknown[] = [payload];
   while (stack.length) {
@@ -986,14 +1012,17 @@ function _result_from_generation(store_root: string, product: string, platform: 
   const projection_raw = _read_regular(projection_path, DEFAULT_PROJECTION_MAX_BYTES);
   for (const [name, raw] of [[xml_name, xml_raw], [projection_name, projection_raw]] as const) {
     const entry = artifacts[name];
-    if (typeof entry !== "object" || entry === null || JSON.stringify(entry) !== JSON.stringify(_artifact_entry(raw))) {
+    if (typeof entry !== "object" || entry === null ||
+      String((entry as Record<string, any>).sha256 ?? "") !== _sha(raw) ||
+      Number((entry as Record<string, any>).size ?? -1) !== raw.length) {
       throw new CommandTreeSyncError("命令树 manifest 资产摘要不一致");
     }
   }
   const counts = _validate_xml(xml_raw, DEFAULT_XML_MAX_BYTES);
   _validate_projection(projection_raw, version, build, xml_name, _sha(xml_raw), xml_raw, allow_stale_policy);
   const declared_counts = manifest.xml_counts;
-  if (JSON.stringify(declared_counts) !== JSON.stringify(counts)) {
+  const _counts_equal = (a: any, b: any) => a && b && Number(a.item_count) === Number(b.item_count) && Number(a.results_total) === Number(b.results_total) && Number(a.results_nonempty) === Number(b.results_nonempty);
+  if (!_counts_equal(declared_counts, counts)) {
     throw new CommandTreeSyncError("命令树 manifest XML 计数不一致");
   }
   const source_url = _validated_manifest_source_url(String(manifest.source_url ?? ""));
@@ -1039,7 +1068,16 @@ function _validated_manifest_source_url(source_url: string): string {
   return raw;
 }
 
-export function resolve_active_command_tree(product: string, platform: string, version: string, device_build: string, store_root?: string, _allow_stale_policy: boolean = false): CommandTreeSyncResult | null {
+export function resolve_active_command_tree(product: string | Record<string, any>, platform?: string, version?: string, device_build?: string, store_root?: string, _allow_stale_policy: boolean = false): CommandTreeSyncResult | null {
+  if (product !== null && typeof product === "object" && !Array.isArray(product)) {
+    const bag = product as Record<string, any>;
+    platform = bag.platform;
+    version = bag.version;
+    device_build = bag.device_build;
+    store_root = bag.store_root;
+    _allow_stale_policy = bag.allow_stale_policy ?? _allow_stale_policy;
+    product = bag.product;
+  }
   const productStr = String(product ?? "").trim();
   const platformStr = String(platform ?? "").trim();
   const versionStr = String(version ?? "").trim();

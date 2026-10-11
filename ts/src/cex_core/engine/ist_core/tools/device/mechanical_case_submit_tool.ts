@@ -119,6 +119,7 @@ function _violation(code: string, locus: string, detail: string, opts: { gate?: 
   return { gate: opts.gate ?? _BINDING_GATE, code, locus, detail };
 }
 
+export { _violations_with_legal_forms };
 function _violations_with_legal_forms(violations: Array<Record<string, any>>): Array<Record<string, any>> {
   const rendered: Array<Record<string, any>> = [];
   for (const raw of violations) {
@@ -174,7 +175,7 @@ function _resetBodyPayloadStreak(key: string): void {
 }
 
 function _bodyPayloadStreakKey(autoid: string): string {
-  const { current_worker_device_session } = require("../worker_device_context");
+  const { current_worker_device_session } = require("../../worker_device_context");
   const session = current_worker_device_session();
   return [String(session?.batch_run_id ?? ""), String(session?.dispatch_id ?? ""), autoid].join(":");
 }
@@ -435,8 +436,8 @@ function _recomposeConsistencyViolation(contract: Record<string, any>, autoid: s
 export function submit_mechanical_case(mechanical_case: any = "", mechanical_case_path = ""): string {
   const { mint_and_land_mechanical_case } = require("../../../case_compiler/mechanical_case");
   const { AUDIENCE_WORKER, gate_report_digest, run_mechanical_case_gate } = require("../../../case_compiler/mechanical_case_gate");
-  const sh = require("../compile_engine/_shared");
-  const { current_worker_device_session } = require("../worker_device_context");
+  const sh = require("../../compile_engine/_shared");
+  const { current_worker_device_session } = require("../../worker_device_context");
   const session = current_worker_device_session();
   const autoid = session !== null && session !== undefined ? String(session.autoid ?? "") : "";
   if (!autoid) {

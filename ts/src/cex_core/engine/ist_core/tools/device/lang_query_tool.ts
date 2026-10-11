@@ -676,7 +676,7 @@ function _renderComplete(name: string): string {
       return k >= 1 && k <= queryTokens.length - 1 && queryTokens.slice(0, k).join(" ") in headers;
     });
     if (topShared < queryTokens.length && tiedAtTop > _COMPLETE_SHOWN_K && !longestPrefixIsRecordedHead) {
-      const { recorded_command_heads } = require("../worker_device_context");
+      const { recorded_command_heads } = require("../../worker_device_context");
       for (let k = queryTokens.length - 1; k >= 1; k--) {
         const parentHeads = recorded_command_heads(inventory, queryTokens.slice(0, k).join(" "));
         if (parentHeads.length) {
@@ -698,7 +698,7 @@ export function command_heads_result(module_prefix: string): CommandHeadsQueryRe
   const base: CommandHeadsQueryResult = { schema: COMMAND_HEADS_QUERY_SCHEMA, status: "worker_session_unavailable", module_prefix: prefix, device_build: "", capability_generation_id: "", capability_manifest_sha256: "", projection_version: "", count: 0, heads: [], receipt_id: "", result_sha256: "" };
   let session: any = null;
   try {
-    const { current_worker_device_session } = require("../worker_device_context");
+    const { current_worker_device_session } = require("../../worker_device_context");
     session = current_worker_device_session();
   } catch {
     session = null;
@@ -723,7 +723,7 @@ export function command_heads_result(module_prefix: string): CommandHeadsQueryRe
     base.status = "capability_identity_mismatch";
     return base;
   }
-  const { recorded_command_heads } = require("../worker_device_context");
+  const { recorded_command_heads } = require("../../worker_device_context");
   const heads: string[] = recorded_command_heads(inventory, prefix);
   const result: CommandHeadsQueryResult = { ...base, status: "complete", device_build: deviceBuild, projection_version: String(inventory.version ?? ""), count: heads.length, heads };
   const budgetCandidate = { ...result, receipt_id: "r".repeat(256), result_sha256: "0".repeat(64) };

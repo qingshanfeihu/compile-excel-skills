@@ -96,7 +96,7 @@ function _archiveNonemptyBatchBeforeRecreate(batchDir: P, batchName: string): st
   if (names.size === 0) return "";
   let preserved = new Map<string, Buffer>();
   let validatedEntry = false;
-  const sh = require("../compile_engine/_shared");
+  const sh = require("../../compile_engine/_shared");
   const CC = require("../compile_engine/compile_context");
   const context = sh.current_engine_node_context();
   const setsEqual = (a: Set<string>, b: Iterable<string>): boolean => {
@@ -348,7 +348,7 @@ export function compile_prep(mindmap_path: string, out_name = ""): string {
   if (cases.length === 0) {
     return "error: no case node with an autoid found in the mindmap — confirm this is a test-case mindmap (case nodes should carry an autoid field in their data).";
   }
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const invalidAutoids: string[] = [];
   for (const case_ of cases) {
     const autoid = String(case_.autoid ?? "");
