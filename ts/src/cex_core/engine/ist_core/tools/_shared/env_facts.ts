@@ -396,6 +396,15 @@ export class EnvFacts {
     }
   }
 
+  declared(value: string): boolean {
+    const bare = String(value || "").split("/")[0].trim();
+    return this._exact_ips.has(bare) || this.is_reachable(bare);
+  }
+
+  normalize_ip_literal(value: any): string {
+    return normalize_ip_literal(value);
+  }
+
   is_reachable(ip: string): boolean {
     const bare = String(ip || "").split("/")[0].trim();
     if (this._exact_ips.has(bare)) {

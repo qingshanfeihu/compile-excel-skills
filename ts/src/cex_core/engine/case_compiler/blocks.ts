@@ -466,12 +466,12 @@ export function _derived_binding_source(opts: {
 }): [Record<string, any> | null, string] {
   const { build_config_binding_derivation_receipt } = require("./provenance_ir");
   const [receipt, error] = build_config_binding_derivation_receipt({
-    sourceKind: opts.sourceKind,
-    recipeId: opts.recipeId,
-    ruleId: opts.ruleId,
-    sourceInput: opts.sourceInput,
-    outputStep: opts.outputStep,
-    outputOrdinal: opts.outputOrdinal ?? 0,
+    source_kind: opts.sourceKind,
+    recipe_id: opts.recipeId,
+    rule_id: opts.ruleId,
+    source_input: opts.sourceInput,
+    output_step: opts.outputStep,
+    output_ordinal: opts.outputOrdinal ?? 0,
   });
   if (receipt === null) {
     return [null, error];
@@ -692,7 +692,7 @@ function _expand_generic_step(
 }
 
 function _validate_expanded_contract_steps(steps: Record<string, any>[]): string | null {
-  const { ExcelContractError, contract_entry, enabled_fs_by_e, load_excel_contract, validate_g_for_entry } = require("./excel_contract");
+  const { ExcelContractError, contract_entry, contract_enabled_fs_by_e, load_excel_contract, validate_g_for_entry } = require("./excel_contract");
   let contract: any;
   try {
     contract = load_excel_contract();
@@ -702,7 +702,7 @@ function _validate_expanded_contract_steps(steps: Record<string, any>[]): string
     }
     throw exc;
   }
-  const enabledByE = enabled_fs_by_e(contract);
+  const enabledByE = contract_enabled_fs_by_e(contract);
   for (let index = 0; index < steps.length; index++) {
     const step = steps[index];
     const e = String(step.E || "").trim();
@@ -989,7 +989,7 @@ export function expand_blocks(
       steps.push(assertionStep);
       produced = 2;
       const statusRecipe = "status.exit:" + crypto.createHash("sha256")
-        .update(JSON.stringify({ host: host.toLowerCase(), cmd, expect }), "utf8")
+        .update(JSON.stringify({ cmd: cmd, expect: expect, host: host.toLowerCase() }), "utf8")
         .digest("hex").slice(0, 24);
       const [statusSource, statusSourceError] = _derived_binding_source({
         sourceKind: "status_derived",

@@ -10,6 +10,39 @@ const SCHEMA = "ist.command-teardown-atlas";
 
 export class CommandTeardownAtlasError extends Error {}
 
+
+export function load_command_teardown_atlas(opts: { expected_build?: string; path?: string } = {}): Record<string, any> {
+  const atlasPath = opts.path ?? DEFAULT_OUTPUT;
+  let raw: Buffer;
+  try {
+    raw = fs.readFileSync(atlasPath);
+  } catch {
+    throw new CommandTeardownAtlasError(`command teardown atlas is unavailable: ${atlasPath}`);
+  }
+  let atlas: any;
+  try {
+    atlas = JSON.parse(raw.toString("utf8"));
+  } catch {
+    throw new CommandTeardownAtlasError("command teardown atlas is not valid JSON");
+  }
+  if (!atlas || typeof atlas !== "object" || atlas.schema !== SCHEMA) {
+    throw new CommandTeardownAtlasError(`command teardown atlas schema mismatch (expected ${SCHEMA})`);
+  }
+  const expectedBuild = opts.expected_build;
+  if (expectedBuild !== undefined && expectedBuild !== null && String(expectedBuild) !== "" &&
+      String(atlas.device_build ?? "") !== String(expectedBuild)) {
+    throw new CommandTeardownAtlasError(`command teardown atlas build mismatch: atlas=${atlas.device_build} expected=${expectedBuild}`);
+  }
+  return atlas;
+}
+
+export function verify_atlas_source_identity(atlas: any): boolean {
+  if (!atlas || typeof atlas !== "object" || !atlas.identity || typeof atlas.identity !== "object") {
+    throw new CommandTeardownAtlasError("command teardown atlas carries no source identity");
+  }
+  return true;
+}
+
 export function build_teardown_atlas(): Record<string, any> {
   const { load_vendor_stdlib } = require("../case_compiler/vendor_stdlib") as any;
   const { matching_credential_literal_count, mirror_credential_literals } = require("../case_compiler/credential_literals") as any;

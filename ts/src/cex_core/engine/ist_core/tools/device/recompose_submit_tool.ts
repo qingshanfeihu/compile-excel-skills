@@ -119,7 +119,7 @@ function _resolveCasesPayload(cases: any, cases_path: string, opts: { out_name: 
 
 function _verbatimPrecheck(outputs_root: P | string, out_name: string, dispatch_id: string, opts: { source_sha256: string; cases: Array<Record<string, any>> }): [Array<Record<string, any>>, Array<Record<string, string>>, string] {
   const { lexical_absolute, read_regular_nofollow, sha256_bytes } = require("../../../case_compiler/_sealed_io");
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const { MachineMindmapPartsError, machine_mindmap_case_verbatim_violations } = require("./recompose_parts");
   const { read_machine_mindmap_submission } = require("./recompose_submission");
   const receipt = read_machine_mindmap_submission(outputs_root, out_name, dispatch_id);

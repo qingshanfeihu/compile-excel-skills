@@ -243,7 +243,7 @@ function _rule_match(rule: Record<string, any>, opts: {
   if (Array.isArray(patterns) && patterns.length) {
     let patternMatched = false;
     try {
-      patternMatched = patterns.some((pattern: any) => new RegExp(String(pattern)).test(semantic));
+      patternMatched = patterns.some((pattern: any) => new RegExp(String(pattern).replace(/\(\?P</g, "(?<")).test(semantic));
     } catch {
       return null;
     }
@@ -266,7 +266,7 @@ function _rule_match(rule: Record<string, any>, opts: {
     if (!Array.isArray(patterns) || !patterns.length) return null;
     let match: RegExpExecArray | null = null;
     for (const pattern of patterns) {
-      match = new RegExp(String(pattern)).exec(semantic);
+      match = new RegExp(String(pattern).replace(/\(\?P</g, "(?<")).exec(semantic);
       if (match) break;
     }
     if (match === null) return null;
@@ -309,7 +309,7 @@ function _proposal_match(proposal: Record<string, any>, semantic: string): boole
   const predicate = proposal.predicate;
   if (!predicate || typeof predicate !== "object") return false;
   const patterns = predicate.claim_patterns;
-  return Array.isArray(patterns) && patterns.some((pattern: any) => new RegExp(String(pattern)).test(semantic));
+  return Array.isArray(patterns) && patterns.some((pattern: any) => new RegExp(String(pattern).replace(/\(\?P</g, "(?<")).test(semantic));
 }
 
 function _shape_key(opts: { semantic: string; object_classes: string[]; algorithm_classes: Set<string>; resource_markers: Set<string>; version_family: string }): string {

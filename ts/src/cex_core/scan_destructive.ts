@@ -304,6 +304,7 @@ interface SheetData {
 interface WorkbookData {
   sheets: SheetData[];
   byName: Map<string, SheetData>;
+  definedNames: unknown;
 }
 
 async function _load(xlsx: string): Promise<WorkbookData> {
@@ -330,7 +331,7 @@ async function _load(xlsx: string): Promise<WorkbookData> {
     sheets.push(sheet);
     byName.set(sheet.name, sheet);
   });
-  return { sheets, byName };
+  return { sheets, byName, definedNames: wb.definedNames };
 }
 
 function rowScalars(row: RowData, maxCol: number): Scalar[] {
@@ -354,6 +355,7 @@ function colLetter(col: number): string {
 
 function _execution_sheet(wb: WorkbookData): SheetData {
   const adapted: any = {
+    definedNames: wb.definedNames,
     worksheets: wb.sheets.map((s) => ({
       name: s.name,
       get rowCount() {
