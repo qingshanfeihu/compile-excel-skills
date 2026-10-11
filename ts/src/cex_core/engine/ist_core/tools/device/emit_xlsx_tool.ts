@@ -26,10 +26,10 @@ const _AUTOID_RE = /^\d{18}$/;
 const _SHA256_RE = /^[0-9a-f]{64}$/;
 const _MAX_CLAIMS_BYTES = 1024 * 1024;
 const _COMMAND_CHANNEL_UNAVAILABLE_DETAIL = "the engine channel that can prove command-tree absence did not produce a durable verdict; that does not prove the commands are supported either";
-const COMMAND_NOT_IN_TREE_CODE = "command_not_in_tree";
+export const COMMAND_NOT_IN_TREE_CODE = "command_not_in_tree";
 const COMMAND_TREE_UNAVAILABLE_MESSAGE = `error: command-existence gate — COMMAND_TREE_UNAVAILABLE: ${_COMMAND_CHANNEL_UNAVAILABLE_DETAIL}. This is an engine-side outage, not a case defect: do not reshape commands or expected values around it; stop this case and copy this error verbatim into your reply so the engine can repair the channel.`;
 const COMMAND_NOT_IN_TREE_PREAMBLE = "error: command-existence gate — the commands below are absent from the device-build XML command tree, so the device does not support them; no manual/SPEC line reference or dev_help text can pass them. Reshape the case or report the gap:";
-const COMMAND_PARAMETER_CONTRACT_CODE = "command_parameter_contract_violation";
+export const COMMAND_PARAMETER_CONTRACT_CODE = "command_parameter_contract_violation";
 const _APV_DISPATCH = new Set(["cmd_primitive", "direct_method_call"]);
 export const SSL_CERT_LOAD_KIND = "SSL_CERT_LOAD";
 const _SSL_CERT_LOAD_REQUIRED = ["vhost", "bound_object", "cert_group", "pairs"];
@@ -83,12 +83,12 @@ function _cleanLines(text: any): string[] {
 }
 
 function _safe_output_component(value: string, field = "autoid"): string {
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   return _sh.safe_output_component(value, { field });
 }
 
 function _safe_case_path(value: string, field = "autoid"): [string, P] {
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const sub = _safe_output_component(value, field);
   return [sub, new P(String(_sh.outputs_root())).joinpath(sub, "case.xlsx")];
 }
@@ -98,7 +98,7 @@ function _read_claims_ledger(autoid: string, claimsName: string): Array<Record<s
     return [];
   }
   const { read_regular_nofollow } = require("../../../case_compiler/_sealed_io");
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const path = new P(String(_sh.outputs_root())).joinpath(autoid, claimsName);
   let payload: Buffer;
   try {
@@ -132,7 +132,7 @@ function _land_claims(autoid: string, claimsName: string, claim: Record<string, 
   }
   if (typeof autoid !== "string" || !autoid.trim() || !claim) return false;
   const { atomic_write_bytes_nofollow, lexical_absolute } = require("../../../case_compiler/_sealed_io");
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   let directory: P;
   try {
     directory = new P(String(_sh.outputs_root())).joinpath(autoid);
@@ -170,7 +170,7 @@ export function land_answerer_undetermined_claim(autoid: string, claim: Record<s
 }
 
 function _loadIntentSpecStatus(autoid: string): string | null {
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const intentPath = new P(String(_sh.outputs_root())).joinpath(autoid, "intent.json");
   if (!intentPath.is_file()) return null;
   try {
@@ -184,7 +184,7 @@ function _loadIntentSpecStatus(autoid: string): string | null {
 }
 
 function _intentGoverningSpec(autoid: string): [string, string, string, string] {
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const intentPath = new P(String(_sh.outputs_root())).joinpath(autoid, "intent.json");
   if (!intentPath.is_file()) return ["", "", "", ""];
   try {
@@ -245,7 +245,7 @@ function _reachability_scope_from_credential(autoid: string, opts: { xlsx_sha256
   if (!_SHA256_RE.test(String(xlsxSha256 ?? ""))) {
     return [null, "xlsx_sha256 must be 64 lowercase hex characters"];
   }
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const { lexical_absolute, read_regular_nofollow } = require("../../../case_compiler/_sealed_io");
   const credPath = new P(String(_sh.outputs_root())).joinpath(autoid, ".grade_credential.json");
   let payload: Buffer;
@@ -288,6 +288,31 @@ function _reachability_scope_from_credential(autoid: string, opts: { xlsx_sha256
 function _is_apv_command_method(f: string): boolean {
   return ["cmd", "cmd_config", "cmds_config"].includes(f);
 }
+
+export function _manual_version_from_full_version(fullVersion: any): string {
+  const value = String(fullVersion ?? "").trim();
+  if (!value) return "";
+  let release = "";
+  try {
+    const { parse_build_identity } = require("../../../sync/command_tree_sync") as any;
+    release = parse_build_identity(value).release;
+  } catch {
+    if (/^\d+(?:\.\d+)+$/.test(value)) release = value;
+  }
+  const parts = release.split(".");
+  if (parts.length < 3 || parts.slice(0, 3).some((p: string) => !/^\d+$/.test(p))) return "";
+  return parts.slice(0, 3).join(".");
+}
+
+export { is_apv_command_step }
+export { _apv_command_lines_for_step }
+export { _ordered_apv_command_refs }
+export { _unreachable_ip_admission }
+export { _gate_unreachable_ips }
+export { _looks_like_shell }
+export { _command_tree_context }
+export { command_existence_verdict }
+export { _raw_capabilities_touched };
 
 function is_apv_command_step(step: Record<string, any>, opts: { methods?: Iterable<string> | null } = {}): boolean {
   const methods = opts.methods ?? null;
@@ -377,7 +402,7 @@ function _unreachable_ip_admission(autoid: string, steps: any[], opts: { init?: 
   if (recordedAuthorValues !== null) {
     authored = _bind_values(recordedAuthorValues);
   } else {
-    const _sh = require("../compile_engine/_shared");
+    const _sh = require("../../compile_engine/_shared");
     const { lexical_absolute, read_regular_nofollow } = require("../../../case_compiler/_sealed_io");
     const intentPath = new P(String(_sh.outputs_root())).joinpath(autoid, "intent.json");
     if (intentPath.is_file()) {
@@ -418,7 +443,7 @@ function _unreachable_ip_admission(autoid: string, steps: any[], opts: { init?: 
 function _recorded_author_unreachable_values(autoid: string, opts: { xlsx_sha256: string }): string[] {
   const xlsxSha256 = opts.xlsx_sha256;
   if (!_SHA256_RE.test(String(xlsxSha256 ?? ""))) return [];
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const { read_regular_nofollow } = require("../../../case_compiler/_sealed_io");
   const credPath = new P(String(_sh.outputs_root())).joinpath(autoid, ".grade_credential.json");
   try {
@@ -449,7 +474,7 @@ function _recorded_author_unreachable_values(autoid: string, opts: { xlsx_sha256
 function _recorded_author_ip_literals(autoid: string, opts: { xlsx_sha256: string }): string[] {
   const xlsxSha256 = opts.xlsx_sha256;
   if (!_SHA256_RE.test(String(xlsxSha256 ?? ""))) return [];
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const { read_regular_nofollow } = require("../../../case_compiler/_sealed_io");
   const credPath = new P(String(_sh.outputs_root())).joinpath(autoid, ".grade_credential.json");
   try {
@@ -487,12 +512,23 @@ function _gate_unreachable_ips(autoid: string, steps: any[], opts: { init?: stri
   );
 }
 
-function _gate_unreachable_listener(autoid: string, steps: any[], opts: { init?: string; reachability_scope?: any; author_ip_literals?: Iterable<string> | null } = {}): string {
+function _gate_unreachable_listener(autoid: string, steps: any[], opts: { init?: string; reachability_scope?: any; blocks?: any[] | null; author_ip_literals?: Iterable<string> | null; findings_out?: Record<string, any> } = {}): string {
   const { require_env_facts } = require("../_shared/env_facts");
   const { strip_apv_command_kwargs } = require("../../../case_compiler/excel_contract");
   const facts = require_env_facts();
   const scope = opts.reachability_scope ?? _raw_reachability_scope();
   const authorSet = _bind_values(opts.author_ip_literals ?? []);
+  const findings = opts.findings_out ?? {};
+  findings["scope_error"] = "";
+  findings["blind_hits"] = [];
+  findings["bad_targets"] = [];
+  findings["author_blind_hits"] = [];
+  findings["author_bad_targets"] = [];
+  findings["invented_blind_hits"] = [];
+  findings["invented_bad_targets"] = [];
+  findings["author_sourced_targets"] = [];
+  const inventedHit: string[] = [];
+  const authorHit: string[] = [];
   const lines: string[] = [];
   for (const ref of _ordered_apv_command_refs(steps, opts.init ?? "")) {
     const cmd = String(ref.command ?? "").trim();
@@ -501,10 +537,18 @@ function _gate_unreachable_listener(autoid: string, steps: any[], opts: { init?:
     const dest = _dest_of_cmd(cmd);
     if (!dest || !facts.normalize_ip_literal(dest)) continue;
     if (facts.declared(dest)) continue;
-    if (authorSet.size && authorSet.has(facts.normalize_ip_literal(dest))) continue;
+    if (authorSet.size && authorSet.has(facts.normalize_ip_literal(dest))) {
+      authorHit.push(dest);
+      continue;
+    }
+    inventedHit.push(dest);
     const kind = scope.isClosed("OBSERVE_ASSERT") ? "" : "OBSERVE_ASSERT";
     lines.push(`step[${ref.step_index}]: ${cmd} targets ${dest}, which is in no declared segment of this bed and is not an Author-written address — the query can never reach it.`);
   }
+  findings["blind_hits"] = inventedHit;
+  findings["author_blind_hits"] = authorHit;
+  findings["invented_blind_hits"] = inventedHit;
+  findings["author_sourced_targets"] = [...new Set([...authorHit])].sort();
   return lines.join("\n");
 }
 
@@ -548,7 +592,7 @@ function _command_tree_context(opts: { device_build?: string } = {}): CommandTre
   if (cached) return cached;
   const { load_vendor_stdlib } = require("../../../case_compiler/vendor_stdlib");
   const inventory = load_vendor_stdlib("", deviceBuild);
-  const stdlib = { inventory, recorded_command_heads: require("../worker_device_context").recorded_command_heads };
+  const stdlib = { inventory, recorded_command_heads: require("../../worker_device_context").recorded_command_heads };
   const context: CommandTreeContext = { build: deviceBuild, stdlib, inventory };
   if (_commandTreeContextCache.size >= 8) {
     const firstKey = _commandTreeContextCache.keys().next().value;
@@ -565,6 +609,31 @@ interface CommandExistenceVerdict {
   parameter_error?: string;
   parameters_valid?: boolean;
   detail?: string;
+}
+
+export function build_command_tree_resolver(opts: { device_build?: string } = {}): [any, Record<string, any>, (command: string) => any] {
+  const deviceBuild = String(opts.device_build ?? "").trim();
+  const { CommandTreeUnavailable } = require("../../compile_engine/engine_errors");
+  const loadedContext = _command_tree_context({ device_build: deviceBuild });
+  const inv = (loadedContext as any).inventory;
+  if (inv === null || inv === undefined) {
+    throw new CommandTreeUnavailable("command tree projection could not be loaded");
+  }
+  const _resolve = (command: string) => {
+    const verdict = command_existence_verdict(command, { device_build: deviceBuild, _loaded_context: loadedContext as any });
+    if ((verdict as any).kind === "tree_unavailable") {
+      throw new CommandTreeUnavailable((verdict as any).detail || "command tree projection could not be loaded");
+    }
+    return verdict;
+  };
+  return [require("../../../case_compiler/vendor_stdlib"), inv, _resolve];
+}
+
+export function _trigger_reachability_findings(autoid: string, steps: any[], opts: { init?: string; blocks?: any[] | null; author_ip_literals?: Iterable<string> | null } = {}): Record<string, any> {
+  const findings: Record<string, any> = {};
+  const message = _gate_unreachable_listener(autoid, steps, { init: opts.init ?? "", blocks: opts.blocks ?? null, author_ip_literals: opts.author_ip_literals ?? null, findings_out: findings });
+  findings["message"] = message;
+  return findings;
 }
 
 function command_existence_verdict(command: string, opts: { device_build?: string; _loaded_context?: CommandTreeContext } = {}): CommandExistenceVerdict {
@@ -725,7 +794,7 @@ function _gate_sleep_budget(autoid: string, steps: any[]): string {
 }
 
 function _intent_save_variant(autoid: string): string {
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const intentPath = new P(String(_sh.outputs_root())).joinpath(autoid, "intent.json");
   if (!intentPath.is_file()) return "";
   try {
@@ -980,7 +1049,7 @@ function _gate_manual_expect_conditional(autoid: string, validatedProv: any): st
 
 function _worker_bound_capability_inventory(): [any, any, string] {
   try {
-    const { current_worker_device_session } = require("../worker_device_context");
+    const { current_worker_device_session } = require("../../worker_device_context");
     const session = current_worker_device_session();
     if (session === null || session === undefined) return [null, null, ""];
     const build = String(session.capability_build ?? "").trim();
@@ -1009,7 +1078,7 @@ function _validated_consistency_contract_identity(autoid: string, opts: { mechan
   const mechanicalCaseSha256 = opts.mechanical_case_sha256;
   const consistencyBatchName = opts.consistency_batch_name;
   if (!consistencyBatchName) return [null, null, ""];
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const { read_regular_nofollow, sha256_bytes } = require("../../../case_compiler/_sealed_io");
   const credPath = new P(String(_sh.outputs_root())).joinpath(consistencyBatchName, autoid, ".grade_credential.json");
   let payload: Buffer;
@@ -1525,7 +1594,7 @@ export function _write_gate_mailbox(
   opts: { stage?: string; extra?: Record<string, any> | null } = {},
 ): void {
   if (!entries.length) return;
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const { append_jsonl_atomic } = require("../../../case_compiler/_sealed_io");
   const stage = opts.stage ?? "emit";
   const path = new P(String(_sh.outputs_root())).joinpath(aid, GATE_REJECTIONS_NAME);
@@ -1579,7 +1648,7 @@ export function _write_gate_rejections(
   const extra: Record<string, any> | null = opts.extra ?? null;
   _write_gate_mailbox(aid, "gate_rejected", entries, { stage: opts.stage ?? "emit", extra });
   if (opts.failure_observations) {
-    const path = new P(String(require("../compile_engine/_shared").outputs_root())).joinpath(aid, "failure_observations.json");
+    const path = new P(String(require("../../compile_engine/_shared").outputs_root())).joinpath(aid, "failure_observations.json");
     try {
       fs.mkdirSync(path.parent._p, { recursive: true });
       fs.writeFileSync(path._p, JSON.stringify(opts.failure_observations, null, 2) + "\n", "utf8");
@@ -1593,7 +1662,7 @@ export function _write_gate_disabled(
   opts: { stage?: string } = {},
 ): void {
   if (!violations.length) return;
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const path = new P(String(_sh.outputs_root())).joinpath(aid, GATE_DISABLED_NAME);
   _gateMailboxLockAcquire();
   try {
@@ -1621,7 +1690,7 @@ export function _write_gate_disabled(
 export function _pending_gate_rejections(autoid: string, opts: { expected_version?: number } = {}): Array<Record<string, any>> {
   const expected = opts.expected_version ?? 0;
   if (!expected) return [];
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const path = new P(String(_sh.outputs_root())).joinpath(String(autoid).trim(), GATE_REJECTIONS_NAME);
   _gateMailboxLockAcquire();
   try {
@@ -1640,7 +1709,7 @@ export function _pending_gate_rejections(autoid: string, opts: { expected_versio
 export function _pending_gate_disabled(autoid: string, opts: { expected_version?: number } = {}): Array<Record<string, any>> {
   const expected = opts.expected_version ?? 0;
   if (!expected) return [];
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const path = new P(String(_sh.outputs_root())).joinpath(String(autoid).trim(), GATE_DISABLED_NAME);
   _gateMailboxLockAcquire();
   try {
@@ -1657,7 +1726,7 @@ export function _pending_gate_disabled(autoid: string, opts: { expected_version?
 }
 
 function _write_gate_mailbox_ack(aid: string, event: string, xlsxMtimeNs: number): void {
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const path = new P(String(_sh.outputs_root())).joinpath(aid, ".gate_mailbox_ack.json");
   try {
     fs.mkdirSync(path.parent._p, { recursive: true });
@@ -1666,7 +1735,7 @@ function _write_gate_mailbox_ack(aid: string, event: string, xlsxMtimeNs: number
 }
 
 function _emit_fail_streak_bump(autoid: string): number {
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const path = new P(String(_sh.outputs_root())).joinpath(autoid, ".emit_fail_streak.json");
   let streak = 0;
   try {
@@ -1685,7 +1754,7 @@ function _emit_fail_streak_bump(autoid: string): number {
 }
 
 function _emit_fail_streak_clear(autoid: string): void {
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const path = new P(String(_sh.outputs_root())).joinpath(autoid, ".emit_fail_streak.json");
   try {
     if (path.is_file()) fs.unlinkSync(path._p);
@@ -1695,7 +1764,7 @@ function _emit_fail_streak_clear(autoid: string): void {
 const _EMIT_STATS_LOCK_PATH = nodePath.join(os.tmpdir(), "ist_emit_stats.lock");
 
 function _emit_stat(autoid: string, out: string, channel: string): void {
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const path = new P(String(_sh.outputs_root())).joinpath(autoid, ".emit_stats.json");
   const lock = acquireLockSync(_EMIT_STATS_LOCK_PATH);
   try {
@@ -1944,7 +2013,7 @@ export function compile_emit(opts: {
       return _record_emit_error_return(autoid, "ir_gap_receipt_unavailable", `error: raw steps IR-gap accounting could not be prepared; the raw emit was rejected before artifact creation (${(exc as any)?.constructor?.name ?? "Error"})`);
     }
   }
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   let overrideFrozenReason = String(opts.override_frozen_reason ?? "").trim();
   try {
     const _fzPath = new P(String(_sh.outputs_root())).joinpath(autoid, ".frozen.json");
@@ -2189,7 +2258,7 @@ export function compile_emit(opts: {
   let _deviceBuild = "";
   let _deviceBuildSource = "";
   try {
-    const { current_worker_device_session } = require("../worker_device_context");
+    const { current_worker_device_session } = require("../../worker_device_context");
     const _mutationSession = current_worker_device_session();
     if (_mutationSession !== null && _mutationSession !== undefined) {
       _deviceBuild = String(_mutationSession.expected_build ?? "").trim();
@@ -2586,7 +2655,7 @@ export function _write_gate_advisories(autoid: string, advisories: any[], opts: 
   const records = _gate_records(autoid, advisories ?? [], { ev: "gate_advisory", stage: opts.stage ?? "emit" });
   _gateMailboxLockAcquire();
   try {
-    const _sh = require("../compile_engine/_shared");
+    const _sh = require("../../compile_engine/_shared");
     const p = new P(String(_sh.outputs_root())).joinpath(String(autoid).trim(), "gate_rejections.json");
     fs.mkdirSync(p.parent._p, { recursive: true });
     let existing: Record<string, any> = {};
@@ -2612,7 +2681,7 @@ export function _write_gate_advisories(autoid: string, advisories: any[], opts: 
 }
 
 export function _peek_gate_mailbox(autoid: string): [Array<Record<string, any>>, Array<Record<string, any>>, Array<Record<string, any>>] {
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const p = new P(String(_sh.outputs_root())).joinpath(String(autoid).trim(), "gate_rejections.json");
   _gateMailboxLockAcquire();
   try {
@@ -2637,7 +2706,7 @@ export function _peek_gate_mailbox(autoid: string): [Array<Record<string, any>>,
 export function _ack_gate_mailbox(autoid: string, occurrence_ids: Iterable<string>): number {
   const expected = new Set<string>([...occurrence_ids].map((value) => String(value ?? "").trim()).filter((value) => value));
   if (!expected.size) return 0;
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const p = new P(String(_sh.outputs_root())).joinpath(String(autoid).trim(), "gate_rejections.json");
   _gateMailboxLockAcquire();
   try {
@@ -2684,7 +2753,7 @@ export function _drain_gate_mailbox(autoid: string): [Array<Record<string, any>>
 }
 
 export function _durable_json_replace(path: P, obj: Record<string, any>): string {
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   const root = String(_sh.outputs_root());
   const absolutePath = nodePath.resolve(path._p);
   const absoluteRoot = nodePath.resolve(root);
@@ -2709,7 +2778,7 @@ export function _durable_json_replace(path: P, obj: Record<string, any>): string
 
 export function _probe_ir_gap_sink(scopeName: string): Record<string, any> {
   try {
-    const _sh = require("../compile_engine/_shared");
+    const _sh = require("../../compile_engine/_shared");
     const safeScope = _safe_output_component(scopeName, "out_name");
     const probeId = crypto.randomBytes(32).toString("hex") + crypto.createHash("sha256").update(process.hrtime.bigint().toString(), "utf8").digest("hex");
     const p = new P(String(_sh.outputs_root())).joinpath(safeScope, `.ir_gap_probe.${probeId}.json`);
@@ -2730,7 +2799,7 @@ export function _probe_ir_gap_sink(scopeName: string): Record<string, any> {
 export function _write_frozen_override_ack(autoid: string, reason: string, xlsxPath: P): void {
   try {
     const { _write_json_atomic } = require("./verifiability_tool");
-    const _sh = require("../compile_engine/_shared");
+    const _sh = require("../../compile_engine/_shared");
     const ackPath = new P(String(_sh.outputs_root())).joinpath(String(autoid).trim(), ".frozen_override_ack.json");
     const mtime = fs.statSync(xlsxPath._p).mtimeMs / 1000;
     _write_json_atomic(ackPath, { reason: String(reason ?? "").trim().slice(0, 200), ts: Date.now() / 1000, xlsx_mtime: mtime });
@@ -2879,7 +2948,7 @@ export function precheck_merge_case(aid: string, out_name = ""): string | null {
   } catch (exc) {
     return `unsafe output identity: ${exc instanceof Error ? exc.message : exc}`;
   }
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   if (!xp.is_file()) return "case.xlsx 不在盘(编写未产出或已被挪走)";
   const ndPath = xp.parent.joinpath("needs_decision.json");
   const udPath = xp.parent.joinpath("user_decision.json");
@@ -3023,7 +3092,7 @@ export function compile_emit_merged(opts: { cases_json?: string; shared_init?: s
   const sharedInit = String(opts.shared_init ?? "");
   let outName = String(opts.out_name ?? "");
   const autoidsArg = opts.autoids ?? "";
-  const _sh = require("../compile_engine/_shared");
+  const _sh = require("../../compile_engine/_shared");
   try {
     if (outName.trim()) _safe_output_component(outName, "out_name");
   } catch (exc) {

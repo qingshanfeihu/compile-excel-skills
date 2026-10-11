@@ -228,7 +228,7 @@ function _checkCommandAllowlist(steps: any[], init: string, result: StructuralRe
 
 function _checkCommandExistenceSameSource(steps: any[], init: string, result: StructuralResult, opts: { device_build?: string } = {}): void {
   const deviceBuild = opts.device_build ?? "";
-  const { CommandTreeUnavailable } = require("../compile_engine/engine_errors");
+  const { CommandTreeUnavailable } = require("../../compile_engine/engine_errors");
   const {
     COMMAND_PARAMETER_CONTRACT_CODE,
     COMMAND_NOT_IN_TREE_CODE,
@@ -906,7 +906,7 @@ function _checkAssertionRegexCompiles(steps: any[], result: StructuralResult): v
     if (!["found", "not_found", "found_times"].includes(f) || !g) continue;
     if (h && f !== "found_times") continue;
     try {
-      new RegExp(g);
+      new RegExp(String(g).replace(/^\(\?[a-zA-Z]+\)/, ""));
     } catch (exc) {
       result.add("assertion_regex_invalid", `assertion regex fails to compile (${exc instanceof Error ? exc.message : String(exc)}): ${pyRepr(g.slice(0, 80))} — the framework raises at re.compile and the entire file crashes. Fix the regex syntax (common: an unclosed character class, [^ should be [^\\n]).`, i);
     }

@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { accepts_schema as _acceptsSchema } from "../common/schema_identity";
+import { ORDERING_EXEMPT_REASON } from "./provenance_ir";
+import { validate_expected_with_source } from "./provenance_ir";
 import {
   atomic_write_bytes_nofollow,
   open_directory_nofollow,
@@ -79,7 +81,7 @@ function _normalizedClaim(value: any, opts: { item_text: string; source_claim: R
     const authoredStep = value["authored_step"];
     const cause = value["authored_step_cause"];
     if (authoredStep !== null && authoredStep !== undefined && (typeof authoredStep !== "number" || authoredStep < 1)) throw new ContractError(`${field}.authored_step is invalid`);
-    if ((cause === null || cause === undefined) !== (authoredStep === null || authoredStep === undefined)) throw new ContractError(`${field}.authored_step_cause is not paired`);
+    if ((cause === null || cause === undefined) !== (authoredStep !== null && authoredStep !== undefined)) throw new ContractError(`${field}.authored_step_cause is not paired`);
     if (cause !== null && cause !== undefined && !AUTHORED_STEP_UNKNOWN_CAUSES.includes(cause)) throw new ContractError(`${field}.authored_step_cause is outside closed set`);
   }
   if (value["schema"] !== NORMALIZED_CLAIM_SCHEMA || String(value["original_text"] ?? "") !== item_text || String(value["expectation_id"] ?? "") !== String(source_claim?.["expectation_id"] ?? "") || String(value["semantic_key"] ?? "") !== String(source_claim?.["semantic_key"] ?? "") || String(value["original_claim_sha256"] ?? "") !== String(source_claim?.["claim_sha256"] ?? "") || !/^[0-9a-f]{64}$/.test(String(value["shape_key"] ?? "")) || String(value["catalog_sha256"] ?? "") !== String(projection?.["projection_sha256"] ?? "") || !["matched", "unmatched", "manual_recommended", "numeric_tolerance_out_of_range"].includes(status) || !String(value["disclosure"] ?? "").trim()) throw new ContractError(`${field} identity is invalid`);
@@ -705,6 +707,4 @@ export function write_intent_json_atomic(filePath: string, payload: Record<strin
   return sha256_bytes(encoded);
 }
 
-import { ORDERING_EXEMPT_REASON } from "./provenance_ir";
-import { validate_expected_with_source } from "./provenance_ir";
 

@@ -20,7 +20,7 @@ export interface HttpResponse {
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
-const DEFAULT_MAX_BYTES = 64 * 1024;
+const DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
 
 export function httpRequest(url: string, options: HttpRequestOptions = {}): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {

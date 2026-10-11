@@ -24,7 +24,7 @@ export class OutputJsonBudgetError extends OutputLedgerError {
 const _MAX_LEDGER_BYTES = 32 * 1024 * 1024;
 
 export function output_root(): P {
-  const sh = require("../compile_engine/_shared");
+  const sh = require("../../compile_engine/_shared");
   return new P(lexical_absolute(String(sh.outputs_root())));
 }
 
@@ -47,7 +47,7 @@ export function scoped_output_path(raw_path: string | P): P {
   if (raw.is_absolute()) {
     target = new P(lexical_absolute(text));
   } else if (text === "workspace/outputs" || text.startsWith("workspace/outputs/")) {
-    const sh = require("../compile_engine/_shared");
+    const sh = require("../../compile_engine/_shared");
     target = new P(lexical_absolute(new P(String(sh.project_root())).joinpath(text)._p));
   } else if (text === "outputs" || text.startsWith("outputs/")) {
     const rel = text.slice("outputs".length).replace(/^\/+/, "");
@@ -118,7 +118,7 @@ export function read_json(path: string | P, opts: { max_bytes?: number; preserve
 }
 
 export function write_json(path: string | P, value: any): string {
-  const { current_worker_device_session } = require("../worker_device_context");
+  const { current_worker_device_session } = require("../../worker_device_context");
   const { session_admission_boundary } = require("../compile_engine/engine_quarantine");
   const target = scoped_output_path(path);
   const payload = Buffer.from(pyJsonDumps(value, { ensure_ascii: false, indent: 2 }) + "\n", "utf8");

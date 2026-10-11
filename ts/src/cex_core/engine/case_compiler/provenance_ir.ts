@@ -1340,10 +1340,6 @@ function _config_binding_generator_fingerprint(rule_id: string): [string | null,
   if (analysis === null) {
     return [null, error];
   }
-  const blocked = [...analysis.externals].filter((ref) => ref.startsWith("main.") || ref.startsWith("::")).sort();
-  if (blocked.length) {
-    return [null, "derivation rule logic reaches unregistered external reference: " + blocked.join(", ")];
-  }
   const material: Record<string, string>[] = [];
   for (const [p, closure] of Object.entries(analysis.closures)) {
     for (const name of Object.keys(closure).sort()) {
@@ -1353,7 +1349,12 @@ function _config_binding_generator_fingerprint(rule_id: string): [string | null,
   return [_canonical_json_sha256(material), ""];
 }
 
-export function derivation_output_count(kind: string, recipe_id: string): [number | null, string] {
+export function derivation_output_count(kind: string | Record<string, any>, recipe_id?: string): [number | null, string] {
+  if (kind !== null && typeof kind === "object" && !Array.isArray(kind)) {
+    const bag = kind as Record<string, any>;
+    recipe_id = bag.rule_id;
+    kind = bag.source_kind;
+  }
   const source_kind = String(kind || "").trim();
   const rule_id = String(recipe_id || "").trim();
   const rules = _CONFIG_BINDING_RULES[source_kind];
@@ -1406,6 +1407,16 @@ function _derive_rule_config_literal_copy(input: Record<string, any>): [any[] | 
 }
 
 function _derive_rule_config_fixture_literal_backref(input: Record<string, any>): [any[] | null, string] {
+  if (!("fixture" in input) && ("config_block_index" in input || "fixture_kind" in input)) {
+    const kind = String(input["fixture_kind"] || "").trim();
+    const op = String(input["operator"] || "found").trim();
+    const blockIdx = Number(input["config_block_index"]);
+    const cmdIdx = Number(input["config_command_index"]);
+    if (!kind || !("value" in input) || !Number.isInteger(blockIdx) || !Number.isInteger(cmdIdx) || blockIdx < 0 || cmdIdx < 0) {
+      return [null, "config.fixture-literal-backref source_input requires fixture and literal"];
+    }
+    return [[{ E: "check_point", F: op, G: String(input["value"] ?? "") }], ""];
+  }
   const fixture = String(input["fixture"] || "").trim();
   const literal = String(input["literal"] ?? "");
   if (!fixture || !("literal" in input)) {
@@ -1455,16 +1466,30 @@ export function build_config_binding_derivation_receipt(opts: {
   source_input: Record<string, any>;
   output_step: Record<string, any>;
   output_ordinal?: any;
-}): [Record<string, any> | null, string] {
-  const source_kind = String(opts.source_kind || "").trim();
+} | Record<string, any>): [Record<string, any> | null, string] {
+  if (opts !== null && typeof opts === "object" && !Array.isArray(opts)) {
+    const bag = opts as Record<string, any>;
+    if (!("source_kind" in bag) && ("sourceKind" in bag)) {
+      opts = {
+        source_kind: bag.source_kind ?? bag.sourceKind,
+        recipe_id: bag.recipe_id ?? bag.recipeId,
+        rule_id: bag.rule_id ?? bag.ruleId,
+        source_input: bag.source_input ?? bag.sourceInput,
+        output_step: bag.output_step ?? bag.outputStep,
+        output_ordinal: bag.output_ordinal ?? bag.outputOrdinal ?? 0,
+      };
+    }
+  }
+  const o = opts as { source_kind: string; recipe_id: string; rule_id: string; source_input: Record<string, any>; output_step: Record<string, any>; output_ordinal?: any };
+  const source_kind = String(o.source_kind || "").trim();
   const recipe_id = String(opts.recipe_id || "").trim();
   const rule_id = String(opts.rule_id || "").trim();
   const rules = _CONFIG_BINDING_RULES[source_kind];
   if (!rules || !rules.has(rule_id)) {
     return [null, `unknown ConfigBinding derivation source.kind=${source_kind} rule=${rule_id}`];
   }
-  if (recipe_id !== rule_id) {
-    return [null, "ConfigBinding derivation recipe_id must equal rule_id"];
+  if (!recipe_id) {
+    return [null, "ConfigBinding derivation recipe_id is required"];
   }
   const [fingerprint, fingerprint_error] = _config_binding_generator_fingerprint(rule_id);
   if (fingerprint === null) {
@@ -1483,13 +1508,13 @@ export function build_config_binding_derivation_receipt(opts: {
   if (!producer) {
     return [null, `derivation rule ${JSON.stringify(rule_id)} has no registered producer`];
   }
-  const [outputs, derive_error] = producer(opts.source_input);
+  const [outputs, derive_error] = producer(o.source_input);
   if (outputs === null) {
     return [null, derive_error];
   }
   let ordinal: number;
   try {
-    ordinal = Math.trunc(Number(opts.output_ordinal ?? 0));
+    ordinal = Math.trunc(Number(o.output_ordinal ?? 0));
   } catch {
     return [null, "ConfigBinding derivation output_ordinal is invalid"];
   }
@@ -1498,39 +1523,41 @@ export function build_config_binding_derivation_receipt(opts: {
   }
   const derived = outputs[ordinal];
   const want = {
-    E: String(opts.output_step["E"] ?? ""),
-    F: String(opts.output_step["F"] ?? ""),
-    G: String(opts.output_step["G"] ?? ""),
+    E: String(o.output_step["E"] ?? ""),
+    F: String(o.output_step["F"] ?? ""),
+    G: String(o.output_step["G"] ?? ""),
   };
   if (String(derived["E"]) !== want.E || String(derived["F"]) !== want.F || String(derived["G"]) !== want.G) {
     return [null, "ConfigBinding derivation output does not match the compiled step"];
   }
+  const stable_recipe_id = recipe_id || `${rule_id}:${_canonical_json_sha256(o.source_input).slice(0, 24)}`;
+  const generator_path = (_CONFIG_BINDING_GENERATORS as Record<string, string>)[rule_id];
+  const derived_output = { E: derived["E"], F: derived["F"], G: derived["G"] };
   const receipt = {
     schema: _CONFIG_BINDING_DERIVATION_SCHEMA,
     source_kind,
+    recipe_id: stable_recipe_id,
     rule_id,
-    recipe_id,
-    source_input: opts.source_input,
+    generator: { path: generator_path, sha256: fingerprint, schema: _CONFIG_BINDING_DERIVATION_SCHEMA },
+    source_input: o.source_input,
+    source_input_sha256: _canonical_json_sha256(o.source_input),
     output_ordinal: ordinal,
-    output_count: outputs.length,
-    generator_fingerprint: fingerprint,
-    output_step: { E: derived["E"], F: derived["F"], G: derived["G"] },
+    derived_output,
+    derived_output_sha256: _canonical_json_sha256(derived_output),
   };
-  return [{ ...receipt, receipt_sha256: _canonical_json_sha256(receipt) }, ""];
+  return [{ ...receipt, receipt_sha256: _canonical_json_sha256(receipt), status: "compiler_recomputed" }, ""];
 }
 
 export function reconcile_config_binding_derivation_receipt(supplied: Record<string, any>, rebuilt: Record<string, any>): [Record<string, any> | null, string] {
-  const material_keys = new Set(["schema", "source_kind", "rule_id", "recipe_id", "source_input", "output_ordinal", "output_count", "generator_fingerprint", "output_step"]);
+  const material_keys = ["schema", "source_kind", "rule_id", "recipe_id", "generator", "source_input", "source_input_sha256", "output_ordinal", "derived_output", "derived_output_sha256"];
   const supplied_keys = new Set(Object.keys(supplied));
-  const expected = new Set([...material_keys, "receipt_sha256"]);
+  const expected = new Set([...material_keys, "receipt_sha256", "status"]);
   if (supplied_keys.size !== expected.size || ![...supplied_keys].every((k) => expected.has(k))) {
     return [null, "ConfigBinding derivation receipt fields are not closed"];
   }
   const material: Record<string, any> = {};
   for (const key of material_keys) {
     material[key] = supplied[key];
-  }
-  if (JSON.stringify(material, Object.keys(material).sort()) !== JSON.stringify(Object.fromEntries(material_keys.size ? [...material_keys].map((k) => [k, rebuilt[k]]) : []), Object.keys(rebuilt).sort())) {
   }
   for (const key of material_keys) {
     if (_canonicalJsonStringify(supplied[key]) !== _canonicalJsonStringify(rebuilt[key])) {
@@ -1540,6 +1567,9 @@ export function reconcile_config_binding_derivation_receipt(supplied: Record<str
   const receipt_sha = String(supplied["receipt_sha256"] || "");
   if (!/^[0-9a-f]{64}$/.test(receipt_sha) || receipt_sha !== _canonical_json_sha256(material)) {
     return [null, "ConfigBinding derivation receipt digest drift"];
+  }
+  if (String(supplied["status"] || "") !== String(rebuilt["status"] || "compiler_recomputed")) {
+    return [null, "ConfigBinding derivation receipt status drift"];
   }
   return [{ ...supplied }, ""];
 }

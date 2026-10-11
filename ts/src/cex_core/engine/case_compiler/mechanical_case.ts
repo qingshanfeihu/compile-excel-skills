@@ -22,16 +22,22 @@ const _ASSERTION_ID_BLOCK_KINDS = new Set(["CAPTURE_COMPARE", "OBSERVE_DIST", "O
 
 export class MechanicalCaseError extends Error {}
 
-function _rejectDuplicateKeys(): (this: any, key: string, value: any) => any {
-  const seen = new Set<string>();
+export function _rejectDuplicateKeys(): (this: any, key: string, value: any) => any {
+  const counts = new WeakMap<object, Map<string, number>>();
   return function (this: any, key: string, value: any): any {
     if (key === "") {
       return value;
     }
-    if (seen.has(key)) {
+    let perObject = counts.get(this);
+    if (!perObject) {
+      perObject = new Map<string, number>();
+      counts.set(this, perObject);
+    }
+    const n = (perObject.get(key) ?? 0) + 1;
+    perObject.set(key, n);
+    if (n > 1) {
       throw new Error(`duplicate JSON key: ${key}`);
     }
-    seen.add(key);
     return value;
   };
 }
