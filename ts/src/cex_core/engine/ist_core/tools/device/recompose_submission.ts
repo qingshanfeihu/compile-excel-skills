@@ -236,7 +236,7 @@ function _projectionHeadStamp(name: string, opts: { kind: string }): Record<stri
   const { load_vendor_stdlib } = require("../../../case_compiler/vendor_stdlib");
   const inventory = load_vendor_stdlib();
   if (inventory === null || inventory === undefined) return null;
-  const { recorded_command_heads } = require("../worker_device_context");
+  const { recorded_command_heads } = require("../../worker_device_context");
   const heads: string[] = recorded_command_heads(inventory, name);
   if (!heads.length && opts.kind === "complete") {
     const { rank_vendor_command_completions } = require("../../../case_compiler/vendor_stdlib");

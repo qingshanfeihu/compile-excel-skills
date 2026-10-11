@@ -357,7 +357,11 @@ function _infotestSpelling(text: string): string {
 }
 
 export function codeMirror(root: string): number {
-  const manifest = JSON.parse(fs.readFileSync(path.join(ENGINE_DIR, "MANIFEST.json"), "utf8"));
+  const manifestPath = path.join(ENGINE_DIR, "MANIFEST.json");
+  if (!fs.existsSync(manifestPath)) {
+    return 0;
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   let written = 0;
   for (const entry of (manifest.modules as Record<string, unknown>[]) ?? []) {
     const source = String(entry.source ?? "");
@@ -447,7 +451,8 @@ export function activate(root: string): string {
 }
 
 export function prepare(ws: Workspace, pinned?: unknown): [string, Record<string, unknown>] {
-  const [root, info] = pinned ? pinnedRoot(ws, pinned) : materialize(ws);
+  const pin = pinned && typeof pinned === "object" ? (pinned as { pinned?: string }).pinned : pinned;
+  const [root, info] = pin ? pinnedRoot(ws, pin) : materialize(ws);
   const lock = stateLock(ws, "engine", path.basename(root));
   try {
     codeMirror(root);

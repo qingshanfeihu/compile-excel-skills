@@ -380,7 +380,7 @@ function _same_expected_source(expected: TypedExpectation | ExpectedFacet, actua
   return expected.source_locator === actual.source_locator;
 }
 
-function _recomputed_composite_receipt(step: any): [Record<string, any> | null, number, string] {
+export function _recomputed_composite_receipt(step: any): [Record<string, any> | null, number, string] {
   const { build_config_binding_derivation_receipt, derivation_output_count, reconcile_config_binding_derivation_receipt } = require("../../case_compiler/provenance_ir");
   const source = step?.source;
   const kind = String(source?.kind ?? '');

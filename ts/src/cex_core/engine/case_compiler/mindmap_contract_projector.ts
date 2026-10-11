@@ -127,10 +127,11 @@ function _invalid_contract_user_text(reason: string): [string, string] {
   return ["机械脑图没过复查，本轮退回，不编写", `机械脑图没过复查（${text}），不能当成「按你的脑图原文」`];
 }
 
-export function load_machine_mindmap(mmPath: string): [any, string] {
+export function load_machine_mindmap(mmPath: string | { _p?: string }): [any, string] {
   let raw: Buffer;
   try {
-    raw = fs.readFileSync(mmPath);
+    const p: string = mmPath && typeof mmPath === "object" && typeof (mmPath as any)._p === "string" ? (mmPath as any)._p : mmPath;
+    raw = fs.readFileSync(p);
   } catch (exc: any) {
     throw new MachineMindmapError(`machine mindmap is unavailable: ${exc.message || exc}`);
   }

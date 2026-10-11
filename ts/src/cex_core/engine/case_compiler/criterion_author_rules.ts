@@ -109,8 +109,17 @@ export function render_criterion_adjudication_result(value: any): string {
   return JSON.stringify(Object.fromEntries(Object.entries(parsed).filter(([_, v]) => v !== undefined && v !== null)));
 }
 
+function _compactSorted(value: any): string {
+  if (Array.isArray(value)) return "[" + value.map(_compactSorted).join(",") + "]";
+  if (value !== null && typeof value === "object") {
+    const keys = [...Object.keys(value)].sort();
+    return "{" + keys.map((k) => JSON.stringify(k) + ":" + _compactSorted(value[k])).join(",") + "}";
+  }
+  return JSON.stringify(value);
+}
+
 function _sha256(value: any): string {
-  return crypto.createHash("sha256").update(JSON.stringify(value, Object.keys(value).sort(), 0)).digest("hex");
+  return crypto.createHash("sha256").update(_compactSorted(value), "utf8").digest("hex");
 }
 
 function _identityPreview(value: any): string {
@@ -178,7 +187,8 @@ function _manualAnchorId(anchor: Record<string, any>): string {
 
 function _ruleHasReusePins(record: Record<string, any>): boolean {
   if (!String(record?.["manual_version"] ?? "")) return false;
-  if (record?.["pin_failures"]) return false;
+  const pinFailures = record?.["pin_failures"];
+  if (pinFailures && (!Array.isArray(pinFailures) || pinFailures.length)) return false;
   const anchorPins = record?.["anchor_chapter_shas"];
   const catalogPins = record?.["catalog_pins"];
   return Boolean(anchorPins && typeof anchorPins === "object" && !Array.isArray(anchorPins) && Object.keys(anchorPins).length && catalogPins && typeof catalogPins === "object" && !Array.isArray(catalogPins) && Object.keys(catalogPins).length);
@@ -216,7 +226,7 @@ function _ruleReusable(record: Record<string, any>, opts: { manual_version: stri
   let liveAnchorPins: Record<string, Record<string, string>>;
   try {
     const { anchor_chapter_pins } = require("../kms/manual_chapter_locator");
-    liveAnchorPins = anchor_chapter_pins(anchors, { manual_version: opts.manual_version, root: opts.root });
+    liveAnchorPins = anchor_chapter_pins(anchors, opts.manual_version, opts.root);
   } catch {
     return false;
   }
@@ -468,9 +478,9 @@ function _copyHistoryState(active: Record<string, Record<string, any>>, history:
   ];
 }
 
-function _computeHistoryState(opts: { path: string; answer_path?: string; manual_version?: string | null }): [Record<string, Record<string, any>>, Record<string, Record<string, any>[]>] {
+function _computeHistoryState(opts: { path?: string; answer_path?: string; manual_version?: string | null }): [Record<string, Record<string, any>>, Record<string, Record<string, any>[]>] {
   const history: Record<string, Record<string, any>[]> = {};
-  for (const record of _ruleHistory(opts.path)) {
+  for (const record of _ruleHistory(opts.path ?? AUTHOR_RULE_PATH)) {
     const pinnedVersion = String(record?.["manual_version"] ?? "");
     let key: string;
     if (pinnedVersion && _ruleHasReusePins(record)) {

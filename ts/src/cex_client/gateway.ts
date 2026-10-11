@@ -170,8 +170,20 @@ export function taskRecord(ws: Workspace, taskId: string): Record<string, unknow
   return typeof record === "object" && record !== null ? record as Record<string, unknown> : null;
 }
 
-function _order(record: Record<string, unknown>): [number, string] {
-  return [Number(record.seq ?? 0), String(record.submitted_at ?? "")];
+interface _OrderKey {
+  seq: number;
+  ts: number;
+}
+
+export function _order(record: Record<string, unknown>): _OrderKey {
+  const seq = Number(record.seq ?? 0);
+  const ts = Date.parse(String(record.submitted_at ?? ""));
+  return { seq, ts: Number.isNaN(ts) ? Infinity : ts };
+}
+
+export function _orderAfter(a: _OrderKey, b: _OrderKey): boolean {
+  if (a.seq !== b.seq) return a.seq > b.seq;
+  return a.ts > b.ts;
 }
 
 export function newerSubmissions(ws: Workspace, taskId: string): string[] {
@@ -182,6 +194,6 @@ export function newerSubmissions(ws: Workspace, taskId: string): string[] {
   return Object.entries(tasks)
     .filter(([id, r]) => id !== taskId && typeof r === "object" && r !== null &&
       (r as Record<string, unknown>).xlsx === (mine as Record<string, unknown>).xlsx &&
-      _order(r as Record<string, unknown>) > mineOrder)
+      _orderAfter(_order(r as Record<string, unknown>), mineOrder))
     .map(([id]) => id);
 }

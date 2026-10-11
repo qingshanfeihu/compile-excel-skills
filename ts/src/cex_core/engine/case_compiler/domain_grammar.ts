@@ -45,7 +45,7 @@ export function load_grammar(): Record<string, any> {
   const data = JSON.parse(fs.readFileSync(GRAMMAR_PATH, "utf8"));
   const compiled: Record<string, RegExp> = {};
   for (const [sid, s] of Object.entries<any>(data.statements || {})) {
-    compiled[sid] = new RegExp(s.pattern, "i");
+    compiled[sid] = new RegExp(String(s.pattern).replace(/\(\?P</g, "(?<"), "i");
   }
   _cache.mtime = mtime;
   _cache.data = data;
