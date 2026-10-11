@@ -1,6 +1,6 @@
 {
   "name": "compile-excel",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "compile-excel skill - TypeScript rewrite with Windows support",
   "type": "commonjs",
   "main": "dist/index.js",
@@ -29,4 +29,3 @@
     "typescript": "^5.6.0"
   }
 }
-
