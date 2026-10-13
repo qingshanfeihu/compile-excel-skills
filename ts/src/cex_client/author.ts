@@ -14,6 +14,7 @@ import {
 } from "./workspace.js";
 import { prepare as engineEnvPrepare, localRulesPath } from "./engine_env.js";
 import { canonicalJson } from "./fingerprints.js";
+import * as consistency from "./consistency.js";
 
 export const STATE_SCHEMA = "cex.author-dispatch/v1";
 const _STRIP = "\ufeff\uffff";
@@ -118,6 +119,86 @@ function _specText(root: string, specStatus: Record<string, unknown>): string | 
     throw new ClientError("the bound governing spec changed after recompose; call cex_recompose_prepare again");
   }
   return raw.toString("utf8");
+}
+
+async function _consistencyCtx(root: string, batch: string, text: string): Promise<Record<string, any>> {
+  // 一致性打包的批级上下文：密封的规格书/缺陷旁车与盘上的机械案一次读齐。机械案取盘上
+  // 那份（与 recompose_done 回执逐字节闭合），build 与提交期重核必须用同一份出处。
+  const { load_machine_mindmap } = await import("../cex_core/engine/case_compiler/mindmap_contract_projector.js");
+  const [specStatus] = _status(batch, "governing_spec_status.json");
+  const [defect] = _status(batch, "defect_spec_status.json");
+  const [mmData] = load_machine_mindmap(path.join(batch, "machine_mindmap.json"));
+  const bound = specStatus.status === "bound";
+  return {
+    text,
+    spec_status: specStatus,
+    spec_name: bound ? specStatus.name : null,
+    spec_text: _specText(root, specStatus),
+    spec_path: bound ? path.join(root, "knowledge", "data", "spec", "generations",
+      safeComponent(specStatus.generation_id, "spec generation"), "docs",
+      safeComponent(specStatus.name, "spec name")) : null,
+    defect_receipt: defect.receipt && typeof defect.receipt === "object" ? defect.receipt : null,
+    mm_cases: Object.fromEntries(((mmData.cases as Record<string, unknown>[]) ?? [])
+      .filter((c) => c && typeof c === "object")
+      .map((c) => [String(c.autoid ?? ""), c])),
+  };
+}
+
+async function _consistencyRecord(ws: Workspace, batch: string, caseRoot: string, aid: string,
+  outName: string, outcome: Record<string, any>, ctx: Record<string, any>): Promise<Record<string, any>> {
+  // outcome → 记进编写状态的工件记录；pending 案落 brief，sealed/abandoned 撤旧 brief。
+  const record: Record<string, any> = { status: outcome.status };
+  if (outcome.status === consistency.STATUS_SEALED) {
+    consistency.dropBrief(batch, aid);
+    Object.assign(record, { material: outcome.material, receipt_sha256: outcome.receipt_sha256,
+      overlay_sha256: outcome.overlay_sha256, scope: outcome.scope });
+    return record;
+  }
+  record.code = outcome.code ?? "";
+  record.detail = outcome.detail ?? "";
+  record.fixed_verdict = outcome.fixed_verdict;
+  if (outcome.status === consistency.STATUS_ABANDONED) {
+    record.evidence = outcome.evidence;
+    consistency.dropBrief(batch, aid);
+    return record;
+  }
+  const card = JSON.parse(fs.readFileSync(path.join(batch, "contracts", `${aid}.json`), "utf8"));
+  const brief = consistency.writeBrief(ws, batch, aid, outName, record, {
+    conclusion: card.consistency, specName: ctx.spec_name, specPath: ctx.spec_path,
+    caseAtoms: await consistency.sourceAtoms(ctx.text, aid),
+  });
+  record.brief_path = toStatePath(ws, brief);
+  return record;
+}
+
+async function _sealedMachineCase(batch: string, aid: string): Promise<Record<string, any>> {
+  // 盘上密封的机械案——spec_endorsement.scope 与覆盖层重核都按这一份算。
+  const { load_machine_mindmap } = await import("../cex_core/engine/case_compiler/mindmap_contract_projector.js");
+  const [mmData] = load_machine_mindmap(path.join(batch, "machine_mindmap.json"));
+  for (const case_ of (mmData.cases as Record<string, unknown>[]) ?? []) {
+    if (case_ && typeof case_ === "object" && String(case_.autoid ?? "") === aid) return case_ as Record<string, any>;
+  }
+  throw new ClientError(`case ${aid} is missing from the sealed machine mindmap`);
+}
+
+function _consistencyReport(stamped: Record<string, any>): Record<string, any> {
+  // prepare 结果里的一致性三态汇总；none 表示这批没有需要一致性工件的案。
+  const report: Record<string, any> = { required: 0, sealed: [], abandoned: [],
+    pending_record: [], none: true };
+  for (const aid of Object.keys(stamped).sort()) {
+    const record = stamped[aid]?.consistency;
+    if (!record) continue;
+    report.none = false;
+    report.required += 1;
+    if (record.status === consistency.STATUS_SEALED) report.sealed.push(aid);
+    else if (record.status === consistency.STATUS_ABANDONED) {
+      report.abandoned.push({ autoid: aid, code: record.code ?? "", evidence: record.evidence });
+    } else {
+      report.pending_record.push({ autoid: aid, code: record.code ?? "",
+        detail: record.detail ?? "", brief_path: record.brief_path });
+    }
+  }
+  return report;
 }
 
 async function _manifestCases(text: string): Promise<Record<string, Record<string, unknown>>> {
@@ -273,11 +354,11 @@ function _receipt(batch: string, projected: Record<string, unknown>, rstate: Rec
   };
 }
 
-async function _stampIntent(ws: Workspace, root: string, batch: string, caseRoot: string, aid: string, receipt: Record<string, unknown>, case_: Record<string, unknown> | undefined): Promise<Record<string, unknown>> {
+async function _stampIntent(ws: Workspace, root: string, batch: string, caseRoot: string, aid: string, receipt: Record<string, unknown>, case_: Record<string, unknown> | undefined, ctx?: Record<string, any> | null, presetOutcome?: Record<string, any> | null): Promise<[Record<string, any>, Record<string, any> | null]> {
   const { read_regular_nofollow } = await import("../cex_core/engine/case_compiler/_sealed_io.js");
   const { normalize_contract, write_intent_json_atomic, write_json_atomic } = await import("../cex_core/engine/case_compiler/contract_entry.js");
   const { forbidden_mechanism_intents } = await import("../cex_core/engine/case_compiler/domain_grammar.js");
-  const { resolve_consistency_requirement } = await import("../cex_core/engine/ist_core/compile_engine/consistency_requirement.js");
+  const { REQUIRED, resolve_consistency_requirement } = await import("../cex_core/engine/ist_core/compile_engine/consistency_requirement.js");
 
   const caseDir = path.join(caseRoot, safeComponent(aid, "autoid"));
   const marker = path.join(caseDir, "intent_stamp_status.json");
@@ -360,6 +441,27 @@ async function _stampIntent(ws: Workspace, root: string, batch: string, caseRoot
   payload.governing_spec_status = proof.governing_spec_status;
   payload.consistency_requirement = proof.requirement;
   payload.consistency_binding_status = proof.binding_status;
+  let outcome = presetOutcome ?? null;
+  if (outcome === null && ctx && proof.requirement === REQUIRED) {
+    try {
+      outcome = await consistency.deriveFromConclusion({
+        aid, card: contract, cardSha256: expected,
+        mmCase: ctx.mm_cases[aid] ?? {}, mindmapText: ctx.text, specName: ctx.spec_name,
+        specText: ctx.spec_text, defectReceipt: ctx.defect_receipt, caseRoot,
+      });
+    } catch (exc) {
+      if (exc instanceof ClientError) throw exc;  // 数据根/盘级故障是批级问题，如实上抛
+      // 引擎的判据不该在单案上炸整批：按 pending_record 记码，出路照旧点名
+      outcome = { status: consistency.STATUS_PENDING,
+        code: `consistency_record_invalid: ${(exc as any)?.constructor?.name ?? "Error"}`,
+        detail: String((exc as Error)?.message ?? exc).slice(0, 400), fixed_verdict: null };
+    }
+  }
+  if (outcome !== null && outcome.status === consistency.STATUS_SEALED) {
+    Object.assign(payload, await consistency.intentBinding(outcome, {
+      overlay: await consistency.overlayPath(caseRoot, aid), projectRoot: ws.root,
+    }));
+  }
   const haystack = [payload.title, ...((payload.step_intents as Record<string, unknown>[]) ?? []).map((si) => `${si.desc ?? ""} ${si.expected ?? ""}`)].join(" ").toLowerCase();
   const hits = [];
   for (const [family, patterns] of forbidden_mechanism_intents()) {
@@ -370,7 +472,7 @@ async function _stampIntent(ws: Workspace, root: string, batch: string, caseRoot
   if (hits.length) payload.forbidden_mechanism = hits.slice(0, 3);
   write_intent_json_atomic(path.join(caseDir, "intent.json"), payload);
   write_json_atomic(marker, { schema: _INTENT_STAMP_SCHEMA, autoid: aid, status: "complete" });
-  return proof;
+  return [proof, outcome];
 }
 
 const SLOT_RULE = "Each expectation is redeemed by the block its expectation_binding points at. The submission gate accepts the binding only when (block kind, operator) is one of that expectation's allowed_slots: operator is asserts[assert_index].op for OBSERVE_ASSERT, the block's F for STEP, and \"\" for kinds that carry no operator.";
@@ -487,18 +589,33 @@ async function _projectAndPublish(ws: Workspace, state: Record<string, unknown>)
   const receipt = _receipt(batch, projected, rstate);
   const text = fs.readFileSync(path.join(batch, "mindmap_source.json"), "utf8").replace(new RegExp(`^[${_STRIP}]+`), "");
   const manifestCases = await _manifestCases(text);
+  const ctx = await _consistencyCtx(root, batch, text);
   const caseRoot = casesRoot(ws, String(state.out_name));
-  const stamped: Record<string, unknown> = {};
+  const stamped: Record<string, any> = {};
   for (const aid of summary.written as string[]) {
-    const proof = await _stampIntent(ws, root, batch, caseRoot, aid, receipt, manifestCases[aid]);
+    const [proof, outcome] = await _stampIntent(ws, root, batch, caseRoot, aid, receipt, manifestCases[aid], ctx);
     const [, sliceSha] = await sourceCaseSlice(manifestCases[aid], aid);
-    stamped[aid] = { consistency_requirement: proof.requirement, source_case_slice_sha256: sliceSha };
+    const entry: Record<string, any> = { consistency_requirement: proof.requirement, source_case_slice_sha256: sliceSha };
+    if (outcome !== null) {
+      entry.consistency = await _consistencyRecord(ws, batch, caseRoot, aid, String(state.out_name), outcome, ctx);
+    }
+    stamped[aid] = entry;
   }
   const capability = info.capability ?? {};
   const contracts = receipt.contract_sha256_by_autoid as Record<string, string>;
 
+  const { CONSISTENCY_CONTRACT_SIDECAR_NAME } = await import("../cex_core/engine/engine_managed_outputs.js");
+  const staleOverlays: string[] = [];
   const publish = (current: Record<string, unknown>) => {
     const sealed = current.sealed !== undefined ? current.sealed : state.sealed;
+    for (const [aid, record] of Object.entries((current.cases as Record<string, any>) ?? {})) {
+      // 重投影后打包不再成立（结论变了/卡换了）：撤掉旧覆盖层，别让盘上留一枚没了台账的工件
+      const old = record?.consistency ?? {};
+      const newStatus = stamped[aid]?.consistency?.status;
+      if (old.status === consistency.STATUS_SEALED && newStatus !== consistency.STATUS_SEALED) {
+        staleOverlays.push(path.join(caseRoot, aid, CONSISTENCY_CONTRACT_SIDECAR_NAME));
+      }
+    }
     Object.assign(current, {
       phase: "published",
       receipt,
@@ -514,9 +631,13 @@ async function _projectAndPublish(ws: Workspace, state: Record<string, unknown>)
     });
   };
   _updateState(ws, String(state.out_name), publish);
+  for (const stale of staleOverlays) {
+    try { fs.rmSync(stale, { force: true }); } catch { /* permission etc: the ledger is already corrected */ }
+  }
 
   const { load: bedLoad, loadServices: bedLoadServices, factsView } = await import("./bed.js");
   const topology = bedLoad(ws) ?? {};
+  const report = _consistencyReport(stamped);
   const disclosures = ((summary.disclosures as Record<string, unknown>[]) ?? []).map((item) => {
     const out: Record<string, unknown> = {};
     for (const k of ["autoid", "code", "message", "criterion_type"]) {
@@ -524,21 +645,42 @@ async function _projectAndPublish(ws: Workspace, state: Record<string, unknown>)
     }
     return out;
   });
+  for (const item of report.abandoned) {
+    disclosures.push({ autoid: item.autoid, code: "consistency_abandoned",
+      message: "重组判定本案与所绑规格书案内互斥（出处见 spec_quote），案级放弃：不编写、不入卷；其余案不受影响" });
+  }
+  for (const item of report.pending_record) {
+    disclosures.push({ autoid: item.autoid, code: "consistency_record_pending",
+      message: `绑定规格书但密封结论证据不齐（${item.code}），本案编写前需按 brief 用 cex_consistency_record 补记一致性工件；其余案不受影响` });
+  }
   const disclosuresPath = path.join(batch, "author_disclosures.json");
   writeFileSafely(ws.root, disclosuresPath, JSON.stringify(disclosures, null, 1));
   const slots = await _allowedSlots();
-  const sealedMm = JSON.parse(fs.readFileSync(path.join(batch, "machine_mindmap.json"), "utf8"));
-  const mmCases: Record<string, Record<string, unknown>> = {};
-  for (const case_ of (sealedMm.cases as unknown[]) ?? []) {
-    if (typeof case_ === "object" && case_ !== null) {
-      mmCases[String((case_ as Record<string, unknown>).autoid ?? "")] = case_ as Record<string, unknown>;
+  const mmCases: Record<string, Record<string, unknown>> = ctx.mm_cases;
+  const cards = [];
+  for (const aid of summary.written as string[]) {
+    const record = stamped[aid]?.consistency ?? {};
+    if (record.status === consistency.STATUS_ABANDONED) continue;  // 案级放弃：不给写手发这张卡
+    const card = _cardView(batch, aid, slots, mmCases[aid]);
+    if (record.status === consistency.STATUS_SEALED) {
+      card.consistency_endorsement = { scope: record.scope };
+    } else if (record.status === consistency.STATUS_PENDING) {
+      card.consistency_record_needed = true;
     }
+    cards.push(card);
   }
-  return {
+  let next = "Write one mechanical case per case (blocks language, see the skill's references/authoring.md) and submit each with cex_author_submit_case; then cex_author_emit.";
+  if (report.pending_record.length) {
+    next = `${report.pending_record.length} bound case(s) lack a complete case-vs-spec verdict package `
+      + `(${JSON.stringify(report.pending_record.map((item: any) => item.autoid))}): read each `
+      + "brief_path and record the package with cex_consistency_record before submitting those "
+      + "cases. " + next;
+  }
+  const out: Record<string, unknown> = {
     ok: true,
     out_name: state.out_name,
     phase: "published",
-    cases: (summary.written as string[]).map((aid) => _cardView(batch, aid, slots, mmCases[aid])),
+    cases: cards,
     slot_rule: SLOT_RULE,
     quarantined: summary.quarantined,
     needs_decision: summary.needs_decision,
@@ -546,8 +688,15 @@ async function _projectAndPublish(ws: Workspace, state: Record<string, unknown>)
     disclosures: { count: disclosures.length, path: disclosuresPath },
     bed: Object.keys(topology).length ? await factsView(topology, bedLoadServices(ws)) : null,
     blocks_schema: path.join(root, "knowledge", "data", "compile_ref", "blocks_schema.json"),
-    next: "Write one mechanical case per case (blocks language, see the skill's references/authoring.md) and submit each with cex_author_submit_case; then cex_author_emit.",
+    consistency: Object.fromEntries(Object.entries(report).filter(([k]) => k !== "none")),
+    next,
   };
+  if (report.sealed.length) {
+    const { spec_endorsement_expectation_binding_rule } =
+      await import("../cex_core/engine/case_compiler/consistency_contract.js");
+    out.consistency_rule = spec_endorsement_expectation_binding_rule();
+  }
+  return out;
 }
 
 async function _stopForCriteria(ws: Workspace, state: Record<string, unknown>, projected: Record<string, unknown>, batch: string, manual: string): Promise<Record<string, unknown>> {
@@ -685,6 +834,101 @@ export async function criterionRecord(ws: Workspace, outName: string, shapeKey: 
   return { status: "recorded", decided, ...(await _projectAndPublish(ws, newState)) };
 }
 
+export async function consistencyRecord(ws: Workspace, outName: string, autoid: string,
+  material: unknown): Promise<Record<string, unknown>> {
+  // 为 bound 批里证据不齐的案补一致性工件：模型按同一密封出处包证据（brief 的
+  // legal_form），引文与 premises 一律由引擎按 locator 重解盖章——伪造不了；卡上有结论时
+  // verdict 由结论映射强制，模型改不动，卡上没有结论才由模型补判 {consistent|conflict}。
+  // 成功落覆盖层、重盖 intent，该案即可 cex_author_submit_case。
+  const state = _loadState(ws, outName);
+  if (state.phase !== "published") {
+    throw new ClientError("contracts are not published yet; finish cex_author_prepare (and any cex_criterion_record) first");
+  }
+  const { NOT_APPLICABLE, REQUIRED } = await import("../cex_core/engine/ist_core/compile_engine/consistency_requirement.js");
+  const aid = safeComponent(String(autoid ?? ""), "autoid");
+  await _requireCurrentSeal(ws, state);
+  const [root] = engineEnvPrepare(ws, { pinned: state.data_root });
+  const batch = path.join(ws.outputsDir, String(state.out_name));
+  const receipt = state.receipt as Record<string, any>;
+  if (!((receipt.written_autoids as string[]) ?? []).includes(aid)) {
+    throw new ClientError(`${aid} is not a contracted case of ${outName}; contracted: ${JSON.stringify(receipt.written_autoids)}`);
+  }
+  const text = fs.readFileSync(path.join(batch, "mindmap_source.json"), "utf8").replace(new RegExp(`^[${_STRIP}]+`), "");
+  const wasLegacy = !state.cases_root;
+  const caseRoot = await _ensureCasesRoot(ws, state, root, batch, text);
+  let curState = state;
+  let curReceipt = receipt;
+  if (wasLegacy) {
+    curState = _loadState(ws, outName);
+    curReceipt = curState.receipt as Record<string, any>;
+  }
+  const caseState = (curState.cases as Record<string, any>)?.[aid] ?? {};
+  const requirement = caseState.consistency_requirement;
+  if (requirement === NOT_APPLICABLE) {
+    throw new ClientError(`case ${aid} is not governed by a bound specification; there is no verdict package to record`);
+  }
+  if (requirement !== REQUIRED) {
+    throw new ClientError("the authoring state does not carry this case's consistency requirement; call cex_author_prepare again");
+  }
+  const cons = caseState.consistency ?? {};
+  if (cons.status === consistency.STATUS_SEALED) {
+    throw new ClientError(`case ${aid} already has a sealed verdict package; submit the mechanical case with cex_author_submit_case`);
+  }
+  if (cons.status === consistency.STATUS_ABANDONED) {
+    return { ok: false, status: "rejected", autoid: aid,
+      violations: [_violation("case_abandoned_by_consistency", "consistency_verdict",
+        String(cons.detail ?? "") + "; no record can restore an abandoned case — only "
+        + "re-recomposing with a different conclusion can")] };
+  }
+  const cardPath = path.join(batch, "contracts", `${aid}.json`);
+  const cardRaw = fs.readFileSync(cardPath);
+  const cardSha = _sha256Bytes(cardRaw);
+  if (cardSha !== curReceipt.contract_sha256_by_autoid[aid]) {
+    throw new ClientError("the contract card changed after it was published; call cex_author_prepare again");
+  }
+  const card = JSON.parse(cardRaw.toString("utf8"));
+  const ctx = await _consistencyCtx(root, batch, text);
+  fs.mkdirSync(path.join(caseRoot, aid), { recursive: true });
+  const outcome = await consistency.recordMaterial({ aid, conclusion: card.consistency,
+    model: material, card, cardSha256: cardSha, mmCase: ctx.mm_cases[aid] ?? {},
+    mindmapText: text, specName: ctx.spec_name, specText: ctx.spec_text,
+    defectReceipt: ctx.defect_receipt, caseRoot });
+  if (outcome.record_error) {
+    return { ok: false, status: "rejected", autoid: aid,
+      violations: [_violation(String(outcome.record_error), "material",
+        String(outcome.detail ?? ""), "consistency_record")],
+      legal_form: consistency.LEGAL_FORM };
+  }
+  const record = await _consistencyRecord(ws, batch, caseRoot, aid, outName, outcome, ctx);
+  await _stampIntent(ws, root, batch, caseRoot, aid, curReceipt,
+    (await _manifestCases(text))[aid], ctx, outcome);
+
+  const persist = (cur: Record<string, unknown>) => {
+    const cases = (cur.cases as Record<string, any>) ?? (cur.cases = {});
+    const entry = cases[aid] ?? (cases[aid] = {});
+    entry.consistency = record;
+  };
+  const current = _updateState(ws, outName, persist);
+  const sealed = (current.sealed as Record<string, unknown>) ?? {};
+  const written = ((current.receipt as Record<string, any>)?.written_autoids as string[]) ?? [];
+  const remaining = written.filter((a) => !sealed[a]
+    && (current.cases as Record<string, any>)?.[a]?.consistency?.status !== consistency.STATUS_ABANDONED);
+  const out: Record<string, unknown> = { ok: true, status: outcome.status, autoid: aid,
+    verdict: outcome.fixed_verdict, remaining_autoids: remaining };
+  if (outcome.status === consistency.STATUS_SEALED) {
+    out.scope = record.scope;
+    out.next = "submit the mechanical case with cex_author_submit_case";
+  } else if (outcome.status === consistency.STATUS_ABANDONED) {
+    out.detail = outcome.detail;
+    out.next = "the case stays out of the workbook; keep authoring the other cases, "
+      + "cex_author_emit lists this one as abandoned, not missing";
+  } else {
+    out.detail = `${record.code}: ${record.detail}`;
+    out.next = `repair the package and call cex_consistency_record again (brief: ${record.brief_path})`;
+  }
+  return out;
+}
+
 function _reject(autoid: string, violations: Record<string, unknown>[], advisories: unknown[] = []): Record<string, unknown> {
   const { _violations_with_legal_forms } = require("../cex_core/engine/ist_core/tools/device/mechanical_case_submit_tool.js");
   return { ok: false, status: "rejected", autoid, violations: _violations_with_legal_forms(violations), advisories: [...advisories] };
@@ -721,18 +965,67 @@ export async function submitCase(ws: Workspace, outName: string, mechanicalCase:
   if ("seal" in body) {
     return _reject(aid, [_violation("self_reported_seal", "seal", "do not include seal; the engine mints it after the gates pass", "mechanical_case_body")]);
   }
-  const { NOT_APPLICABLE } = await import("../cex_core/engine/ist_core/compile_engine/consistency_requirement.js");
-  const caseState = (state.cases as Record<string, unknown>)?.[aid] as Record<string, unknown> | undefined;
-  if (caseState?.consistency_requirement !== NOT_APPLICABLE) {
-    return _reject(aid, [_violation("consistency_stage_unavailable", "consistency_requirement", "this case is bound to a governing specification, which requires the case/spec consistency verdict before a mechanical case; that stage is not available in this client. Recompose with spec='none' to compile without the specification.")]);
-  }
+  const { NOT_APPLICABLE, REQUIRED, ConsistencyRequirementError, resolve_consistency_requirement } =
+    await import("../cex_core/engine/ist_core/compile_engine/consistency_requirement.js");
   const batch = path.join(ws.outputsDir, String(state.out_name));
+  const wasLegacy = !state.cases_root;
+  const submitText = fs.readFileSync(path.join(batch, "mindmap_source.json"), "utf8").replace(new RegExp(`^[${_STRIP}]+`), "");
+  const submitCaseRoot = await _ensureCasesRoot(ws, state, root, batch, submitText);
+  let curState = state;
+  let curReceipt = receipt;
+  if (wasLegacy) {
+    // 迁移把每案的一致性与 intent 重盖进状态：接着按新状态判
+    curState = _loadState(ws, outName);
+    curReceipt = curState.receipt as Record<string, any>;
+  }
+  const caseState = (curState.cases as Record<string, any>)?.[aid] ?? {};
+  const requirement = caseState.consistency_requirement;
+  const cons = caseState.consistency ?? {};
+  if (requirement !== NOT_APPLICABLE && requirement !== REQUIRED) {
+    return _reject(aid, [_violation("consistency_requirement_drift", "consistency_requirement", "the authoring state does not carry this case's consistency requirement; call cex_author_prepare again")]);
+  }
+  if (requirement === REQUIRED) {
+    // 引擎提交链的顺序：案级放弃先按密封结论定案（recompose_abandon_actionable），
+    // 再查裁决工件；这里的台账是本批编写状态，工件在盘上提交期再对合一次。
+    if (!Object.keys(cons).length) {
+      return _reject(aid, [_violation("consistency_verdict_missing", "consistency_verdict", "this batch was authored before the consistency stage landed: call cex_author_prepare to derive this case's verdict package before submitting")]);
+    }
+    if (cons.status === consistency.STATUS_ABANDONED) {
+      return _reject(aid, [_violation("case_abandoned_by_consistency", "consistency_verdict", String(cons.detail ?? "abandoned by the sealed consistency conclusion") + "; resubmitting changes nothing here")]);
+    }
+    if (cons.status !== consistency.STATUS_SEALED) {
+      return _reject(aid, [_violation("consistency_verdict_missing", "consistency_verdict", `this case is bound to a governing spec and its verdict package is incomplete (${cons.code ?? "unknown"}): ${cons.detail ?? ""} Read the brief (${cons.brief_path ?? "missing"}) and record it with cex_consistency_record before submitting`)]);
+    }
+  }
   const contractRaw = fs.readFileSync(path.join(batch, "contracts", `${aid}.json`));
   const contractSha = _sha256Bytes(contractRaw);
-  if (contractSha !== (receipt.contract_sha256_by_autoid as Record<string, unknown>)[aid]) {
+  if (contractSha !== (curReceipt.contract_sha256_by_autoid as Record<string, unknown>)[aid]) {
     return _reject(aid, [_violation("frozen_contract_drift", "contracts", "the contract card changed after it was published; call cex_author_prepare again")]);
   }
   const contract = JSON.parse(contractRaw.toString("utf8"));
+  let overlay: Record<string, any> | null = null;
+  let overlaySha = "";
+  let overlayError = "";
+  if (requirement === REQUIRED) {
+    // 提交期对合：旁车按回执重闭封，材料↔覆盖层↔冻结卡↔密封机械案四方一致（引擎在
+    // dispatch 台账上做的同一件事，客户端的台账是编写状态）。
+    let proof: Record<string, any>;
+    try {
+      proof = resolve_consistency_requirement({ outputs_root: ws.outputsDir, project_root: root, batch_name: String(curState.out_name), autoid: aid, facts: [curReceipt] });
+    } catch (exc) {
+      if (exc instanceof ConsistencyRequirementError) {
+        return _reject(aid, [_violation(exc.code, "consistency_requirement", exc.detail)]);
+      }
+      throw exc;
+    }
+    if (proof.requirement !== REQUIRED) {
+      return _reject(aid, [_violation("consistency_requirement_drift", "consistency_requirement", "the sealed evidence says this case needs no verdict package but the authoring state carries one; call cex_author_prepare again")]);
+    }
+    [overlay, overlaySha, overlayError] = await consistency.loadAndVerify({ aid, record: cons, card: contract, cardSha256: contractSha, mmCase: await _sealedMachineCase(batch, aid), caseRoot: submitCaseRoot });
+    if (overlayError) {
+      return _reject(aid, [_violation("consistency_contract_invalid", "consistency_contract.json", overlayError)]);
+    }
+  }
   const { mint_and_land_mechanical_case } = await import("../cex_core/engine/case_compiler/mechanical_case.js");
   const { AUDIENCE_WORKER, gate_report_digest, run_mechanical_case_gate } = await import("../cex_core/engine/case_compiler/mechanical_case_gate.js");
   const { configured_device_os_build } = await import("../cex_core/engine/case_compiler/vendor_stdlib.js");
@@ -752,7 +1045,7 @@ export async function submitCase(ws: Workspace, outName: string, mechanicalCase:
   const [stampedBody, violations] = _stamp_engine_binding(body, {
     contract,
     contract_sha256: contractSha,
-    consistency_contract_sha256: null,
+    consistency_contract_sha256: overlaySha || null,
     session,
     project_root: root,
   });
@@ -764,18 +1057,17 @@ export async function submitCase(ws: Workspace, outName: string, mechanicalCase:
     return { ok: false, status: "needs_user_decision", autoid: aid, claims: undetermined, detail: "an observation names no answerer; nothing is sealed. Ask the user who answers it, or rewrite the block with a determined answerer." };
   }
   _requireIdentityTable(canonBody);
-  const text = fs.readFileSync(path.join(batch, "mindmap_source.json"), "utf8").replace(new RegExp(`^[${_STRIP}]+`), "");
-  const [slice, sliceSha] = await sourceCaseSlice((await _manifestCases(text))[aid], aid);
-  const caseRoot = await _ensureCasesRoot(ws, state, root, batch, text);
+  const [slice, sliceSha] = await sourceCaseSlice((await _manifestCases(submitText))[aid], aid);
+  const caseRoot = submitCaseRoot;
   let ok: boolean, report: Record<string, unknown>;
   try {
     [ok, report] = run_mechanical_case_gate(canonBody, contract, {
       contract_sha256: contractSha,
       device_build: configured_device_os_build(),
       outputs_root: caseRoot,
-      consistency_contract: null,
-      consistency_contract_sha256: "",
-      consistency_required: false,
+      consistency_contract: overlay,
+      consistency_contract_sha256: overlaySha,
+      consistency_required: requirement === REQUIRED,
       source_case_slice: slice,
       source_case_slice_sha256: sliceSha,
     });
@@ -834,7 +1126,8 @@ export async function submitCase(ws: Workspace, outName: string, mechanicalCase:
     return _reject(aid, [_violation("contracts_republished", "contracts", "cex_author_prepare re-published the contract cards while this case was being checked; nothing was recorded. Read the new card and submit the case again")], advisories);
   }
   const written = ((current.receipt as Record<string, unknown>)?.written_autoids as string[]) ?? [];
-  const remaining = written.filter((a) => !((current.sealed as Record<string, unknown>) ?? {})[a]);
+  const remaining = written.filter((a) => !((current.sealed as Record<string, unknown>) ?? {})[a]
+    && (current.cases as Record<string, any>)?.[a]?.consistency?.status !== consistency.STATUS_ABANDONED);
   return {
     ok: true,
     status: "sealed",
@@ -893,6 +1186,10 @@ async function _requireIdentityTable(body: Record<string, unknown>): Promise<voi
 }
 
 async function _ensureCasesRoot(ws: Workspace, state: Record<string, unknown>, root: string, batch: string, text: string): Promise<string> {
+  // 旧版状态的 intent.json 在 compile_outputs/<autoid>/：按本批回执把每案重盖到本批目录下
+  // 再接着写（迁移只发生在要写的时候）。重盖同样打包一致性工件并记回状态——不然迁移完的
+  // bound 批每案提交都少一份台账。
+  const { REQUIRED } = await import("../cex_core/engine/ist_core/compile_engine/consistency_requirement.js");
   const caseRoot = casesRoot(ws, String(state.out_name));
   if (state.cases_root) return caseRoot;
   const lock = stateLock(ws, "author-migrate", String(state.out_name));
@@ -901,10 +1198,29 @@ async function _ensureCasesRoot(ws: Workspace, state: Record<string, unknown>, r
     if (!current.cases_root) {
       const receipt = (state.receipt as Record<string, unknown>) ?? {};
       const manifestCases = await _manifestCases(text);
-      for (const aid of (receipt.written_autoids as string[]) ?? []) {
-        await _stampIntent(ws, root, batch, caseRoot, aid, receipt, manifestCases[aid]);
+      const written = (receipt.written_autoids as string[]) ?? [];
+      const oldCases = (current.cases as Record<string, any>) ?? {};
+      const needsCtx = written.some((a) => oldCases[a]?.consistency_requirement === REQUIRED);
+      const ctx = needsCtx ? await _consistencyCtx(root, batch, text) : null;
+      const restamped: Record<string, [Record<string, any>, Record<string, any> | null]> = {};
+      for (const aid of written) {
+        const [proof, outcome] = await _stampIntent(ws, root, batch, caseRoot, aid, receipt, manifestCases[aid], ctx);
+        const record = outcome !== null
+          // outcome 只在 ctx 在场时产出；类型上说明不了，落地上成对出现
+          ? await _consistencyRecord(ws, batch, caseRoot, aid, String(state.out_name), outcome, ctx as Record<string, any>)
+          : null;
+        restamped[aid] = [proof, record];
       }
-      _updateState(ws, String(state.out_name), (cur) => { cur.cases_root = toStatePath(ws, caseRoot); });
+      _updateState(ws, String(state.out_name), (cur) => {
+        cur.cases_root = toStatePath(ws, caseRoot);
+        const cases = (cur.cases as Record<string, any>) ?? (cur.cases = {});
+        for (const [aid, [proof, record]] of Object.entries(restamped)) {
+          const entry = cases[aid] ?? (cases[aid] = {});
+          entry.consistency_requirement = proof.requirement;
+          if (record === null) delete entry.consistency;
+          else entry.consistency = record;
+        }
+      });
     }
   } finally {
     lock.release();
@@ -993,11 +1309,17 @@ export async function emit(ws: Workspace, outName: string): Promise<Record<strin
   const caseRoot = casesRoot(ws, String(state.out_name));
   const missing: string[] = [];
   const drifted: { autoid: string; reason: string }[] = [];
+  const abandoned: string[] = [];
   const relocations: Record<string, Buffer> = {};
   const cases = [];
   for (const aid of (receipt.written_autoids as string[]) ?? []) {
     if (!(aid in sealed)) {
-      missing.push(aid);
+      if (((state.cases as Record<string, any>)?.[aid]?.consistency)?.status
+          === consistency.STATUS_ABANDONED) {
+        abandoned.push(aid);  // 案级放弃是终局：不入卷、不算未封存
+      } else {
+        missing.push(aid);
+      }
       continue;
     }
     let body: Record<string, unknown>, steps: Record<string, unknown>[], relocate: Buffer | null;
@@ -1019,6 +1341,11 @@ export async function emit(ws: Workspace, outName: string): Promise<Record<strin
     await _relocateSealed(ws, String(state.out_name), aid, sealed[aid], raw, caseRoot);
   }
   if (!cases.length) {
+    const writtenAll = ((receipt.written_autoids as string[]) ?? []);
+    if (abandoned.length && abandoned.length === writtenAll.length) {
+      throw new ClientError(`every contracted case of ${state.out_name} was abandoned by its `
+        + "case-versus-spec consistency verdict; there is no workbook to emit for this batch");
+    }
     throw new ClientError("no sealed mechanical case to emit; submit cases with cex_author_submit_case first" + (drifted.length ? ` (not emitted: ${JSON.stringify(drifted)})` : ""));
   }
   const batch = path.join(ws.outputsDir, String(state.out_name));
@@ -1036,6 +1363,7 @@ export async function emit(ws: Workspace, outName: string): Promise<Record<strin
     emitted_autoids: cases.map((c) => c.autoid),
     not_sealed_autoids: missing,
     not_emitted: drifted,
+    abandoned_autoids: abandoned,
     verify: { pass: verify.pass, fail: verify.fail, failures: verify.failures },
   };
   if (!complete) {
@@ -1043,6 +1371,8 @@ export async function emit(ws: Workspace, outName: string): Promise<Record<strin
       (missing.length ? `; not sealed yet: ${JSON.stringify(missing)}` : "") +
       (drifted.length ? `; sealed file replaced, not emitted: ${JSON.stringify(drifted.map((d) => d.autoid))}` : "") +
       ". Submit those cases with cex_author_submit_case and emit again, or tell the user which cases are missing before running this workbook.";
+  } else if (abandoned.length) {
+    out.note = `abandoned by consistency verdict, intentionally not in the workbook: ${JSON.stringify(abandoned)}`;
   }
   return out;
 }

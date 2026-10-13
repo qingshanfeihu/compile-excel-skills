@@ -406,6 +406,11 @@ export async function cexAuthorSubmitCase(args: Record<string, unknown>): Promis
   return submitCase(_ws(args), String(args.out_name ?? ""), args.mechanical_case);
 }
 
+export async function cexConsistencyRecord(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const { consistencyRecord } = await import("./author.js");
+  return consistencyRecord(_ws(args), String(args.out_name ?? ""), String(args.autoid ?? ""), args.material);
+}
+
 export async function cexAuthorEmit(args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const { emit } = await import("./author.js");
   return emit(_ws(args), String(args.out_name ?? ""));
@@ -439,6 +444,7 @@ export const TOOLS: Record<string, (args: Record<string, unknown>) => Promise<Re
   cex_lang_query: cexLangQuery,
   cex_bed_topology: cexBedTopology,
   cex_author_prepare: cexAuthorPrepare,
+  cex_consistency_record: cexConsistencyRecord,
   cex_criterion_record: cexCriterionRecord,
   cex_author_submit_case: cexAuthorSubmitCase,
   cex_author_emit: cexAuthorEmit,

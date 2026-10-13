@@ -361,6 +361,13 @@ def cex_author_submit_case(args: dict[str, Any]) -> dict[str, Any]:
                               args.get("mechanical_case"))
 
 
+def cex_consistency_record(args: dict[str, Any]) -> dict[str, Any]:
+    from . import author
+
+    return author.consistency_record(_ws(args), str(args.get("out_name") or ""),
+                                     str(args.get("autoid") or ""), args.get("material"))
+
+
 def cex_author_emit(args: dict[str, Any]) -> dict[str, Any]:
     from . import author
 
@@ -395,6 +402,7 @@ TOOLS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "cex_lang_query": cex_lang_query,
     "cex_bed_topology": cex_bed_topology,
     "cex_author_prepare": cex_author_prepare,
+    "cex_consistency_record": cex_consistency_record,
     "cex_criterion_record": cex_criterion_record,
     "cex_author_submit_case": cex_author_submit_case,
     "cex_author_emit": cex_author_emit,

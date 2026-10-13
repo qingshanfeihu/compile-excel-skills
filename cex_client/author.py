@@ -21,8 +21,13 @@ compile-worker 写机械用例（块语言）并经 submit_mechanical_case 的�
 与引擎的差别（都只在这层胶水里）：
 - 不移植 worker 会话：修补轮省略 expectation_binding / escape_hatches 的续传、重复拒收计数、
   会话准入与事实账都没有；每次提交都要带完整的八段主体，按整份从头判。
-- 规格一致性（case 与管辖规格书的一致性裁决，scenario 1）没有移植：管辖规格书绑定时
-  consistency_requirement=required，提交如实拒绝并说明；recompose 时 spec='none' 走不适用。
+- 规格一致性（case 与管辖规格书的一致性裁决，scenario 1）按机械打包移植：裁决本身在重组
+  阶段按 [R11] 做出并密封到契约卡，编写期由 `cex_client.consistency` 调引擎同一批函数把它
+  打成判据材料与 consistency_contract.json 覆盖层（引文与 premises 逐字节按密封出处复核）；
+  卡上证据不全的案子点名进 `cex_consistency_record` 补包（卡上有结论时 verdict 由结论映射
+  强制，模型改不动）；案内互斥按引擎判据案级放弃。recompose 时 spec='none' 走不适用。
+  与引擎的差别只在工件位置：没有服务端 dispatch 台账，材料与回执记在本批编写状态里，
+  覆盖层落在 compile_outputs/<批>/cases/<autoid>/consistency_contract.json。
 - answerer 为 undetermined 的观察块不经引擎写用户裁决账，直接如实返回待用户裁决，不封存。
 - 客户端的产物根是工作区 compile_outputs/（引擎是 workspace/outputs/）。每案目录（intent.json、
   封存的 mechanical_case.json）放在本批目录下 compile_outputs/<批>/cases/<autoid>/，两个批次含
@@ -49,13 +54,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from . import engine_env
+from . import consistency, engine_env
 from .errors import ClientError
 from .workspace import (
     Workspace,
     from_state_path,
     read_private_json,
     safe_component,
+    safe_relative_path,
     state_lock,
     to_state_path,
     write_file_safely,
@@ -176,12 +182,69 @@ def _status(batch: Path, name: str) -> tuple[dict[str, Any], bytes]:
     return json.loads(raw.decode("utf-8")), raw
 
 
+def _consistency_ctx(root: Path, batch: Path, text: str) -> dict[str, Any]:
+    """一致性工件打包的批级上下文：密封的规格书/缺陷旁车与盘上的机械案，一次读齐。
+    机械案取盘上那份（与 recompose_done 回执逐字节闭合的那份），build 与提交期重核
+    必须用同一份出处，否则 spec_endorsement.scope 会有两种算法。"""
+    from cex_core.engine.case_compiler.mindmap_contract_projector import (
+        load_machine_mindmap,
+    )
+
+    spec_status, _raw = _status(batch, "governing_spec_status.json")
+    defect, _raw2 = _status(batch, "defect_spec_status.json")
+    mm_data, _sha = load_machine_mindmap(batch / "machine_mindmap.json")
+    bound = spec_status.get("status") == "bound"
+    return {
+        "text": text,
+        "spec_status": spec_status,
+        "spec_name": spec_status.get("name") if bound else None,
+        "spec_text": _spec_text(root, spec_status),
+        "spec_path": str(root / "knowledge" / "data" / "spec" / "generations"
+                         / safe_component(spec_status.get("generation_id"), "spec generation")
+                         / "docs" / safe_relative_path(spec_status.get("name")))
+                     if bound else None,
+        "defect_receipt": defect.get("receipt") if isinstance(defect.get("receipt"), dict)
+        else None,
+        "mm_cases": {str(case.get("autoid") or ""): case
+                     for case in mm_data.get("cases") or [] if isinstance(case, dict)},
+    }
+
+
+def _consistency_record(ws: Workspace, batch: Path, case_root: Path, aid: str, out_name: str,
+                        outcome: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    """outcome → 记进编写状态的工件记录；pending 案落 brief，sealed/abandoned 撤旧 brief。"""
+    record: dict[str, Any] = {"status": outcome["status"]}
+    if outcome["status"] == consistency.STATUS_SEALED:
+        consistency.drop_brief(batch, aid)
+        record.update({"material": outcome["material"],
+                       "receipt_sha256": outcome["receipt_sha256"],
+                       "overlay_sha256": outcome["overlay_sha256"],
+                       "scope": outcome["scope"]})
+        return record
+    record["code"] = outcome.get("code", "")
+    record["detail"] = outcome.get("detail", "")
+    record["fixed_verdict"] = outcome.get("fixed_verdict")
+    if outcome["status"] == consistency.STATUS_ABANDONED:
+        record["evidence"] = outcome.get("evidence")
+        consistency.drop_brief(batch, aid)
+        return record
+    card = json.loads((batch / "contracts" / f"{aid}.json").read_text(encoding="utf-8"))
+    from .workspace import to_state_path
+
+    brief = consistency.write_brief(
+        ws.root, batch, aid, out_name, record, conclusion=card.get("consistency"),
+        spec_name=ctx["spec_name"], spec_path=ctx["spec_path"],
+        case_atoms=consistency.source_atoms(ctx["text"], aid))
+    record["brief_path"] = to_state_path(ws, Path(brief))
+    return record
+
+
 def _spec_text(root: Path, spec_status: dict[str, Any]) -> str | None:
     if spec_status.get("status") != "bound":
         return None
     path = (root / "knowledge" / "data" / "spec" / "generations"
             / safe_component(spec_status.get("generation_id"), "spec generation")
-            / "docs" / safe_component(spec_status.get("name"), "spec name"))
+            / "docs" / safe_relative_path(spec_status.get("name")))
     raw = path.read_bytes()
     if _sha256_bytes(raw) != spec_status.get("sha256"):
         raise ClientError("the bound governing spec changed after recompose; call "
@@ -225,6 +288,20 @@ def _versions(info: dict[str, Any]) -> tuple[str, str, str]:
     full = str(info.get("device_os_build") or "")
     return (full, _inventory_version_from_device_build(full),
             resolve_compile_manual_version(full_version=full))
+
+
+def _sealed_machine_case(batch: Path, aid: str) -> dict[str, Any]:
+    """盘上密封的机械案——spec_endorsement.scope 与覆盖层重核都按这一份算
+    （与打包期同一来源，见 `_consistency_ctx` 的说明）。"""
+    from cex_core.engine.case_compiler.mindmap_contract_projector import (
+        load_machine_mindmap,
+    )
+
+    mm_data, _sha = load_machine_mindmap(batch / "machine_mindmap.json")
+    for case in mm_data.get("cases") or []:
+        if isinstance(case, dict) and str(case.get("autoid") or "") == aid:
+            return case
+    raise ClientError(f"case {aid} is missing from the sealed machine mindmap")
 
 
 # ── 投影（nodes.py recompose 的投影段） ──────────────────────────────────
@@ -354,9 +431,15 @@ def _receipt(batch: Path, projected: dict[str, Any], rstate: dict[str, Any]) -> 
 
 
 def _stamp_intent(ws: Workspace, root: Path, batch: Path, case_root: Path, aid: str,
-                  receipt: dict[str, Any], case: dict[str, Any] | None) -> dict[str, Any]:
+                  receipt: dict[str, Any], case: dict[str, Any] | None,
+                  ctx: dict[str, Any] | None = None,
+                  outcome: dict[str, Any] | None = None) -> tuple[dict[str, Any],
+                                                                  dict[str, Any] | None]:
     """nodes.py `_stamp_intent`：每案 intent.json（author_claims 是断言兑现 Author 期望的出处），
-    落在本批的每案目录 case_root/<autoid>/。"""
+    落在本批的每案目录 case_root/<autoid>/。绑定规范（requirement=required）的案在这里顺带
+    把密封结论打包成一致性工件（`cex_client.consistency`）；打包成功才把 intent 的绑定章盖成
+    complete，缺证据的案保持 pending 并落 brief，等 `cex_consistency_record` 补包。
+    传 outcome 时不再推导（record 工具用同一份结论重写 intent）."""
     from cex_core.engine.case_compiler._sealed_io import read_regular_nofollow
     from cex_core.engine.case_compiler.contract_entry import (
         normalize_contract,
@@ -365,6 +448,7 @@ def _stamp_intent(ws: Workspace, root: Path, batch: Path, case_root: Path, aid: 
     )
     from cex_core.engine.case_compiler.domain_grammar import forbidden_mechanism_intents
     from cex_core.engine.ist_core.compile_engine.consistency_requirement import (
+        REQUIRED,
         resolve_consistency_requirement,
     )
 
@@ -429,6 +513,23 @@ def _stamp_intent(ws: Workspace, root: Path, batch: Path, case_root: Path, aid: 
     payload["governing_spec_status"] = proof["governing_spec_status"]
     payload["consistency_requirement"] = proof["requirement"]
     payload["consistency_binding_status"] = proof["binding_status"]
+    if outcome is None and ctx is not None and proof["requirement"] == REQUIRED:
+        try:
+            outcome = consistency.derive_from_conclusion(
+                aid=aid, card=contract, card_sha256=expected,
+                mm_case=ctx["mm_cases"].get(aid) or {}, mindmap_text=ctx["text"],
+                spec_name=ctx["spec_name"], spec_text=ctx["spec_text"],
+                defect_receipt=ctx["defect_receipt"], case_root=case_root)
+        except ClientError:
+            raise  # 数据根/盘级故障是批级问题，如实上抛
+        except (ValueError, OSError, RecursionError) as exc:
+            # 引擎的判据不该在单案上炸整批：按 pending_record 记码，出路照旧点名
+            outcome = {"status": consistency.STATUS_PENDING,
+                       "code": f"consistency_record_invalid: {type(exc).__name__}",
+                       "detail": str(exc)[:400], "fixed_verdict": None}
+    if outcome is not None and outcome.get("status") == consistency.STATUS_SEALED:
+        payload.update(consistency.intent_binding(
+            outcome, overlay=consistency.overlay_path(case_root, aid), project_root=ws.root))
     haystack = " ".join([payload["title"]] + [
         f"{si.get('desc') or ''} {si.get('expected') or ''}"
         for si in payload["step_intents"] if isinstance(si, dict)]).lower()
@@ -439,7 +540,7 @@ def _stamp_intent(ws: Workspace, root: Path, batch: Path, case_root: Path, aid: 
         payload["forbidden_mechanism"] = hits[:3]
     write_intent_json_atomic(case_dir / "intent.json", payload)
     write_json_atomic(marker, {"schema": _INTENT_STAMP_SCHEMA, "autoid": aid, "status": "complete"})
-    return proof
+    return proof, outcome
 
 
 # ── 给写手看的契约卡与判据待裁定视图 ─────────────────────────────────────
@@ -562,13 +663,19 @@ def _project_and_publish(ws: Workspace, state: dict[str, Any]) -> dict[str, Any]
     receipt = _receipt(batch, projected, rstate)
     text = (batch / "mindmap_source.json").read_bytes().decode("utf-8").lstrip(_STRIP)
     manifest_cases = _manifest_cases(text)
+    ctx = _consistency_ctx(root, batch, text)
     case_root = cases_root(ws, state["out_name"])
     stamped = {}
     for aid in summary["written"]:
-        proof = _stamp_intent(ws, root, batch, case_root, aid, receipt, manifest_cases.get(aid))
+        proof, outcome = _stamp_intent(ws, root, batch, case_root, aid, receipt,
+                                       manifest_cases.get(aid), ctx)
         _slice, slice_sha = source_case_slice(manifest_cases[aid], aid)
-        stamped[aid] = {"consistency_requirement": proof["requirement"],
-                        "source_case_slice_sha256": slice_sha}
+        entry = {"consistency_requirement": proof["requirement"],
+                 "source_case_slice_sha256": slice_sha}
+        if outcome is not None:
+            entry["consistency"] = _consistency_record(ws, batch, case_root, aid,
+                                                       state["out_name"], outcome, ctx)
+        stamped[aid] = entry
     capability = info.get("capability") or {}
     contracts = receipt["contract_sha256_by_autoid"]
 
@@ -576,6 +683,16 @@ def _project_and_publish(ws: Workspace, state: dict[str, Any]) -> dict[str, Any]
         # 锁内合并：别的调用刚封存的案不丢；重投影后契约卡逐字节没变的案，已封存的机械用例仍然
         # 有效，变了的要重新提交
         sealed = current.get("sealed") if "sealed" in current else state.get("sealed")
+        for aid, record in (current.get("cases") or {}).items():
+            # 重投影后打包不再成立（结论变了/卡换了）：撤掉旧覆盖层，别让盘上留一枚没了台账的工件
+            old = (record or {}).get("consistency") or {}
+            new_status = ((stamped.get(aid) or {}).get("consistency") or {}).get("status")
+            if old.get("status") == consistency.STATUS_SEALED and new_status != \
+                    consistency.STATUS_SEALED:
+                try:
+                    consistency.overlay_path(case_root, aid).unlink(missing_ok=True)
+                except OSError:
+                    pass
         current.update({
             "phase": "published", "receipt": receipt, "cases": stamped, "pending": {},
             "projected_machine_mindmap_sha256": summary["machine_mindmap_sha256"],
@@ -589,20 +706,48 @@ def _project_and_publish(ws: Workspace, state: dict[str, Any]) -> dict[str, Any]
     from . import bed
 
     topology = bed.load(ws) or {}
+    consistency_report = _consistency_report(stamped)
     disclosures = [{k: (client_disclosure_message(item[k]) if k == "message" else item.get(k))
                     for k in ("autoid", "code", "message", "criterion_type")
                     if item.get(k) is not None} for item in summary["disclosures"]]
+    for item in consistency_report["abandoned"]:
+        disclosures.append({"autoid": item["autoid"], "code": "consistency_abandoned",
+                            "message": "重组判定本案与所绑规格书案内互斥（出处见 spec_quote），案级"
+                                       "放弃：不编写、不入卷；其余案不受影响"})
+    for item in consistency_report["pending_record"]:
+        disclosures.append({"autoid": item["autoid"], "code": "consistency_record_pending",
+                            "message": f"绑定规格书但密封结论证据不齐（{item['code']}），"
+                                       "本案编写前需按 brief 用 cex_consistency_record 补记一致"
+                                       "性工件；其余案不受影响"})
     disclosures_path = batch / "author_disclosures.json"
     write_file_safely(ws.root, disclosures_path,
                       json.dumps(disclosures, ensure_ascii=False, indent=1).encode("utf-8"))
     slots = _allowed_slots()
-    # concretizations 原样取自密封的机械脑图（投影前的那份，不经 fill/strip 改动）
-    sealed_mm = json.loads((batch / "machine_mindmap.json").read_text(encoding="utf-8"))
-    mm_cases = {str(case.get("autoid") or ""): case
-                for case in sealed_mm.get("cases") or [] if isinstance(case, dict)}
-    return {
+    mm_cases = ctx["mm_cases"]  # 盘上密封的那份：打包与卡片用同一出处
+    cards = []
+    for aid in summary["written"]:
+        record = (stamped.get(aid) or {}).get("consistency") or {}
+        if record.get("status") == consistency.STATUS_ABANDONED:
+            continue  # 案级放弃：不给写手发这张卡（引擎同样不为它接受任何机械用例）
+        card = _card_view(batch, aid, slots, mm_cases.get(str(aid)))
+        if record.get("status") == consistency.STATUS_SEALED:
+            card["consistency_endorsement"] = {"scope": record.get("scope")}
+        elif record.get("status") == consistency.STATUS_PENDING:
+            card["consistency_record_needed"] = True
+        cards.append(card)
+    next_text = ("Write one mechanical case per case (blocks language, see the skill's "
+                 "references/authoring.md) and submit each with cex_author_submit_case; "
+                 "then cex_author_emit.")
+    if consistency_report["pending_record"]:
+        next_text = (
+            f"{len(consistency_report['pending_record'])} bound case(s) lack a complete "
+            "case-vs-spec verdict package "
+            f"({[item['autoid'] for item in consistency_report['pending_record']]}): read "
+            "each brief_path and record the package with cex_consistency_record before "
+            "submitting those cases. " + next_text)
+    out = {
         "ok": True, "out_name": state["out_name"], "phase": "published",
-        "cases": [_card_view(batch, aid, slots, mm_cases.get(str(aid))) for aid in summary["written"]],
+        "cases": cards,
         "slot_rule": SLOT_RULE,
         "quarantined": summary["quarantined"], "needs_decision": summary["needs_decision"],
         "abandoned": summary["abandoned"],
@@ -610,10 +755,38 @@ def _project_and_publish(ws: Workspace, state: dict[str, Any]) -> dict[str, Any]
         "disclosures": {"count": len(disclosures), "path": str(disclosures_path)},
         "bed": bed.facts_view(topology, bed.load_services(ws)) if topology else None,
         "blocks_schema": str(root / "knowledge" / "data" / "compile_ref" / "blocks_schema.json"),
-        "next": ("Write one mechanical case per case (blocks language, see the skill's "
-                 "references/authoring.md) and submit each with cex_author_submit_case; "
-                 "then cex_author_emit."),
+        "consistency": {key: value for key, value in consistency_report.items() if key != "none"},
+        "next": next_text,
     }
+    if consistency_report["sealed"]:
+        from cex_core.engine.case_compiler.consistency_contract import (
+            spec_endorsement_expectation_binding_rule)
+        out["consistency_rule"] = spec_endorsement_expectation_binding_rule()
+    return out
+
+
+def _consistency_report(stamped: dict[str, Any]) -> dict[str, Any]:
+    """prepare 结果里的一致性三态汇总：sealed/abandoned/pending_record 各按案点名，
+    一条 none 表示这批根本没有需要一致性工件的案。"""
+    report: dict[str, Any] = {"required": 0, "sealed": [], "abandoned": [],
+                              "pending_record": [], "none": True}
+    for aid, entry in sorted(stamped.items()):
+        record = (entry or {}).get("consistency")
+        if not record:
+            continue
+        report["none"] = False
+        report["required"] += 1
+        if record["status"] == consistency.STATUS_SEALED:
+            report["sealed"].append(aid)
+        elif record["status"] == consistency.STATUS_ABANDONED:
+            report["abandoned"].append({"autoid": aid, "code": record.get("code", ""),
+                                        "evidence": record.get("evidence")})
+        else:
+            report["pending_record"].append({
+                "autoid": aid, "code": record.get("code", ""),
+                "detail": record.get("detail", ""),
+                "brief_path": record.get("brief_path")})
+    return report
 
 
 def _stop_for_criteria(ws: Workspace, state: dict[str, Any], projected: dict[str, Any],
@@ -735,6 +908,105 @@ def criterion_record(ws: Workspace, out_name: str, shape_key: str, judgment: Any
     return {"status": "recorded", "decided": decided, **_project_and_publish(ws, state)}
 
 
+# ── consistency_record（bound 案的一致性工件补记） ───────────────────────
+
+
+def consistency_record(ws: Workspace, out_name: str, autoid: str,
+                       material: Any) -> dict[str, Any]:
+    """为 bound 批里证据不齐的案补一致性工件：模型按同一密封出处包证据
+    （brief 的 legal_form），引文与 premises 一律由引擎按 locator 重解盖章——伪造不了；
+    卡上有结论时 verdict 由结论映射强制，模型改不动，卡上没有结论才由模型补判
+    {consistent|conflict}。成功落覆盖层、重盖 intent，该案即可 cex_author_submit_case。"""
+    state = _load_state(ws, out_name)
+    if state.get("phase") != "published":
+        raise ClientError("contracts are not published yet; finish cex_author_prepare "
+                          "(and any cex_criterion_record) first")
+
+    aid = safe_component(str(autoid or ""), "autoid")
+    _require_current_seal(ws, state)
+    root, _info = engine_env.prepare(ws, pinned=state.get("data_root"))
+    from cex_core.engine.ist_core.compile_engine.consistency_requirement import (
+        NOT_APPLICABLE, REQUIRED)
+    batch = ws.outputs_dir / state["out_name"]
+    receipt = state["receipt"]
+    if aid not in (receipt.get("written_autoids") or []):
+        raise ClientError(f"{aid} is not a contracted case of {out_name}; contracted: "
+                          f"{receipt.get('written_autoids')}")
+    text = (batch / "mindmap_source.json").read_bytes().decode("utf-8").lstrip(_STRIP)
+    was_legacy = not state.get("cases_root")
+    case_root = _ensure_cases_root(ws, state, root, batch, text)
+    if was_legacy:
+        state = _load_state(ws, out_name)
+        receipt = state["receipt"]
+    case_state = (state.get("cases") or {}).get(aid) or {}
+    requirement = case_state.get("consistency_requirement")
+    if requirement == NOT_APPLICABLE:
+        raise ClientError(f"case {aid} is not governed by a bound specification; there is "
+                          "no verdict package to record")
+    if requirement != REQUIRED:
+        raise ClientError("the authoring state does not carry this case's consistency "
+                          "requirement; call cex_author_prepare again")
+    cons = case_state.get("consistency") or {}
+    if cons.get("status") == consistency.STATUS_SEALED:
+        raise ClientError(f"case {aid} already has a sealed verdict package; submit the "
+                          "mechanical case with cex_author_submit_case")
+    if cons.get("status") == consistency.STATUS_ABANDONED:
+        return {"ok": False, "status": "rejected", "autoid": aid,
+                "violations": [_violation("case_abandoned_by_consistency", "consistency_verdict",
+                                          str(cons.get("detail") or "") + "; no record can "
+                                          "restore an abandoned case — only re-recomposing "
+                                          "with a different conclusion can")]}
+    card_path = batch / "contracts" / f"{aid}.json"
+    card_raw = card_path.read_bytes()
+    card_sha = _sha256_bytes(card_raw)
+    if card_sha != receipt["contract_sha256_by_autoid"].get(aid):
+        raise ClientError("the contract card changed after it was published; call "
+                          "cex_author_prepare again")
+    card = json.loads(card_raw.decode("utf-8"))
+    ctx = _consistency_ctx(root, batch, text)
+    (case_root / aid).mkdir(parents=True, exist_ok=True)
+    outcome = consistency.record_material(
+        aid=aid, conclusion=card.get("consistency"), model=material, card=card,
+        card_sha256=card_sha, mm_case=ctx["mm_cases"].get(aid) or {}, mindmap_text=text,
+        spec_name=ctx["spec_name"], spec_text=ctx["spec_text"],
+        defect_receipt=ctx["defect_receipt"], case_root=case_root)
+    if outcome.get("record_error"):
+        return {"ok": False, "status": "rejected", "autoid": aid,
+                "violations": [_violation(str(outcome["record_error"]), "material",
+                                          str(outcome.get("detail") or ""),
+                                          gate="consistency_record")],
+                "legal_form": consistency.LEGAL_FORM}
+    record = _consistency_record(ws, batch, case_root, aid, out_name, outcome, ctx)
+    _stamp_intent(ws, root, batch, case_root, aid, receipt, _manifest_cases(text).get(aid),
+                  ctx, outcome=outcome)
+
+    def persist(cur: dict[str, Any]) -> None:
+        entry = cur.setdefault("cases", {}).setdefault(aid, {})
+        entry["consistency"] = record
+
+    current = _update_state(ws, out_name, persist)
+    sealed = current.get("sealed") or {}
+    written = (current.get("receipt") or {}).get("written_autoids") or []
+    remaining = [a for a in written if a not in sealed
+                 and (((current.get("cases") or {}).get(a) or {}).get("consistency") or {})
+                 .get("status") != consistency.STATUS_ABANDONED]
+    out: dict[str, Any] = {"ok": True, "status": outcome["status"], "autoid": aid,
+                           "verdict": outcome.get("fixed_verdict"),
+                           "remaining_autoids": remaining}
+    if outcome["status"] == consistency.STATUS_SEALED:
+        out["scope"] = record.get("scope")
+        out["next"] = "submit the mechanical case with cex_author_submit_case"
+    elif outcome["status"] == consistency.STATUS_ABANDONED:
+        out["detail"] = outcome.get("detail")
+        out["next"] = ("the case stays out of the workbook; keep authoring the other "
+                       "cases, cex_author_emit lists this one as abandoned, not missing")
+    else:
+        out["detail"] = f"{record.get('code')}: {record.get('detail')}"
+        out["next"] = (f"repair the package and call cex_consistency_record again "
+                       f"(brief: {record.get('brief_path')})")
+    return out
+
+
 # ── submit_case（submit_mechanical_case 的判定链） ─────────────────────────
 
 
@@ -782,16 +1054,47 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
                                         gate="mechanical_case_body")])
     from cex_core.engine.ist_core.compile_engine.consistency_requirement import (
         NOT_APPLICABLE,
+        REQUIRED,
+        ConsistencyRequirementError,
+        resolve_consistency_requirement,
     )
 
-    case_state = (state.get("cases") or {}).get(aid) or {}
-    if case_state.get("consistency_requirement") != NOT_APPLICABLE:
-        return _reject(aid, [_violation(
-            "consistency_stage_unavailable", "consistency_requirement",
-            "this case is bound to a governing specification, which requires the case/spec "
-            "consistency verdict before a mechanical case; that stage is not available in this "
-            "client. Recompose with spec='none' to compile without the specification.")])
     batch = ws.outputs_dir / state["out_name"]
+    was_legacy = not state.get("cases_root")
+    text = (batch / "mindmap_source.json").read_bytes().decode("utf-8").lstrip(_STRIP)
+    case_root = _ensure_cases_root(ws, state, root, batch, text)
+    if was_legacy:
+        # 迁移把每案的一致性与 intent 重盖进状态：接着按新状态判
+        state = _load_state(ws, out_name)
+        receipt = state["receipt"]
+    case_state = (state.get("cases") or {}).get(aid) or {}
+    requirement = case_state.get("consistency_requirement")
+    cons = case_state.get("consistency") or {}
+    if requirement not in (NOT_APPLICABLE, REQUIRED):
+        return _reject(aid, [_violation(
+            "consistency_requirement_drift", "consistency_requirement",
+            "the authoring state does not carry this case's consistency requirement; call "
+            "cex_author_prepare again")])
+    if requirement == REQUIRED:
+        # 引擎提交链的顺序：案级放弃先按密封结论定案（recompose_abandon_actionable），
+        # 再查裁决工件；这里的台账是本批编写状态，工件在盘上提交期再对合一次。
+        if not cons:
+            return _reject(aid, [_violation(
+                "consistency_verdict_missing", "consistency_verdict",
+                "this batch was authored before the consistency stage landed: call "
+                "cex_author_prepare to derive this case's verdict package before submitting")])
+        if cons.get("status") == consistency.STATUS_ABANDONED:
+            return _reject(aid, [_violation(
+                "case_abandoned_by_consistency", "consistency_verdict",
+                str(cons.get("detail") or "abandoned by the sealed consistency conclusion")
+                + "; resubmitting changes nothing here")])
+        if cons.get("status") != consistency.STATUS_SEALED:
+            return _reject(aid, [_violation(
+                "consistency_verdict_missing", "consistency_verdict",
+                f"this case is bound to a governing spec and its verdict package is "
+                f"incomplete ({cons.get('code') or 'unknown'}): {cons.get('detail') or ''} "
+                f"Read the brief ({cons.get('brief_path') or 'missing'}) and record it with "
+                "cex_consistency_record before submitting")])
     contract_raw = (batch / "contracts" / f"{aid}.json").read_bytes()
     contract_sha = _sha256_bytes(contract_raw)
     if contract_sha != receipt["contract_sha256_by_autoid"].get(aid):
@@ -799,6 +1102,28 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
                                         "the contract card changed after it was published; call "
                                         "cex_author_prepare again")])
     contract = json.loads(contract_raw.decode("utf-8"))
+    overlay: dict[str, Any] | None = None
+    overlay_sha = ""
+    if requirement == REQUIRED:
+        # 提交期对合：旁车按回执重闭封，材料↔覆盖层↔冻结卡↔密封机械案四方一致（引擎在
+        # dispatch 台账上做的同一件事，客户端的台账是编写状态）。
+        try:
+            proof = resolve_consistency_requirement(outputs_root=ws.outputs_dir, project_root=root,
+                                                    batch_name=state["out_name"], autoid=aid,
+                                                    facts=[receipt])
+        except ConsistencyRequirementError as exc:
+            return _reject(aid, [_violation(exc.code, "consistency_requirement", exc.detail)])
+        if proof["requirement"] != REQUIRED:
+            return _reject(aid, [_violation(
+                "consistency_requirement_drift", "consistency_requirement",
+                "the sealed evidence says this case needs no verdict package but the authoring "
+                "state carries one; call cex_author_prepare again")])
+        overlay, overlay_sha, error = consistency.load_and_verify(
+            aid=aid, record=cons, card=contract, card_sha256=contract_sha,
+            mm_case=_sealed_machine_case(batch, aid), case_root=case_root)
+        if error:
+            return _reject(aid, [_violation("consistency_contract_invalid",
+                                            "consistency_contract.json", error)])
     from cex_core.engine.case_compiler.mechanical_case import (
         mint_and_land_mechanical_case,
     )
@@ -825,8 +1150,8 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
         # 引擎的提交工具同样把省略的 escape_hatches 当空数组（没有 STEP 块时本来就是空的）
         body["escape_hatches"] = []
     body, violations = _stamp_engine_binding(body, contract=contract, contract_sha256=contract_sha,
-                                             consistency_contract_sha256=None, session=session,
-                                             project_root=root)
+                                            consistency_contract_sha256=overlay_sha or None,
+                                            session=session, project_root=root)
     if violations:
         return _reject(aid, violations)
     body, error = _canonicalize_submission_blocks(body)
@@ -842,15 +1167,15 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
                 "detail": "an observation names no answerer; nothing is sealed. Ask the user who "
                           "answers it, or rewrite the block with a determined answerer."}
     _require_identity_table(body)
-    text = (batch / "mindmap_source.json").read_bytes().decode("utf-8").lstrip(_STRIP)
     slice_, slice_sha = source_case_slice(_manifest_cases(text)[aid], aid)
-    case_root = _ensure_cases_root(ws, state, root, batch, text)
     try:
         # 引擎按 outputs_root/<autoid>/intent.json 核出处：指到本批自己的每案目录
         ok, report = run_mechanical_case_gate(
             body, contract, contract_sha256=contract_sha, device_build=configured_device_os_build(),
-            outputs_root=case_root, consistency_contract=None, consistency_contract_sha256="",
-            consistency_required=False, source_case_slice=slice_, source_case_slice_sha256=slice_sha)
+            outputs_root=case_root, consistency_contract=overlay,
+            consistency_contract_sha256=overlay_sha,
+            consistency_required=requirement == REQUIRED,
+            source_case_slice=slice_, source_case_slice_sha256=slice_sha)
     except (TypeError, ValueError, RecursionError) as exc:
         return _reject(aid, [_violation("gate_uncomputable", "mechanical_case",
                                         f"the mechanical case could not be gated: {type(exc).__name__}: {exc}",
@@ -909,7 +1234,9 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
             "checked; nothing was recorded. Read the new card and submit the case again")],
             advisories)
     written = (current.get("receipt") or {}).get("written_autoids") or []
-    remaining = [a for a in written if a not in (current.get("sealed") or {})]
+    remaining = [a for a in written if a not in (current.get("sealed") or {})
+                 and (((current.get("cases") or {}).get(a) or {}).get("consistency") or {})
+                 .get("status") != consistency.STATUS_ABANDONED]
     return {"ok": True, "status": "sealed", "autoid": aid, "artifact": str(artifact),
             "mechanical_case_sha256": seal["mechanical_case_sha256"],
             "expanded_step_count": measurements["expanded_step_count"],
@@ -975,7 +1302,10 @@ def _require_identity_table(body: dict[str, Any]) -> None:
 def _ensure_cases_root(ws: Workspace, state: dict[str, Any], root: Path, batch: Path,
                        text: str) -> Path:
     """本批的每案目录。旧版状态的 intent.json 在 compile_outputs/<autoid>/（同 autoid 的别的批会
-    覆盖它）：按本批回执把每案重盖到本批目录下再接着写（迁移只发生在要写的时候）。"""
+    覆盖它）：按本批回执把每案重盖到本批目录下再接着写（迁移只发生在要写的时候）。重盖同样
+    打包一致性工件，并把结果记回状态里——不然迁移完的 bound 批每案提交都少一份台账。"""
+    from cex_core.engine.ist_core.compile_engine.consistency_requirement import REQUIRED
+
     case_root = cases_root(ws, state["out_name"])
     if state.get("cases_root"):
         return case_root
@@ -985,10 +1315,30 @@ def _ensure_cases_root(ws: Workspace, state: dict[str, Any], root: Path, batch: 
         if not current.get("cases_root"):
             receipt = state.get("receipt") or {}
             manifest_cases = _manifest_cases(text)
-            for aid in receipt.get("written_autoids") or []:
-                _stamp_intent(ws, root, batch, case_root, aid, receipt, manifest_cases.get(aid))
-            _update_state(ws, state["out_name"], lambda cur: cur.__setitem__(
-                "cases_root", to_state_path(ws, case_root)))
+            written = receipt.get("written_autoids") or []
+            old_cases = current.get("cases") or {}
+            needs_ctx = any((old_cases.get(a) or {}).get("consistency_requirement") == REQUIRED
+                            for a in written)
+            ctx = _consistency_ctx(root, batch, text) if needs_ctx else None
+            restamped: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
+            for aid in written:
+                proof, outcome = _stamp_intent(ws, root, batch, case_root, aid, receipt,
+                                               manifest_cases.get(aid), ctx)
+                record = (_consistency_record(ws, batch, case_root, aid, state["out_name"],
+                                              outcome, ctx) if outcome is not None else None)
+                restamped[aid] = (proof, record)
+
+            def merged(cur: dict[str, Any]) -> None:
+                cur["cases_root"] = to_state_path(ws, case_root)
+                for aid, (proof, record) in restamped.items():
+                    entry = cur.setdefault("cases", {}).setdefault(aid, {})
+                    entry["consistency_requirement"] = proof["requirement"]
+                    if record is None:
+                        entry.pop("consistency", None)
+                    else:
+                        entry["consistency"] = record
+
+            _update_state(ws, state["out_name"], merged)
     state["cases_root"] = to_state_path(ws, case_root)
     return case_root
 
@@ -1087,11 +1437,16 @@ def emit(ws: Workspace, out_name: str) -> dict[str, Any]:
     case_root = cases_root(ws, state["out_name"])
     missing: list[str] = []
     drifted: list[dict[str, str]] = []
+    abandoned: list[str] = []
     relocations: dict[str, bytes] = {}
     cases = []
     for aid in receipt.get("written_autoids") or []:
         if aid not in sealed:
-            missing.append(aid)
+            if (((state.get("cases") or {}).get(aid) or {}).get("consistency")
+                    or {}).get("status") == consistency.STATUS_ABANDONED:
+                abandoned.append(aid)  # 案级放弃是终局：不入卷、不算未封存
+            else:
+                missing.append(aid)
             continue
         try:
             body, steps, relocate = _sealed_case(ws, aid, sealed[aid], case_root)
@@ -1110,6 +1465,12 @@ def emit(ws: Workspace, out_name: str) -> dict[str, Any]:
     for aid, raw in relocations.items():
         _relocate_sealed(ws, state["out_name"], aid, sealed[aid], raw, case_root)
     if not cases:
+        written = receipt.get("written_autoids") or []
+        if abandoned and len(abandoned) == len(written):
+            raise ClientError(
+                f"every contracted case of {state['out_name']} was abandoned by its "
+                "case-versus-spec consistency verdict; there is no workbook to emit for "
+                "this batch")
         raise ClientError("no sealed mechanical case to emit; submit cases with "
                           "cex_author_submit_case first"
                           + (f" (not emitted: {json.dumps(drifted, ensure_ascii=False)})"
@@ -1127,7 +1488,7 @@ def emit(ws: Workspace, out_name: str) -> dict[str, Any]:
     out = {"ok": complete and bool(result.get("ok")) and verify.get("fail") == 0,
            "xlsx": result.get("path"), "cases_json": str(cases_path),
            "emitted_autoids": [c["autoid"] for c in cases], "not_sealed_autoids": missing,
-           "not_emitted": drifted,
+           "not_emitted": drifted, "abandoned_autoids": abandoned,
            "verify": {"pass": verify.get("pass"), "fail": verify.get("fail"),
                       "failures": verify.get("failures")}}
     if not complete:
@@ -1139,7 +1500,11 @@ def emit(ws: Workspace, out_name: str) -> dict[str, Any]:
                if drifted else "")
             + ". Submit those cases with cex_author_submit_case and emit again, or tell the user "
               "which cases are missing before running this workbook.")
+    elif abandoned:
+        out["note"] = (f"abandoned by consistency verdict, intentionally not in the "
+                       f"workbook: {abandoned}")
     return out
 
 
-__all__ = ["criterion_record", "emit", "expand_case", "prepare", "source_case_slice", "submit_case"]
+__all__ = ["consistency_record", "criterion_record", "emit", "expand_case", "prepare",
+           "source_case_slice", "submit_case"]

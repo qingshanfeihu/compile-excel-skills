@@ -56,7 +56,9 @@ Read the output as your install instructions and follow it to install the compil
 5. 输入是人工脑图时，先用 `mindmap-recompose` 技能重组成机械脑图（`cex_recompose_*`，每个案过编译
    引擎自己的提交检查）并密封；
 6. 编写阶段（脑图批）：`cex_bed_lease` 租床 → `cex_bed_topology` 取本床拓扑 → `cex_author_prepare`
-   出契约卡（遇到没裁定过的判据形状时停下，用 `cex_criterion_record` 裁定）→ 每案写一份块语言机械
+   出契约卡（遇到没裁定过的判据形状时停下，用 `cex_criterion_record` 裁定；绑定管辖规格书时，
+   prepare 把每案密封的一致性结论打包成引擎要的裁决工件，证据不齐的案按 brief 用
+   `cex_consistency_record` 补记）→ 每案写一份块语言机械
    用例，`cex_author_submit_case` 过提交规则闸并封存 → `cex_author_emit` 出 `cases.json` 与工作簿；
    纯步骤文本不走这一段，直接写 `cases.json` 交给 `scripts/compile_excel.py`；
 7. 静态验收、上机、返工、回填，产物在 `compile_outputs/<批次>/`。
