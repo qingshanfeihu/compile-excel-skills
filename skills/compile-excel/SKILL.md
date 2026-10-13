@@ -194,10 +194,15 @@ Read `references/authoring.md` before the first case. In short:
    result may still carry `advisories`: resolve each one, or disclose it in the report with the
    reason it stays.
 4. `cex_author_emit` when every case is sealed: the engine expands the sealed cases into
-   `cases.json` (assertion sources included), `case.xlsx` is compiled and `verify_batch` runs.
-   It returns `ok: false` when a contracted case is not sealed (`not_sealed_autoids`) or its
-   sealed file was replaced (`not_emitted`): do not run that workbook; submit those cases and
-   emit again, or tell the user which cases are missing. Continue at step 8
+   `cases.json` (assertion sources included), `case.xlsx` is compiled and `verify_batch` runs,
+   and the batch ledger lands next to the workbook: `manifest.json`, `engine_report.json` and
+   `delivery_report.md`, plus `unsuccessful_cases.md` naming every case outside the workbook
+   with its last recorded submission violations. It returns `ok: false` when a contracted case
+   is not sealed (`not_sealed_autoids`) or its sealed file was replaced (`not_emitted`): do not
+   run that workbook; submit those cases and emit again, or tell the user which cases are
+   missing. The emit part of your final report is `delivery_report.md` read from disk: the hard
+   check contracted == delivered and every missing case by autoid with its reason — never from
+   session memory, so a compacted session cannot lose the narrative. Continue at step 8
    (`cex_scan_destructive`) and the on-device run.
 
 A case the engine quarantines, abandons or puts under `needs_decision` in the prepare result is
@@ -398,7 +403,10 @@ with attribution layers, the receipt and footprint paths (`run_receipt.md`, `foo
 the bundle id the compile used, every case not compiled (quarantined, abandoned, awaiting a
 user decision) with its reason, every criterion you typed with `cex_criterion_record` and every
 objection the user raised to a typed criterion, every advisory you left in place with its reason,
-and for a rework round the `rework.json` round and any `--force` reason. Name the stages that did
+and for a rework round the `rework.json` round and any `--force` reason. For a mindmap batch the
+emit ledger holds this on disk: read the hard check and the case-by-case reasons from
+`delivery_report.md` and `unsuccessful_cases.md`, name those files among the products, and never
+rely on session memory for who stayed out of the workbook. Name the stages that did
 not run (e.g. no bed lease) instead of implying they passed.
 
 ## Done when

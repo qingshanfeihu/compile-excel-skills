@@ -630,7 +630,7 @@
   {
    "name": "cex_author_submit_case",
    "read_only": false,
-   "description": "Submit one mechanical case (ist.mechanical-case body in the blocks language: schema, autoid, description, binding {}, init_commands, blocks, expectation_binding, escape_hatches; no seal). The engine's submission gates run (expansion, command tree, bed reachability, teardown, expectation bijection, criterion binding, provenance). A rejection lists every violation with its locus and a legal form; fix all and resubmit the complete body. Sealed cases are emitted by cex_author_emit.",
+   "description": "Submit one mechanical case (ist.mechanical-case body in the blocks language: schema, autoid, description, binding {}, init_commands, blocks, expectation_binding, escape_hatches; no seal). The engine's submission gates run (expansion, command tree, bed reachability, teardown, expectation bijection, criterion binding, provenance). A rejection lists every violation with its locus and a legal form; fix all and resubmit the complete body. Every submission outcome is also recorded in the batch ledger: the last submission per autoid in the authoring state, and rejections and open decisions as one line each in the batch's facts.jsonl (mechanical_case_submission_rejected / needs_decision), so reasons survive the session. Sealed cases are emitted by cex_author_emit.",
    "input_schema": {
     "type": "object",
     "properties": {
@@ -655,7 +655,7 @@
   {
    "name": "cex_author_emit",
    "read_only": false,
-   "description": "Expand every sealed mechanical case of the batch (the engine's own block expansion) into compile_outputs/<batch>/cases.json, compile case.xlsx and run verify_batch. Returns ok:false with error when a contracted case is not sealed (not_sealed_autoids) or its sealed file changed since sealing (not_emitted); the workbook then holds only the other cases.",
+   "description": "Expand every sealed mechanical case of the batch (the engine's own block expansion) into compile_outputs/<batch>/cases.json, compile case.xlsx and run verify_batch. Returns ok:false with error when a contracted case is not sealed (not_sealed_autoids) or its sealed file changed since sealing (not_emitted); the workbook then holds only the other cases. Always writes the batch delivery ledger next to the workbook: manifest.json (batch identity), engine_report.json (machine-readable truth: every contracted case with its status and last recorded submission violations), delivery_report.md (the hard check contracted == delivered, naming every case missing from the workbook) and, only when some case is missing, unsuccessful_cases.md; the result's reports field lists these paths. A batch that cannot emit any case leaves the ledger behind before failing.",
    "input_schema": {
     "type": "object",
     "properties": {

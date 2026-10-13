@@ -1,6 +1,10 @@
 """编写阶段胶水测试用的假引擎：只替 cex_client.author 在提交与出件里调到的那几个引擎函数，
 行为按真引擎的约定（封印 = 去掉 seal 的用例体的规范摘要，读回时核封印）。胶水自己的路径、
-加锁、核对逻辑照原样跑。子进程里也能用（install 不依赖 pytest）。"""
+加锁、核对逻辑照原样跑。子进程里也能用（install 不依赖 pytest）。
+
+GATE_REJECTS[autoid] 让闸如实拒收那一案（硬拒条目按真引擎的 audience 形状给）；台账
+（issue #6）要的 fact_events/facts 两个件也在这里替身——真模块的语义由
+tests/client/test_delivery.py 里不装假引擎的用例直接钉。"""
 
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ from typing import Any, Callable
 
 GATE_ROOTS: list[str] = []
 STAMPED_ROOTS: list[str] = []
+GATE_REJECTS: dict[str, list[dict[str, Any]]] = {}
 
 
 def _digest(value: Any) -> str:
@@ -48,8 +53,44 @@ def _load(path):
 def _gate(body, contract, *, outputs_root=None, **_kw):
     GATE_ROOTS.append(str(outputs_root))
     time.sleep(float(os.environ.get("FAKE_GATE_DELAY") or 0))
-    return True, {"measurements": {"capabilities_used": [], "expanded_step_count": 1,
-                                   "check_point_count": 1}, "advisories": [], "hard_rejects": []}
+    measurements = {"capabilities_used": [], "expanded_step_count": 1, "check_point_count": 1}
+    rejects = GATE_REJECTS.get(str(body.get("autoid") or "")) or []
+    if rejects:
+        return False, {"measurements": measurements, "advisories": [],
+                       "hard_rejects": [{"audience": "worker", **item} for item in rejects]}
+    return True, {"measurements": measurements, "advisories": [], "hard_rejects": []}
+
+
+# 交付台账（issue #6）用的 facts 件替身：真模块的语义由 test_delivery.py 里不装假引擎的
+# 用例直接钉，这里只保证胶水流程里的判据一致——闭集拒未知名、occurrence_id 防拒收吞行。
+_LEDGER_EVENTS = {"recompose_done", "mechanical_case_submission_rejected", "needs_decision"}
+
+
+class FakeUnregisteredFactEvent(ValueError):
+    pass
+
+
+def _fake_require_registered(facts, *, where=""):
+    unknown = sorted({str(f.get("ev") or "") for f in facts} - _LEDGER_EVENTS)
+    if unknown:
+        raise FakeUnregisteredFactEvent(f"事实流拒绝未登记的事件名: events={unknown}, ledger={where}")
+
+
+def _fake_idem_key(f):
+    ev, aid = (str(f.get("ev")), str(f.get("aid", "")))
+    if ev == "mechanical_case_submission_rejected":
+        occurrence_id = str(f.get("occurrence_id") or "")
+        if occurrence_id:
+            return (ev, aid, occurrence_id)
+    return (ev, aid)
+
+
+def _fake_load_facts(path):
+    out = []
+    for raw in Path(path).read_bytes().splitlines():
+        if raw.strip():
+            out.append(json.loads(raw))
+    return out
 
 
 def _expand(blocks):
@@ -74,6 +115,13 @@ _MODULES: dict[str, dict[str, Any]] = {
     },
     "cex_core.engine.ist_core.compile_engine.consistency_requirement": {
         "NOT_APPLICABLE": "not_applicable"},
+    "cex_core.engine.ist_core.compile_engine.fact_events": {
+        "require_registered": _fake_require_registered,
+        "unregistered_fact_events": lambda facts: sorted(
+            {str(f.get("ev") or "") for f in facts} - _LEDGER_EVENTS),
+        "UnregisteredFactEvent": FakeUnregisteredFactEvent},
+    "cex_core.engine.ist_core.compile_engine.facts": {
+        "idem_key": _fake_idem_key, "load_facts": _fake_load_facts},
     "cex_core.engine.case_compiler.mechanical_case": {
         "mint_and_land_mechanical_case": _mint, "load_mechanical_case": _load},
     "cex_core.engine.case_compiler.mechanical_case_gate": {

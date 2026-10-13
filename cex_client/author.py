@@ -33,6 +33,15 @@ compile-worker 写机械用例（块语言）并经 submit_mechanical_case 的�
   有未封存或被换过的案时 ok=false；
 - 状态"读—改—写"都在工作区锁里做（同时提交几案不会丢封存记录），状态里的路径相对工作区根记；
   整批钉在重组开始时的引擎数据根上（engine_env.pinned_root）。
+- 交付台账（issue #6）：拒收与待裁决的每次提交都落盘——状态里记每案最后一次提交，批目录的
+  facts.jsonl 追加登记表里的事件行（写侧判据取自抽取件 `require_registered`/`idem_key`，见
+  delivery.append_facts）；出件时写批目录的 manifest.json、
+  engine_report.json、delivery_report.md，有案没进卷再写 unsuccessful_cases.md（逐案三段式：
+  时间线/机理引文/修复方案），全批出不了卷也先落台账再报错——丢件不再零留痕。原版编排层的
+  unsuccessful_cases.xlsx（只收有卷面的非交付案）、engine_errors.md / metrics.md /
+  defect_candidates.*（输入在边界外的运行期）这里有意不产，理由见 docs/engine-parity.md 的
+  交付台账一节；文件名词表照抄抽取来的 display_lexicon 的交付标签表（客户端内嵌，测试钉住
+  与抽取表一字不差——假引擎环境下真模块 import 不到，运行时不该依赖它）。
 """
 
 from __future__ import annotations
@@ -49,7 +58,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from . import engine_env
+from . import delivery, engine_env
 from .errors import ClientError
 from .workspace import (
     Workspace,
@@ -586,6 +595,10 @@ def _project_and_publish(ws: Workspace, state: dict[str, Any]) -> dict[str, Any]
                        if contracts.get(aid) == record.get("contract_sha256")}})
 
     _update_state(ws, state["out_name"], publish)
+    # 投影发布进事实台账：抽取来的 consistency_requirement 等读者按最新一条 recompose_done 认账；
+    # 重发布就是再追加一条，旧的留着（与原版 append-only 一致）
+    delivery.append_facts(ws, batch,
+                          [delivery.recompose_done_event(state["out_name"], receipt)])
     from . import bed
 
     topology = bed.load(ws) or {}
@@ -738,14 +751,62 @@ def criterion_record(ws: Workspace, out_name: str, shape_key: str, judgment: Any
 # ── submit_case（submit_mechanical_case 的判定链） ─────────────────────────
 
 
-def _reject(autoid: str, violations: list[dict[str, Any]], advisories=()) -> dict[str, Any]:
+def _record_submission(ws: Workspace, out_name: str, aid: str, status: str,
+                       violations: list[dict[str, Any]] | None = None,
+                       advisories: list[dict[str, Any]] | None = None,
+                       extra: dict[str, Any] | None = None) -> None:
+    """提交台账落盘（issue #6）：拒收理由此前只活在会话返回文本里，会话一压缩或关闭就
+    永久丢失。这里给状态记每案最后一次的提交记录（attempt 累计；engine_report 逐案点名
+    用它），拒收与待裁决另向批目录的 facts.jsonl 追加一行登记过的事件（与原版同字段）。
+    封存放进去只是把"最后一次提交"翻新成成功，不占拒收事件。批目录还不存在（发布前的
+    早期拒收）就只记状态账；台账写坏不掩蔽拒收本身——失败原因记进台账，交付报告点名它。"""
+    if not aid:
+        return
+    entry: dict[str, Any] = {"at": delivery.timestamp(), "status": status,
+                             "violations": [dict(v) for v in violations or []
+                                            if isinstance(v, dict)],
+                             "advisories": [dict(v) for v in advisories or []
+                                            if isinstance(v, dict)]}
+    entry.update(extra or {})
+
+    def point(state: dict[str, Any]) -> None:
+        submissions = state.setdefault("submissions", {})
+        previous = int((submissions.get(aid) or {}).get("attempt") or 0)
+        entry["attempt"] = previous + 1
+        submissions[aid] = entry
+
+    _update_state(ws, out_name, point)
+    if status not in ("rejected", "needs_user_decision"):
+        return
+    batch = ws.outputs_dir / out_name
+    if not batch.is_dir():
+        return
+    if status == "rejected":
+        event = delivery.rejection_event(out_name, aid, entry["attempt"], entry["violations"])
+    else:
+        event = delivery.decision_event(out_name, aid, [str(c) for c in
+                                                        (entry.get("claims") or [])])
+    try:
+        delivery.append_facts(ws, batch, [event])
+    except (OSError, ValueError, RuntimeError) as exc:  # 台账坏（含 FactLedgerCorruptError）不掩蔽拒收
+        entry["facts_ledger_error"] = f"{type(exc).__name__}: {exc}"
+
+        def mark(state: dict[str, Any]) -> None:
+            state.setdefault("submissions", {})[aid] = entry
+
+        _update_state(ws, out_name, mark)
+
+
+def _reject(ws: Workspace, out_name: str, autoid: str, violations: list[dict[str, Any]],
+            advisories=()) -> dict[str, Any]:
     from cex_core.engine.ist_core.tools.device.mechanical_case_submit_tool import (
         _violations_with_legal_forms,
     )
 
+    full = _violations_with_legal_forms(violations)
+    _record_submission(ws, out_name, autoid, "rejected", full, list(advisories))
     return {"ok": False, "status": "rejected", "autoid": autoid,
-            "violations": _violations_with_legal_forms(violations),
-            "advisories": list(advisories)}
+            "violations": full, "advisories": list(advisories)}
 
 
 def _violation(code: str, locus: str, detail: str, gate: str = "dispatch_binding") -> dict[str, str]:
@@ -763,21 +824,21 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
         try:
             mechanical_case = json.loads(mechanical_case)
         except ValueError as exc:
-            return _reject("", [_violation("payload_invalid_json", "mechanical_case", str(exc),
+            return _reject(ws, out_name, "", [_violation("payload_invalid_json", "mechanical_case", str(exc),
                                            gate="mechanical_case_body")])
     if not isinstance(mechanical_case, dict):
-        return _reject("", [_violation("not_an_object", "mechanical_case",
+        return _reject(ws, out_name, "", [_violation("not_an_object", "mechanical_case",
                                        "mechanical_case must be one JSON object",
                                        gate="mechanical_case_body")])
     body = dict(mechanical_case)
     aid = str(body.get("autoid") or "")
     receipt = state["receipt"]
     if aid not in (receipt.get("written_autoids") or []):
-        return _reject(aid, [_violation("autoid_not_dispatched", "autoid",
+        return _reject(ws, out_name, aid, [_violation("autoid_not_dispatched", "autoid",
                                         f"{aid!r} is not a contracted case of {out_name}; "
                                         f"contracted: {receipt.get('written_autoids')}")])
     if "seal" in body:
-        return _reject(aid, [_violation("self_reported_seal", "seal",
+        return _reject(ws, out_name, aid, [_violation("self_reported_seal", "seal",
                                         "do not include seal; the engine mints it after the gates pass",
                                         gate="mechanical_case_body")])
     from cex_core.engine.ist_core.compile_engine.consistency_requirement import (
@@ -786,7 +847,7 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
 
     case_state = (state.get("cases") or {}).get(aid) or {}
     if case_state.get("consistency_requirement") != NOT_APPLICABLE:
-        return _reject(aid, [_violation(
+        return _reject(ws, out_name, aid, [_violation(
             "consistency_stage_unavailable", "consistency_requirement",
             "this case is bound to a governing specification, which requires the case/spec "
             "consistency verdict before a mechanical case; that stage is not available in this "
@@ -795,7 +856,7 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
     contract_raw = (batch / "contracts" / f"{aid}.json").read_bytes()
     contract_sha = _sha256_bytes(contract_raw)
     if contract_sha != receipt["contract_sha256_by_autoid"].get(aid):
-        return _reject(aid, [_violation("frozen_contract_drift", "contracts",
+        return _reject(ws, out_name, aid, [_violation("frozen_contract_drift", "contracts",
                                         "the contract card changed after it was published; call "
                                         "cex_author_prepare again")])
     contract = json.loads(contract_raw.decode("utf-8"))
@@ -828,15 +889,19 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
                                              consistency_contract_sha256=None, session=session,
                                              project_root=root)
     if violations:
-        return _reject(aid, violations)
+        return _reject(ws, out_name, aid, violations)
     body, error = _canonicalize_submission_blocks(body)
     if body is None:
-        return _reject(aid, [_violation("ssl_cert_load_invalid", "blocks", error,
+        return _reject(ws, out_name, aid, [_violation("ssl_cert_load_invalid", "blocks", error,
                                         gate="mechanical_case_body")])
     undetermined = [block.get("answerer", {}).get("note") for block in body.get("blocks") or []
                     if isinstance(block, dict) and isinstance(block.get("answerer"), dict)
                     and block["answerer"].get("kind") == "undetermined"]
     if undetermined:
+        _record_submission(ws, out_name, aid, "needs_user_decision",
+                           [_violation("answerer_undetermined", "blocks",
+                                        "an observation names no answerer", gate="answerer")],
+                           extra={"claims": [str(c) for c in undetermined]})
         return {"ok": False, "status": "needs_user_decision", "autoid": aid,
                 "claims": undetermined,
                 "detail": "an observation names no answerer; nothing is sealed. Ask the user who "
@@ -852,7 +917,7 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
             outputs_root=case_root, consistency_contract=None, consistency_contract_sha256="",
             consistency_required=False, source_case_slice=slice_, source_case_slice_sha256=slice_sha)
     except (TypeError, ValueError, RecursionError) as exc:
-        return _reject(aid, [_violation("gate_uncomputable", "mechanical_case",
+        return _reject(ws, out_name, aid, [_violation("gate_uncomputable", "mechanical_case",
                                         f"the mechanical case could not be gated: {type(exc).__name__}: {exc}",
                                         gate="mechanical_case_body")])
     advisories = [{k: str(item.get(k) or "") for k in ("gate", "code", "locus", "detail")}
@@ -871,10 +936,10 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
         if others and not found:
             found = [{k: str(item.get(k) or "") for k in ("gate", "code", "locus", "detail")}
                      for item in others]
-        return _reject(aid, found, advisories)
+        return _reject(ws, out_name, aid, found, advisories)
     exempt = unique_exempt_blocks_submit(body)
     if exempt is not None:
-        return _reject(aid, [exempt], advisories)
+        return _reject(ws, out_name, aid, [exempt], advisories)
     measurements = report["measurements"]
     artifact = case_root / aid / MECHANICAL_CASE_SIDECAR_NAME
     republished: list[bool] = []
@@ -887,7 +952,7 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
             check_point_count=int(measurements["check_point_count"]),
             gate_report_sha256=gate_report_digest(report))
         if minted.document is None:
-            return _reject(aid, [_violation(minted.code, "case", minted.detail, gate="seal")],
+            return _reject(ws, out_name, aid, [_violation(minted.code, "case", minted.detail, gate="seal")],
                            advisories)
         seal = minted.document["seal"]
 
@@ -903,13 +968,15 @@ def submit_case(ws: Workspace, out_name: str, mechanical_case: Any) -> dict[str,
 
         current = _update_state(ws, state["out_name"], record)
     if republished:
-        return _reject(aid, [_violation(
+        return _reject(ws, out_name, aid, [_violation(
             "contracts_republished", "contracts",
             "cex_author_prepare re-published the contract cards while this case was being "
             "checked; nothing was recorded. Read the new card and submit the case again")],
             advisories)
     written = (current.get("receipt") or {}).get("written_autoids") or []
     remaining = [a for a in written if a not in (current.get("sealed") or {})]
+    _record_submission(ws, out_name, aid, "sealed",
+                       extra={"mechanical_case_sha256": seal["mechanical_case_sha256"]})
     return {"ok": True, "status": "sealed", "autoid": aid, "artifact": str(artifact),
             "mechanical_case_sha256": seal["mechanical_case_sha256"],
             "expanded_step_count": measurements["expanded_step_count"],
@@ -1109,12 +1176,17 @@ def emit(ws: Workspace, out_name: str) -> dict[str, Any]:
                       "steps": steps})
     for aid, raw in relocations.items():
         _relocate_sealed(ws, state["out_name"], aid, sealed[aid], raw, case_root)
+    batch = ws.outputs_dir / state["out_name"]
     if not cases:
+        # 全批出不了卷也要留痕（issue #6）：先落交付台账，再照实报错
+        delivery.write_reports(ws, state, batch, {
+            "xlsx": None, "cases_json": None, "emitted_autoids": [],
+            "not_sealed_autoids": missing, "not_emitted": drifted, "verify": None})
         raise ClientError("no sealed mechanical case to emit; submit cases with "
                           "cex_author_submit_case first"
                           + (f" (not emitted: {json.dumps(drifted, ensure_ascii=False)})"
-                             if drifted else ""))
-    batch = ws.outputs_dir / state["out_name"]
+                             if drifted else "")
+                          + f"; the batch ledger names every case: {batch / 'delivery_report.md'}")
     doc = {"batch": state["out_name"], "cases": cases, "_generated": _CASES_SCHEMA_NOTE}
     cases_path = batch / "cases.json"
     write_file_safely(ws.root, cases_path,
@@ -1130,6 +1202,7 @@ def emit(ws: Workspace, out_name: str) -> dict[str, Any]:
            "not_emitted": drifted,
            "verify": {"pass": verify.get("pass"), "fail": verify.get("fail"),
                       "failures": verify.get("failures")}}
+    out["reports"] = delivery.write_reports(ws, state, batch, out)
     if not complete:
         out["error"] = (
             f"the workbook holds {len(cases)} of {len(receipt.get('written_autoids') or [])} "
@@ -1138,7 +1211,10 @@ def emit(ws: Workspace, out_name: str) -> dict[str, Any]:
             + (f"; sealed file replaced, not emitted: {[d['autoid'] for d in drifted]}"
                if drifted else "")
             + ". Submit those cases with cex_author_submit_case and emit again, or tell the user "
-              "which cases are missing before running this workbook.")
+              "which cases are missing before running this workbook. The batch ledger names "
+              "every case: " + str(batch / "delivery_report.md")
+            + (f", {str(batch / 'unsuccessful_cases.md')}"
+               if "unsuccessful_cases.md" in out["reports"] else "") + ".")
     return out
 
 
