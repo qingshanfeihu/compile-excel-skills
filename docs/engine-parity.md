@@ -338,3 +338,43 @@ guarded。抽取器顺带修了四处闭包算法：代码写在 `__init__.py` �
 **上机**（实验床，设备 10.5.0 build 585）：InfoTest 的参考机械用例走客户端全链路 5/5 通过；
 circle（qwen3.8-flash）按技能从脑图走到上机，第一轮 5/5 通过，21 个检查点，
 流量判据是触发机上的 curl 退出码（该通时 0，作者写「访问失败」处为 7）。
+
+## 11. 交付台账（issue #6 的补齐：批目录里"谁没进卷、为什么"）
+
+原版交付契约（InfoTest `docs/engine/07_display_contract.md` §11.9）要求批目录一处齐全；
+编排层（`compile_engine.nodes._archive_unsuccessful`、`terminal_outcomes`、`events` 等）在
+转换时划出边界，客户端此前一件都不产——拒收理由只活在会话返回文本里，丢件在磁盘上零留痕，
+抽取来的引擎件（`consistency_requirement`）要读的 `facts.jsonl` 也没有人生成。客户端用自家
+数据（状态、投影回执、提交记录）把最小交付集补上（`cex_client/delivery.py`，TS 端
+`ts/src/cex_client/delivery.ts`）：
+
+- `manifest.json`（schema `cex.batch-manifest`）：投影回执的哈希与契约卡表，吸收重组台账
+  `batch_manifest.json` 的 `total/bucket_counts/source_status_counts`；键名对齐原版身份
+  （`name`、`source_sha256`），但不是引擎投影清单的复刻——逐案桶与 source_status 的真相仍在
+  那两份旁车里；
+- `engine_report.json`（schema `cex.engine-report`）：逐案状态（delivered / not_sealed /
+  sealed_file_replaced / abandoned / rejected / needs_user_decision / not_submitted）与最后
+  一次提交的 violations、总计、硬校验（contracted == delivered?）、卷文件哈希；
+- `delivery_report.md`：判定式总报告（硬校验行 + 逐案点名 + 交付文件清单）；
+- `unsuccessful_cases.md`：未进卷案按原版三段式（时间线/机理引文/修复方案）逐案叙事，标题取
+  `cases/<autoid>/intent.json`，违规照抄拒收时记下的闸产物；只有存在缺失案时产出（与原版
+  "判定式渲染"一致）；
+- `facts.jsonl`：投影发布追加 `recompose_done` 回执行（`_latest_recompose` 要的正是这份形状）；
+  拒收追加 `mechanical_case_submission_rejected`（`authoring_checks` 逐字读它，字段与原版同
+  形状：`aid/attempt/violations/dispatch_id/occurrence_id`）；待裁决追加 `needs_decision`
+  （幂等键 `(ev, aid)`，一案一行）。事件名只用 Python 端登记表（`fact_events.FACT_EVENTS`）
+  里已有的；写侧判据走引擎可调用件（`require_registered`/`idem_key`/`load_facts`），追加用
+  O_NOFOLLOW|O_APPEND 单文件打开。**`recompose_done` 不走幂等**：引擎的通用键是 `(ev, aid)`、
+  按"一批一条"设计，而客户端的判据裁定会重发布，读者从尾往前找最新一条，被旧回执顶住就是
+  错账——投影发布总是落新行。封存放进去与出件不写台账行（登记表里没有语义相符的名字，
+  `authored`/`run_closed` 都背着引擎侧别的读者的期待）；`stamp_decision_axis` 所在的
+  `routing_closed_sets` 在边界外，本客户端写的三种事件都不落 decision 轴，缺这一步不改语义。
+- 提交记录进状态（`submissions`：每案最后一次 + attempt 计数），出件的 `engine_report.json`
+  由它点名；符号链接防线照实抛出，台账写坏不掩蔽拒收本身（失败原因记进状态，交付报告点名它）。
+
+**与引擎的差别**（都在这层胶水里）：原版 `render_unsuccessful_md` 的输入是编排层的
+facts/queues/panels 形状（`_case_section` 的机理段按失败类别从台账行与面板取证），客户端
+数据凑不出 faithful 调用，所以叙事按同一种三段式重建，文件名词表照抄 `display_lexicon` 的
+交付标签（测试双端钉住）；`unsuccessful_cases.xlsx`（只收有卷面的非交付案）、`engine_errors.md` /
+`metrics.md` / `defect_candidates.*`（运行期编排层的输入）有意不产。长期正道仍是把编排层
+迁进来（§5 收口计划），本节是它落地前的最低自洽。

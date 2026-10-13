@@ -14,6 +14,14 @@ import {
 } from "./workspace.js";
 import { prepare as engineEnvPrepare, localRulesPath } from "./engine_env.js";
 import { canonicalJson } from "./fingerprints.js";
+import {
+  appendFacts,
+  decisionEvent,
+  recomposeDoneEvent,
+  rejectionEvent,
+  timestamp,
+  writeReports,
+} from "./delivery.js";
 
 export const STATE_SCHEMA = "cex.author-dispatch/v1";
 const _STRIP = "\ufeff\uffff";
@@ -514,6 +522,8 @@ async function _projectAndPublish(ws: Workspace, state: Record<string, unknown>)
     });
   };
   _updateState(ws, String(state.out_name), publish);
+  // 投影发布进事实台账（issue #6，与 Python 端同一形状：重发布就再追加一条 recompose_done，旧的留着）
+  appendFacts(ws, batch, [recomposeDoneEvent(String(state.out_name), receipt)]);
 
   const { load: bedLoad, loadServices: bedLoadServices, factsView } = await import("./bed.js");
   const topology = bedLoad(ws) ?? {};
@@ -685,9 +695,47 @@ export async function criterionRecord(ws: Workspace, outName: string, shapeKey: 
   return { status: "recorded", decided, ...(await _projectAndPublish(ws, newState)) };
 }
 
-function _reject(autoid: string, violations: Record<string, unknown>[], advisories: unknown[] = []): Record<string, unknown> {
+function _recordSubmission(ws: Workspace, outName: string, aid: string, status: string,
+  violations?: Record<string, unknown>[], advisories?: Record<string, unknown>[],
+  extra?: Record<string, unknown>): void {
+  // 提交台账落盘（issue #6 的 TS 端同构）：状态记每案最后一次，拒收与待裁决另向批目录
+  // facts.jsonl 追加登记过的事件行；封存放进去只是把"最后一次提交"翻新成成功。
+  if (!aid) return;
+  const entry: Record<string, unknown> = {
+    at: timestamp(),
+    status,
+    violations: (violations ?? []).filter((v) => v && typeof v === "object").map((v) => ({ ...v })),
+    advisories: (advisories ?? []).filter((v) => v && typeof v === "object").map((v) => ({ ...v })),
+  };
+  Object.assign(entry, extra ?? {});
+  _updateState(ws, outName, (state) => {
+    const submissions = ((state.submissions as Record<string, Record<string, unknown>>) ??= {});
+    entry.attempt = Number(submissions[aid]?.attempt ?? 0) + 1;
+    submissions[aid] = entry;
+  });
+  if (status !== "rejected" && status !== "needs_user_decision") return;
+  const batch = path.join(ws.outputsDir, outName);
+  if (!fs.existsSync(batch)) return;
+  const event = status === "rejected"
+    ? rejectionEvent(outName, aid, Number(entry.attempt), entry.violations as Record<string, unknown>[])
+    : decisionEvent(outName, aid, ((entry.claims as string[]) ?? []).map(String));
+  try {
+    appendFacts(ws, batch, [event]);
+  } catch (exc) {
+    if (exc instanceof ClientError) throw exc; // 符号链接防线照实抛出（与 Python 端一致）
+    entry.facts_ledger_error = `${exc instanceof Error ? exc.constructor.name : "Error"}: ${exc}`;
+    _updateState(ws, outName, (state) => {
+      (((state.submissions as Record<string, Record<string, unknown>>) ??= {}))[aid] = entry;
+    });
+  }
+}
+
+function _reject(ws: Workspace, outName: string, autoid: string, violations: Record<string, unknown>[],
+  advisories: unknown[] = []): Record<string, unknown> {
   const { _violations_with_legal_forms } = require("../cex_core/engine/ist_core/tools/device/mechanical_case_submit_tool.js");
-  return { ok: false, status: "rejected", autoid, violations: _violations_with_legal_forms(violations), advisories: [...advisories] };
+  const full = _violations_with_legal_forms(violations);
+  _recordSubmission(ws, outName, autoid, "rejected", full, advisories as Record<string, unknown>[]);
+  return { ok: false, status: "rejected", autoid, violations: full, advisories: [...advisories] };
 }
 
 function _violation(code: string, locus: string, detail: string, gate = "dispatch_binding"): Record<string, string> {
@@ -706,31 +754,31 @@ export async function submitCase(ws: Workspace, outName: string, mechanicalCase:
     try {
       body = JSON.parse(mechanicalCase);
     } catch (exc) {
-      return _reject("", [_violation("payload_invalid_json", "mechanical_case", String(exc), "mechanical_case_body")]);
+      return _reject(ws, outName, "", [_violation("payload_invalid_json", "mechanical_case", String(exc), "mechanical_case_body")]);
     }
   } else if (typeof mechanicalCase === "object" && mechanicalCase !== null && !Array.isArray(mechanicalCase)) {
     body = { ...(mechanicalCase as Record<string, unknown>) };
   } else {
-    return _reject("", [_violation("not_an_object", "mechanical_case", "mechanical_case must be one JSON object", "mechanical_case_body")]);
+    return _reject(ws, outName, "", [_violation("not_an_object", "mechanical_case", "mechanical_case must be one JSON object", "mechanical_case_body")]);
   }
   const aid = String(body.autoid ?? "");
   const receipt = state.receipt as Record<string, unknown>;
   if (!(receipt.written_autoids as string[]).includes(aid)) {
-    return _reject(aid, [_violation("autoid_not_dispatched", "autoid", `${JSON.stringify(aid)} is not a contracted case of ${outName}; contracted: ${JSON.stringify(receipt.written_autoids)}`)]);
+    return _reject(ws, outName, aid, [_violation("autoid_not_dispatched", "autoid", `${JSON.stringify(aid)} is not a contracted case of ${outName}; contracted: ${JSON.stringify(receipt.written_autoids)}`)]);
   }
   if ("seal" in body) {
-    return _reject(aid, [_violation("self_reported_seal", "seal", "do not include seal; the engine mints it after the gates pass", "mechanical_case_body")]);
+    return _reject(ws, outName, aid, [_violation("self_reported_seal", "seal", "do not include seal; the engine mints it after the gates pass", "mechanical_case_body")]);
   }
   const { NOT_APPLICABLE } = await import("../cex_core/engine/ist_core/compile_engine/consistency_requirement.js");
   const caseState = (state.cases as Record<string, unknown>)?.[aid] as Record<string, unknown> | undefined;
   if (caseState?.consistency_requirement !== NOT_APPLICABLE) {
-    return _reject(aid, [_violation("consistency_stage_unavailable", "consistency_requirement", "this case is bound to a governing specification, which requires the case/spec consistency verdict before a mechanical case; that stage is not available in this client. Recompose with spec='none' to compile without the specification.")]);
+    return _reject(ws, outName, aid, [_violation("consistency_stage_unavailable", "consistency_requirement", "this case is bound to a governing specification, which requires the case/spec consistency verdict before a mechanical case; that stage is not available in this client. Recompose with spec='none' to compile without the specification.")]);
   }
   const batch = path.join(ws.outputsDir, String(state.out_name));
   const contractRaw = fs.readFileSync(path.join(batch, "contracts", `${aid}.json`));
   const contractSha = _sha256Bytes(contractRaw);
   if (contractSha !== (receipt.contract_sha256_by_autoid as Record<string, unknown>)[aid]) {
-    return _reject(aid, [_violation("frozen_contract_drift", "contracts", "the contract card changed after it was published; call cex_author_prepare again")]);
+    return _reject(ws, outName, aid, [_violation("frozen_contract_drift", "contracts", "the contract card changed after it was published; call cex_author_prepare again")]);
   }
   const contract = JSON.parse(contractRaw.toString("utf8"));
   const { mint_and_land_mechanical_case } = await import("../cex_core/engine/case_compiler/mechanical_case.js");
@@ -756,11 +804,14 @@ export async function submitCase(ws: Workspace, outName: string, mechanicalCase:
     session,
     project_root: root,
   });
-  if (violations.length) return _reject(aid, violations);
+  if (violations.length) return _reject(ws, outName, aid, violations);
   const [canonBody, error] = _canonicalize_submission_blocks(stampedBody);
-  if (canonBody === null) return _reject(aid, [_violation("ssl_cert_load_invalid", "blocks", error, "mechanical_case_body")]);
+  if (canonBody === null) return _reject(ws, outName, aid, [_violation("ssl_cert_load_invalid", "blocks", error, "mechanical_case_body")]);
   const undetermined = (canonBody.blocks as Record<string, unknown>[]).filter((b) => (b.answerer as Record<string, unknown>)?.kind === "undetermined").map((b) => (b.answerer as Record<string, unknown>).note);
   if (undetermined.length) {
+    _recordSubmission(ws, outName, aid, "needs_user_decision",
+      [_violation("answerer_undetermined", "blocks", "an observation names no answerer", "answerer")],
+      [], { claims: undetermined.map(String) });
     return { ok: false, status: "needs_user_decision", autoid: aid, claims: undetermined, detail: "an observation names no answerer; nothing is sealed. Ask the user who answers it, or rewrite the block with a determined answerer." };
   }
   _requireIdentityTable(canonBody);
@@ -780,7 +831,7 @@ export async function submitCase(ws: Workspace, outName: string, mechanicalCase:
       source_case_slice_sha256: sliceSha,
     });
   } catch (exc) {
-    return _reject(aid, [_violation("gate_uncomputable", "mechanical_case", `the mechanical case could not be gated: ${exc instanceof Error ? exc.constructor.name : "Error"}: ${exc}`, "mechanical_case_body")]);
+    return _reject(ws, outName, aid, [_violation("gate_uncomputable", "mechanical_case", `the mechanical case could not be gated: ${exc instanceof Error ? exc.constructor.name : "Error"}: ${exc}`, "mechanical_case_body")]);
   }
   const advisories = ((report.advisories as Record<string, unknown>[]) ?? []).map((item) => ({ gate: String(item.gate ?? ""), code: String(item.code ?? ""), locus: String(item.locus ?? ""), detail: String(item.detail ?? "") }));
   if (!ok) {
@@ -795,10 +846,10 @@ export async function submitCase(ws: Workspace, outName: string, mechanicalCase:
     if (others.length && !found.length) {
       found.push(...others.map((item) => ({ gate: String(item.gate ?? ""), code: String(item.code ?? ""), locus: String(item.locus ?? ""), detail: String(item.detail ?? "") })));
     }
-    return _reject(aid, found, advisories);
+    return _reject(ws, outName, aid, found, advisories);
   }
   const exempt = unique_exempt_blocks_submit(canonBody);
-  if (exempt !== null) return _reject(aid, [exempt], advisories);
+  if (exempt !== null) return _reject(ws, outName, aid, [exempt], advisories);
   const measurements = report.measurements as Record<string, unknown>;
   const artifact = path.join(caseRoot, aid, MECHANICAL_CASE_SIDECAR_NAME);
   const republished: boolean[] = [];
@@ -811,7 +862,7 @@ export async function submitCase(ws: Workspace, outName: string, mechanicalCase:
       check_point_count: Number(measurements.check_point_count),
       gate_report_sha256: gate_report_digest(report),
     });
-    if (minted.document === null) return _reject(aid, [_violation(minted.code, "case", minted.detail, "seal")], advisories);
+    if (minted.document === null) return _reject(ws, outName, aid, [_violation(minted.code, "case", minted.detail, "seal")], advisories);
     const seal = (minted.document as Record<string, unknown>).seal as Record<string, unknown>;
     const record = (cur: Record<string, unknown>) => {
       const contracts = ((cur.receipt as Record<string, unknown>)?.contract_sha256_by_autoid as Record<string, unknown>) ?? {};
@@ -831,10 +882,13 @@ export async function submitCase(ws: Workspace, outName: string, mechanicalCase:
     lock.release();
   }
   if (republished.length) {
-    return _reject(aid, [_violation("contracts_republished", "contracts", "cex_author_prepare re-published the contract cards while this case was being checked; nothing was recorded. Read the new card and submit the case again")], advisories);
+    return _reject(ws, outName, aid, [_violation("contracts_republished", "contracts", "cex_author_prepare re-published the contract cards while this case was being checked; nothing was recorded. Read the new card and submit the case again")], advisories);
   }
   const written = ((current.receipt as Record<string, unknown>)?.written_autoids as string[]) ?? [];
   const remaining = written.filter((a) => !((current.sealed as Record<string, unknown>) ?? {})[a]);
+  _recordSubmission(ws, outName, aid, "sealed", [], [], {
+    mechanical_case_sha256: (current.sealed as Record<string, Record<string, unknown>>)[aid].mechanical_case_sha256,
+  });
   return {
     ok: true,
     status: "sealed",
@@ -1018,10 +1072,15 @@ export async function emit(ws: Workspace, outName: string): Promise<Record<strin
   for (const [aid, raw] of Object.entries(relocations)) {
     await _relocateSealed(ws, String(state.out_name), aid, sealed[aid], raw, caseRoot);
   }
-  if (!cases.length) {
-    throw new ClientError("no sealed mechanical case to emit; submit cases with cex_author_submit_case first" + (drifted.length ? ` (not emitted: ${JSON.stringify(drifted)})` : ""));
-  }
   const batch = path.join(ws.outputsDir, String(state.out_name));
+  if (!cases.length) {
+    // 全批出不了卷也要留痕（issue #6）：先落交付台账，再照实报错
+    writeReports(ws, state, batch, {
+      xlsx: null, cases_json: null, emitted_autoids: [],
+      not_sealed_autoids: missing, not_emitted: drifted, verify: null,
+    });
+    throw new ClientError("no sealed mechanical case to emit; submit cases with cex_author_submit_case first" + (drifted.length ? ` (not emitted: ${JSON.stringify(drifted)})` : "") + `; the batch ledger names every case: ${path.join(batch, "delivery_report.md")}`);
+  }
   const doc = { batch: state.out_name, cases, _generated: _CASES_SCHEMA_NOTE };
   const casesPath = path.join(batch, "cases.json");
   writeFileSafely(ws.root, casesPath, JSON.stringify(doc, null, 1));
@@ -1038,11 +1097,14 @@ export async function emit(ws: Workspace, outName: string): Promise<Record<strin
     not_emitted: drifted,
     verify: { pass: verify.pass, fail: verify.fail, failures: verify.failures },
   };
+  out.reports = writeReports(ws, state, batch, out);
   if (!complete) {
     out.error = `the workbook holds ${cases.length} of ${(receipt.written_autoids as string[])?.length ?? 0} contracted cases` +
       (missing.length ? `; not sealed yet: ${JSON.stringify(missing)}` : "") +
       (drifted.length ? `; sealed file replaced, not emitted: ${JSON.stringify(drifted.map((d) => d.autoid))}` : "") +
-      ". Submit those cases with cex_author_submit_case and emit again, or tell the user which cases are missing before running this workbook.";
+      ". Submit those cases with cex_author_submit_case and emit again, or tell the user which cases are missing before running this workbook. The batch ledger names every case: " +
+      path.join(batch, "delivery_report.md") +
+      ((out.reports as Record<string, string>)["unsuccessful_cases.md"] ? `, ${path.join(batch, "unsuccessful_cases.md")}` : "") + ".";
   }
   return out;
 }
