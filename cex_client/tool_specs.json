@@ -581,7 +581,7 @@
   {
    "name": "cex_author_prepare",
    "read_only": false,
-   "description": "Project a sealed machine mindmap into per-case contract cards and stamp every case for authoring. Each expectation carries its criterion type and allowed_slots: the exact [block_kind, operator] pairs the submission gate accepts (slot_rule explains how a binding is matched). Each card carries the case's concretizations (what step_structure refs point at). When a criterion shape is not yet adjudicated it stops and lists the shapes for cex_criterion_record. Needs cex_recompose_seal and cex_bed_topology first.",
+   "description": "Project a sealed machine mindmap into per-case contract cards and stamp every case for authoring. Each expectation carries its criterion type and allowed_slots: the exact [block_kind, operator] pairs the submission gate accepts (slot_rule explains how a binding is matched). Each card carries the case's concretizations (what step_structure refs point at). When a criterion shape is not yet adjudicated it stops and lists the shapes for cex_criterion_record. For a batch bound to a governing spec it also packages every case's sealed consistency conclusion into the case-vs-spec verdict material and its consistency_contract.json overlay (the result's `consistency` lists sealed / abandoned / pending_record cases; abandoned cases are omitted from the cards, pending ones carry consistency_record_needed and a brief for cex_consistency_record). Needs cex_recompose_seal and cex_bed_topology first.",
    "input_schema": {
     "type": "object",
     "properties": {
@@ -594,6 +594,35 @@
     },
     "required": [
      "out_name"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cex_consistency_record",
+   "read_only": false,
+   "description": "Complete the case-versus-spec consistency package for one bound case that cex_author_prepare listed as pending_record (read its brief_path first). material is one object naming locators and judgement fields: spec_locator, case_locator, incompatibility, premises [{origin: 'spec'|'case', locator}] and spec_clauses [{text, disposition, reason}] tiling the whole engine-stamped spec_quote; omit quote bytes, the engine stamps them from the locators and rejects drift. When the case carries a sealed conclusion its verdict is FIXED by the mapping (consistent/underdetermined -> consistent, mutually_exclusive -> conflict); omit verdict. Only a case with no sealed conclusion supplies verdict 'consistent' or 'conflict'. On success the overlay is written, the intent re-stamped complete, and cex_author_submit_case accepts the case; a conflict verdict abandons the case at case level.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "workspace": {
+      "type": "string"
+     },
+     "out_name": {
+      "type": "string"
+     },
+     "autoid": {
+      "type": "string"
+     },
+     "material": {
+      "type": "object",
+      "description": "{spec_locator, case_locator, incompatibility, premises, spec_clauses[, verdict if the card has no sealed conclusion][, spec_quote?, case_quote? only if byte-exact against the stamped bytes]}"
+     }
+    },
+    "required": [
+     "out_name",
+     "autoid",
+     "material"
     ],
     "additionalProperties": false
    }
@@ -630,7 +659,7 @@
   {
    "name": "cex_author_submit_case",
    "read_only": false,
-   "description": "Submit one mechanical case (ist.mechanical-case body in the blocks language: schema, autoid, description, binding {}, init_commands, blocks, expectation_binding, escape_hatches; no seal). The engine's submission gates run (expansion, command tree, bed reachability, teardown, expectation bijection, criterion binding, provenance). A rejection lists every violation with its locus and a legal form; fix all and resubmit the complete body. Sealed cases are emitted by cex_author_emit.",
+   "description": "Submit one mechanical case (ist.mechanical-case body in the blocks language: schema, autoid, description, binding {}, init_commands, blocks, expectation_binding, escape_hatches; no seal). The engine's submission gates run (expansion, command tree, bed reachability, teardown, expectation bijection, criterion binding, consistency contract, provenance). A bound case needs its recorded consistency package first (cex_author_prepare sealed it, or cex_consistency_record completed it); an abandoned one is refused terminally. A rejection lists every violation with its locus and a legal form; fix all and resubmit the complete body. Sealed cases are emitted by cex_author_emit.",
    "input_schema": {
     "type": "object",
     "properties": {

@@ -306,6 +306,19 @@ def _spec_view(spec_status: dict[str, Any], root: Path, batch: Path) -> dict[str
     if spec_status["status"] == "bound":
         view["path"] = str(root / "knowledge" / "data" / "spec" / "generations"
                            / spec_status["generation_id"] / "docs" / spec_status["name"])
+        view["compile_guidance"] = (
+            "bound is compilable in this client: each complete case's `consistency` "
+            "conclusion is sealed on the machine mindmap and cex_author_prepare packages it "
+            "into the case-vs-spec verdict material and the consistency_contract.json "
+            "overlay (citations re-stamped by the engine from the locators). The evidence "
+            "bar for EVERY verdict, underdetermined included: spec_locator + case_locator "
+            "that resolve against the sealed sources, non-empty incompatibility, premises, "
+            "and spec_clauses tiling the whole engine-stamped spec_quote with no gaps. A "
+            "case whose evidence falls short is named by cex_author_prepare before any "
+            "authoring is wasted: complete it with cex_consistency_record (same locators, "
+            "no new verdict) or re-recompose the case. A mutually_exclusive conclusion "
+            "abandons that case at case level (no workbook, no question to a human); the "
+            "other cases compile normally.")
     references = []
     for ref in spec_status.get("references") or []:
         references.append({"name": ref.get("name"), "anchor": ref.get("anchor"),

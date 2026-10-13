@@ -176,18 +176,23 @@ export function validate_consistency_contract(
     return "spec_endorsement_scope_invalid";
   }
   const recomputedScope = machine_case !== null ? _expectationScope(machine_case, material, base_contract) : null;
+  // 与 Python 的 dict 相等一样按键值对逐项比：JSON.stringify 的键序比较会把
+  // canonical 落盘（排序键）的覆盖层对上新算（原始键序）的 scope 误判成漂移。
+  const scopeMatches = recomputedScope !== null
+    && Object.keys(scope).length === Object.keys(recomputedScope).length
+    && Object.keys(recomputedScope).every((key) => (scope as any)[key] === recomputedScope[key]);
   if (scope.kind === "case") {
     if (Object.keys(scope).join(",") !== "kind") {
       return "spec_endorsement_scope_invalid";
     }
-    if (recomputedScope !== null && JSON.stringify(scope) !== JSON.stringify(recomputedScope)) {
+    if (recomputedScope !== null && !scopeMatches) {
       return "spec_endorsement_scope_drift";
     }
   } else if (scope.kind === "expectation") {
     if (Object.keys(scope).sort().join(",") !== "expectation_id,kind" || machine_case === null) {
       return "spec_endorsement_scope_invalid";
     }
-    if (recomputedScope === null || JSON.stringify(scope) !== JSON.stringify(recomputedScope) || recomputedScope.kind !== "expectation") {
+    if (!scopeMatches || recomputedScope!.kind !== "expectation") {
       return "spec_endorsement_expectation_not_unique";
     }
   } else {

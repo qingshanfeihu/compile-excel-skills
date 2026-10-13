@@ -23,6 +23,7 @@ portal session sits in a private per-user cache. Nothing secret passes through t
 | Read a defect ticket as source | `cex_portal_login_start` → user scans → `cex_portal_login_wait` → `cex_bug_get` |
 | Compile a mindmap | `mindmap-recompose` skill (seal) → `cex_bed_lease acquire` → `cex_bed_topology` → `cex_author_prepare` → one `cex_author_submit_case` per case → `cex_author_emit` ([authoring](references/authoring.md)) |
 | Type a new verdict shape | `cex_author_prepare` stops at `criterion_pending` → `cex_criterion_record` ([criterion](references/criterion.md)) |
+| Complete a bound case's verdict package | `cex_author_prepare` names `consistency.pending_record` cases → read their `brief_path` → `cex_consistency_record` ([authoring](references/authoring.md)) |
 | Look up manual text / a command's manual line | `cex_docs_query` searches the current build's locally synced manuals first, then online server documents; `cex_lang_query` `{"kind": "param", "name": "<head>"}` |
 | Ground commands against the build | `cex_cmd_check` while authoring; `scripts/cmdtree_check.py` as the gate for hand-written cases |
 | Compile plain step text (no mindmap) | You write `compile_outputs/<batch>/cases.json` → `scripts/cmdtree_check.py` → `scripts/compile_excel.py` |
@@ -143,9 +144,12 @@ Run the `mindmap-recompose` skill first. It seals
 `compile_outputs/<out_name>/machine_mindmap.json`, every case of which passed the compile
 engine's submission checks. The authoring stage (5A) compiles from that sealed file; keep the
 `exp_recipe / step_recipe / true_gap` counts for your final report. Plain step-text inputs skip
-this stage and go to 5B. A batch whose governing spec is `bound` cannot be authored in this
-client (every `cex_author_submit_case` is rejected with `consistency_stage_unavailable`): the
-recompose skill asks the user before anything is recomposed against it.
+this stage and go to 5B. A batch whose governing spec is `bound` authors like any other:
+`cex_author_prepare` packages each case's sealed case-versus-spec conclusion into the verdict
+material and its `consistency_contract.json` overlay, and submit gates read that package. A
+case whose sealed evidence falls short is named before any authoring (`consistency.pending_record`)
+— complete its package with `cex_consistency_record` without changing the verdict; a
+`mutually_exclusive` conclusion abandons that one case at case level and the rest compile.
 
 The synced bundle (`.compile-excel/bundle/<build>/`) carries spec and manual files when the
 server publishes them. `cex_docs_query` searches the current build's local manuals first and
@@ -176,7 +180,11 @@ Read `references/authoring.md` before the first case. In short:
    `allowed_slots` that may redeem it, plus the recompose `concretizations`) and returns them with
    the bed view and `blocks_schema`, the path of the block-language field reference. When it
    stops at `criterion_pending`, type each pending shape per `references/criterion.md`
-   (`cex_criterion_record`); the cards are published after the last one. The user-facing
+   (`cex_criterion_record`); the cards are published after the last one. On a bound batch the
+   same call also reports `consistency`: `sealed` cases carry their verdict package, `abandoned`
+   cases are dropped from the cards (terminal — report them, write nothing), and `pending_record`
+   cases carry a `brief_path`: read it and complete the package with `cex_consistency_record`
+   before submitting those cases; every other case proceeds meanwhile. The user-facing
    disclosures (how each verdict was typed, recompose proposals) are written to
    `compile_outputs/<batch>/author_disclosures.json` for your final report. No tool vetoes a
    typed criterion in this client: when the user disagrees with one, put the objection in the

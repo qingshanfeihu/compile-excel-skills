@@ -32,8 +32,168 @@ def ws(tmp_path, monkeypatch):
     monkeypatch.delenv("CEX_WORKSPACE", raising=False)
     fe.GATE_ROOTS.clear()
     fe.STAMPED_ROOTS.clear()
+    fe.GATE_KWARGS.clear()
+    fe.VALIDATIONS.clear()
+    fe.RESOLVE_REQUIREMENT.clear()
+    fe.ABANDON_ACTIONABLE.clear()
     fe.install(monkeypatch.setitem, monkeypatch.setattr)
     return wsmod.init(tmp_path / "ws", server="https://ces.example.test", device_build="B_1")
+
+
+def _set_consistency(ws, name, aid, requirement, record):
+    def change(cur):
+        entry = cur.setdefault("cases", {}).setdefault(aid, {})
+        entry["consistency_requirement"] = requirement
+        entry["consistency"] = record
+
+    author._update_state(ws, name, change)
+    fe.RESOLVE_REQUIREMENT[aid] = requirement
+
+
+def _rewrite_card(ws, name, aid, conclusion):
+    """把契约卡改成带（或去掉）密封结论的样子，并同步回执里的卡 sha。"""
+    batch = ws.outputs_dir / name
+    raw = json.dumps({"autoid": aid, "batch": name, "expectations": [],
+                      "consistency": conclusion}, ensure_ascii=False).encode("utf-8")
+    (batch / "contracts" / f"{aid}.json").write_bytes(raw)
+    sha = __import__("hashlib").sha256(raw).hexdigest()
+
+    def change(cur):
+        cur["receipt"]["contract_sha256_by_autoid"][aid] = sha
+
+    author._update_state(ws, name, change)
+    return sha
+
+
+MATERIAL = {"spec_locator": "spec:x.md:1", "case_locator": "title",
+            "incompatibility": "i", "premises": [{"origin": "case", "locator": "title"}],
+            "spec_clauses": [{"text": "3", "disposition": "consistent", "reason": "r"}]}
+
+
+def test_a_sealed_bound_case_passes_the_overlay_to_the_gates(ws):
+    """issue #10 的正路：bound 案打包成功后照常提交，覆盖层与 sha 进闸、进 binding。"""
+    fe.published_batch(ws, "demo", [A, B], required=[A])
+    record = author._load_state(ws, "demo")["cases"][A]["consistency"]
+    out = author.submit_case(ws, "demo", fe.body(A, "spec-bound case"))
+    assert out["ok"], out
+    kwargs = fe.GATE_KWARGS[-1]
+    assert kwargs["consistency_required"] is True
+    assert kwargs["consistency_contract"]["schema"] == "ist.consistency-contract"
+    assert kwargs["consistency_contract_sha256"] == record["overlay_sha256"]
+    assert fe.VALIDATIONS == [A]
+    sealed = json.loads(Path(out["artifact"]).read_text(encoding="utf-8"))
+    assert sealed["binding"]["consistency_contract_sha256"] == record["overlay_sha256"]
+    # 没绑定的 B 照旧走空绑定
+    assert author.submit_case(ws, "demo", fe.body(B, "plain"))["ok"]
+    assert fe.GATE_KWARGS[-1]["consistency_required"] is False
+    assert fe.GATE_KWARGS[-1]["consistency_contract"] is None
+
+
+def test_abandoned_and_pending_bound_cases_are_named_before_the_gate(ws):
+    fe.published_batch(ws, "demo", [A, B])
+    _set_consistency(ws, "demo", A, "required",
+                     {"status": "abandoned", "code": "case_abandoned_by_consistency",
+                      "detail": "mutually exclusive on two complete sources"})
+    _set_consistency(ws, "demo", B, "required",
+                     {"status": "pending_record", "code": "scenario1_clause_gap",
+                      "detail": "tile the whole stamped quote",
+                      "brief_path": f"compile_outputs/demo/consistency_briefs/{B}.json"})
+    a = author.submit_case(ws, "demo", fe.body(A, "x"))
+    assert a["violations"][0]["code"] == "case_abandoned_by_consistency", a
+    b = author.submit_case(ws, "demo", fe.body(B, "x"))
+    assert b["violations"][0]["code"] == "consistency_verdict_missing", b
+    assert "cex_consistency_record" in b["violations"][0]["detail"]
+    assert fe.GATE_ROOTS == [], "both rejected before the gate ran"
+
+
+def test_a_state_without_package_or_proof_stops_short_with_guidance(ws):
+    fe.published_batch(ws, "demo", [A])
+    _set_consistency(ws, "demo", A, "required", {})  # 老状态：没有打包记录
+    out = author.submit_case(ws, "demo", fe.body(A, "x"))
+    assert out["violations"][0]["code"] == "consistency_verdict_missing", out
+    assert "cex_author_prepare" in out["violations"][0]["detail"]
+    # 状态说是 required、密封证据却判不适用：漂移也要点名
+    _set_consistency(ws, "demo", A, "required", {"status": "sealed", "material": {},
+                                                 "receipt_sha256": "0" * 64,
+                                                 "overlay_sha256": "0" * 64})
+    fe.RESOLVE_REQUIREMENT[A] = "not_applicable"
+    out = author.submit_case(ws, "demo", fe.body(A, "x"))
+    assert out["violations"][0]["code"] == "consistency_requirement_drift", out
+
+
+def test_emit_lists_abandoned_cases_without_failing_the_batch(ws):
+    fe.published_batch(ws, "demo", [A, B])
+    _set_consistency(ws, "demo", A, "required",
+                     {"status": "abandoned", "code": "case_abandoned_by_consistency",
+                      "detail": "mutually exclusive"})
+    assert author.submit_case(ws, "demo", fe.body(B, "keep going"))["ok"]
+    out = author.emit(ws, "demo")
+    assert out["ok"] is True, out
+    assert out["emitted_autoids"] == [B]
+    assert out["not_sealed_autoids"] == []
+    assert out["abandoned_autoids"] == [A]
+    assert "abandoned" in out["note"]
+
+
+def test_record_completes_a_pending_case_and_restamps_its_intent(ws):
+    fe.published_batch(ws, "demo", [A, B], pending=[A])
+    batch = ws.outputs_dir / "demo"
+    brief = batch / "consistency_briefs" / f"{A}.json"
+    brief.parent.mkdir(parents=True, exist_ok=True)
+    brief.write_text("{}", encoding="utf-8")
+    out = author.consistency_record(ws, "demo", A, dict(MATERIAL, verdict="consistent"))
+    assert out["status"] == "sealed", out
+    record = author._load_state(ws, "demo")["cases"][A]["consistency"]
+    assert record["status"] == "sealed"
+    overlay = batch / "cases" / A / "consistency_contract.json"
+    assert overlay.is_file()
+    import hashlib
+
+    assert hashlib.sha256(overlay.read_bytes()).hexdigest() == record["overlay_sha256"]
+    assert not brief.exists(), "the brief goes away once the package is complete"
+    assert author.submit_case(ws, "demo", fe.body(A, "now acceptable"))["ok"]
+    # 台账说已放弃：record 救不回它（只有重新重组换结论能）
+    _set_consistency(ws, "demo", B, "required",
+                     {"status": "abandoned", "code": "case_abandoned_by_consistency",
+                      "detail": "terminal"})
+    out = author.consistency_record(ws, "demo", B, dict(MATERIAL, verdict="consistent"))
+    assert out["status"] == "rejected"
+    assert out["violations"][0]["code"] == "case_abandoned_by_consistency"
+
+
+def test_record_freezes_the_verdict_from_a_sealed_conclusion(ws):
+    fe.published_batch(ws, "demo", [A], pending=[A])
+    _rewrite_card(ws, "demo", A, {"schema": "ist.recompose-consistency",
+                                  "verdict": "mutually_exclusive"})
+    # 卡上结论是案内互斥：模型递 consistent 也不给改——verdict 冻结
+    out = author.consistency_record(ws, "demo", A, dict(MATERIAL, verdict="consistent"))
+    assert out["status"] == "rejected"
+    assert out["violations"][0]["code"] == "consistency_verdict_frozen", out
+    # 非法键形：点名而不是吞掉
+    out = author.consistency_record(ws, "demo", A, {"spec_locator": "x", "bogus": 1})
+    assert out["violations"][0]["code"].startswith("record_keys_invalid"), out
+    # 按映射递 conflict：落成案级放弃，不写覆盖层
+    out = author.consistency_record(ws, "demo", A, dict(MATERIAL, verdict="conflict"))
+    assert out["status"] == "abandoned", out
+    record = author._load_state(ws, "demo")["cases"][A]["consistency"]
+    assert record["status"] == "abandoned"
+    assert not (ws.outputs_dir / "demo" / "cases" / A /
+                "consistency_contract.json").exists()
+
+
+def test_a_legacy_bound_batch_migrates_with_its_package_records(ws):
+    """旧版布局的 bound 批：提交前迁移重盖时把一致性台账一起补上，不然每案都少一份记录。"""
+    fe.published_batch(ws, "old", [A, B], legacy=True, pending=[A])
+    state = author._load_state(ws, "old")
+    del state["cases"][A]["consistency"]  # 模拟本改动之前落盘的旧状态：有 requirement，无打包记录
+    author._save_state(ws, state)
+    out = author.submit_case(ws, "old", fe.body(A, "migrated and sealed"))
+    assert out["ok"], out
+    state = author._load_state(ws, "old")
+    assert state["cases_root"] == "compile_outputs/old/cases"
+    assert state["cases"][A]["consistency"]["status"] == "sealed"
+    assert A in fe.VALIDATIONS, "derive during migration and verify during submit"
+    assert fe.GATE_KWARGS[-1]["consistency_required"] is True
 
 
 def test_two_batches_sharing_an_autoid_keep_their_own_cases(ws):

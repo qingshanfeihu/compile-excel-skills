@@ -322,8 +322,8 @@ guarded。抽取器顺带修了四处闭包算法：代码写在 `__init__.py` �
   InfoTest 模块名写回数据根（`main/case_compiler/*.py`），每次 prepare 对齐。
 
 **与引擎的差别**（只在胶水层）：不移植 worker 会话（修补轮的省略续传、重复拒收计数、准入账）；
-规格一致性裁决（scenario 1）没有移植——管辖规格书绑定时提交如实拒绝，并提示重组时用
-`spec='none'`；answerer 为 undetermined 的观察块直接返回待用户裁决，不写用户裁决账；产物根是
+规格一致性裁决（scenario 1）在编写阶段机械打包（见 §11）——裁决本身在重组阶段做出并密封，
+编写期不重新裁决；answerer 为 undetermined 的观察块直接返回待用户裁决，不写用户裁决账；产物根是
 工作区 `compile_outputs/`，每案目录与批目录的相对布局不变。
 
 **对拍**（2026-09-25）：
@@ -338,3 +338,43 @@ guarded。抽取器顺带修了四处闭包算法：代码写在 `__init__.py` �
 **上机**（实验床，设备 10.5.0 build 585）：InfoTest 的参考机械用例走客户端全链路 5/5 通过；
 circle（qwen3.8-flash）按技能从脑图走到上机，第一轮 5/5 通过，21 个检查点，
 流量判据是触发机上的 curl 退出码（该通时 0，作者写「访问失败」处为 7）。
+
+## 11. 规格一致性工件打包到客户端（issue #10，双端）
+
+**做了什么**：管辖规格书 `bound` 时，引擎提交链要的 case-vs-spec 一致性工件
+（`ist.consistency-verdict-material` + `consistency_contract.json` 覆盖层 +
+`run_mechanical_case_gate(consistency_required=True)`）原先整段缺失，`cex_author_submit_case`
+对绑定规范的批一律以 `consistency_stage_unavailable` 拒收。现在按 §10 同一套薄胶水补上
+（`cex_client/consistency.py`，TS 端 `ts/src/cex_client/consistency.ts`）：
+
+- 裁决不做第二次：重组阶段 [R11] 已让模型给每案下 `ist.recompose-consistency` 结论并密封，
+  投影期 `_eligible` 又把引文与 premises 按出处盖章进契约卡。编写期把枚在卡上的结论机械拼成
+  draft（verdict 映射：consistent/underdetermined→consistent，mutually_exclusive→conflict），
+  调 `resolve_consistency_evidence`（cross_check=True，引文逐字节对合，伪造不过）出 accepted
+  material，再 `build/validate/write_consistency_contract` 落盘、按引擎判据定案内互斥的案级放弃。
+  `cex_author_prepare` 里逐案三态报告（sealed/abandoned/pending_record）；
+- 卡上证据不齐（盖章文法只在 mutually_exclusive 上强制平铺 spec_clauses）不再整批撞墙：单案
+  列名 + brief，新工具 `cex_consistency_record` 让模型按同一密封出处补包证据——卡上有结论时
+  verdict 由映射强制（`consistency_verdict_frozen`），没有结论（缺陷单成立但未绑规格书一类）
+  才由模型补判 consistent/conflict；
+- 提交链照引擎顺序接上：案级放弃先于材料核对（`recompose_abandon_actionable`），bound 案提交
+  期把旁车按 `recompose_done` 回执重闭封（`resolve_consistency_requirement`）再做
+  material↔覆盖层↔冻结卡↔密封机械案四方对合（`validate_consistency_contract`），
+  `_stamp_engine_binding` 与提交规则闸拿到与引擎同款的 consistency_contract/sha/required；
+  出件与 emit 把 abandoned 案点名而不算「未封存」；
+- `cex_recompose_prepare` 在 `governing_spec.status=bound` 的视图里带 `compile_guidance`
+  （issue 期望 3）：现在可编、证据门槛（三种 verdict 都要平铺 spec_clauses）、缺了走哪条路。
+
+**与引擎的差别**（只在胶水层）：没有服务端 dispatch 台账与 `consistency_receipt.py`（未抽取，
+属服务端权威）；accepted material 与回执摘要记在客户端编写状态里，覆盖层落在本批每案目录
+`compile_outputs/<批>/cases/<autoid>/consistency_contract.json`。引擎
+`validate_consistency_requirement` 的 complete 分支按服务端扁平布局核对覆盖层路径，客户端
+布局不同、不接它——对合以四方核对为准。
+
+**TS 端重同步**：TS 端口的一致性判定文法原本比 §10 的对拍快照更旧（clause 验证器把
+spec_clauses 当字符串、`recompose_consistency_shape_report` 缺失而 `recompose_parts.ts` 已在调、
+`spec:` 定位符只认行区间、stamp-failure 码文法不同、schema 常量漂移
+`ist.consistency-draft/-material`）。本次按 Python/InfoTest 逐函数补齐（constants、clause
+tiling/gap locus、shape report + authored_conflict、码文法与 `.of()` 解码、locator 正则、
+scope 比较改按键值），并加 `ts/src/tests/consistency.test.ts` 钉住三态结局与冻结 verdict；
+Python 端 `tests/client/test_consistency.py` 用真引擎逐条判同样的结局。

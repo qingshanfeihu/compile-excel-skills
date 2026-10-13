@@ -28,7 +28,11 @@ follow from the procedure *as written*, because the procedure never establishes 
 requires. **This is not a conflict and not a terminal.** The case keeps going: the compile stage adds the missing
 precondition steps and compiles it normally. Put each gap in `missing_preconditions`, naming the configuration
 object or state the specification requires and the authored step the procedure jumps past — the compile stage
-works from that text, so "preconditions are insufficient" is useless where a concrete gap is not.
+works from that text, so "preconditions are insufficient" is useless where a concrete gap is not. The verdict
+still carries the full evidence fields below: the cited specification span is the authority for the precondition
+steps the compile stage adds, and the authoring stage packages this conclusion into the same case-vs-spec
+verdict material as `consistent` — an `underdetermined` without locators, premises and tiling clauses cannot be
+packaged, and the case will be named for a record before any authoring.
 
 Telling those two apart is where this stage earns its keep. A reason of the form "the procedure never configures
 the object the specification requires, so the expected result cannot be derived" describes the third bucket, not
@@ -38,12 +42,13 @@ yet say enough for the expectation to follow*? Only the first is mutual exclusio
 
 ## Evidence fields
 
-For `mutually_exclusive` and `consistent` alike: `spec_locator` (bound `spec:<file>:<line>` /
-`spec:<file>:<start>-<end>`); `case_locator` (`title`, `step:<n>`, `expectation:<label>` or `orphan_note:<n>`);
-`incompatibility`, one sentence that replaces neither locators nor premises; `premises` as
-`{origin: spec|case, locator}`; and `spec_clauses` as `{text, disposition, reason}` slices. Judge
-`consistency_source_atoms` (from `cex_recompose_prepare`) and the bound specification file *before* naming
-locators.
+For every verdict — `mutually_exclusive`, `consistent` and `underdetermined` alike: `spec_locator` (bound
+`spec:<file>:<line>` / `spec:<file>:<start>-<end>`); `case_locator` (`title`, `step:<n>`,
+`expectation:<label>` or `orphan_note:<n>`); `incompatibility`, one sentence that replaces neither locators nor
+premises; `premises` as `{origin: spec|case, locator}`; and `spec_clauses` as `{text, disposition, reason}`
+slices. Judge `consistency_source_atoms` (from `cex_recompose_prepare`) and the bound specification file *before*
+naming locators. The authoring stage re-resolves every locator against the sealed sources and refuses any quote
+that differs from the engine-stamped bytes, so name locators and leave the quote bytes out.
 
 [R14] One mechanical check runs on this object, and it is why `spec_clauses` exists: **the slices, in order, must
 reconstruct the whole of the engine-stamped `spec_quote` with no gap between them.** Name a three-sentence span and

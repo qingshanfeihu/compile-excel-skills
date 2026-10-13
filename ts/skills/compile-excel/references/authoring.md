@@ -56,6 +56,31 @@ values. A recorded recompose case cannot be replaced once every case is recorded
 forces a different value, write the value you used and why into the block's `desc` and into your
 report.
 
+### A batch bound to a governing spec
+
+When the batch's governing spec is `bound`, the engine requires a case-versus-spec verdict
+package per case before it accepts any mechanical case. `cex_author_prepare` derives it from
+the conclusion the recompose stage sealed — it re-resolves every locator against the sealed
+sources, so nothing can be re-judged here, only packaged. Its result reports three states:
+
+- `sealed` — the package is in place; the card also carries `consistency_endorsement.scope`.
+  When the scope names one `expectation_id`, that expectation is redeemed by exactly one
+  assertion binding (the `consistency_rule` in the result says so); every other expectation
+  keeps the usual rules. Submitting is unchanged — the engine stamps the overlay's identity
+  into the sealed `binding` itself; pass `binding: {}` as always.
+- `pending_record` — the sealed conclusion's evidence is incomplete (e.g. `spec_clauses` do
+  not tile the engine-stamped span). Read the case's `brief_path`, then call
+  `cex_consistency_record` with the evidence package: locators, premises, `incompatibility`
+  and clauses only — the verdict stays the sealed one (the tool refuses a change), and the
+  engine stamps every quote from its locator and rejects drift. Other cases author meanwhile.
+- `abandoned` — the sealed conclusion says the case and the specification cannot both hold
+  (mutually exclusive). That case is terminal: it gets no card, no mechanical case and no
+  workbook row; `cex_author_submit_case` for it is refused by design. Name it in the report.
+
+Recomposing with `spec='none'` remains the user's own decision to compile without the
+specification; it is not a workaround for a pending_record case whose locators were never
+judged.
+
 ### Every expectation, every object
 
 Every card expectation must be redeemed, and every assertion must redeem a card expectation (the
@@ -331,7 +356,9 @@ Fix the locus the violation names, keep everything else, resubmit the whole body
 | `authored_command_occurrence_missing` | an author step's command is missing from the blocks |
 | `https_certificate_setup_missing` | add `SSL_CERT_LOAD` for the HTTPS virtual service |
 | `provenance_source_unresolved` | a `ref` / `cmd_ref` does not resolve; take it from `cex_lang_query` |
-| `consistency_stage_unavailable` | the batch is bound to a governing spec, which this client cannot author against; tell the user (mindmap-recompose, `governing_spec`) |
+| `consistency_verdict_missing` | the bound case's verdict package is incomplete or predates the consistency stage: read its `brief_path` and call `cex_consistency_record` (or run `cex_author_prepare` again on an old batch) |
+| `case_abandoned_by_consistency` | the sealed conclusion says case and spec cannot both hold; terminal for that case — report it, do not resubmit |
+| `consistency_contract_invalid` | the verdict package no longer matches the sealed evidence (card, mindmap or overlay replaced); call `cex_author_prepare` to re-derive it |
 | `contracts_republished` | `cex_author_prepare` re-published the cards meanwhile; read the new card and resubmit |
 
 The same rejection code twice in a row on an unchanged shape means your model of the rule is

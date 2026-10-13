@@ -13,50 +13,247 @@ import { build_validation_cards, build_warning_panel, ContractError, encode_json
 import { accepts_schema } from "../../ist_emit/schema_identity";
 
 const AUTHORED_CONFLICT_KEY = "authored_conflict";
+const AUTHORED_CONFLICT_SURFACE_KEYS = new Set(["locator", "quote"]);
+const AUTHORED_CONFLICT_MIN_SURFACES = 2;
+const AUTHORED_CONFLICT_MAX_SURFACES = 8;
+export const RECOMPOSE_CONSISTENCY_SCHEMA = "ist.recompose-consistency";
+export const RECOMPOSE_CONSISTENCY_VERDICTS = new Set(["consistent", "mutually_exclusive", "underdetermined"]);
+const _RECOMPOSE_CONSISTENCY_KEYS = new Set(["schema", "verdict", "spec_quote", "case_quote",
+  "spec_locator", "case_locator", "incompatibility", "premises", "spec_clauses",
+  "missing_preconditions", AUTHORED_CONFLICT_KEY]);
+
 type ConsistencyStampFailure = string;
 
+// 与 Python 同一份文法：`consistency_premise_{i}_{problem}` /
+// `consistency_authored_conflict_surface_{i}_{problem}`。recompose_parts 的 detail 渲染按
+// 这套码解码，码名换了文案就断。
+const _STAMP_FAILURE_GRAMMAR: [string, RegExp][] = [
+  ["premises", /^consistency_premise_(\d+)_([a-z0-9_]+)$/],
+  ["authored_conflict.surfaces", /^consistency_authored_conflict_surface_(\d+)_([a-z0-9_]+)$/],
+];
+export const STAMP_FAILURE_CODE_SEARCH = /(consistency_premise_\d+_[a-z0-9_]+|consistency_authored_conflict_[a-z0-9_]+)/;
+
+export const ConsistencyStampFailure = {
+  of(value: any): { code: string; collection: string; index: number; problem: string } {
+    const text = String(value ?? "");
+    for (const [collection, pattern] of _STAMP_FAILURE_GRAMMAR) {
+      const match = pattern.exec(text);
+      if (match !== null) {
+        return { code: text, collection, index: parseInt(match[1], 10), problem: match[2] };
+      }
+    }
+    return { code: text, collection: "", index: -1, problem: "" };
+  },
+};
+
 function premise_stamp_failure(index: number, problem: string): ConsistencyStampFailure {
-  return `premise[${index}]_${problem}`;
+  return `consistency_premise_${index}_${problem}`;
 }
 
 function conflict_surface_stamp_failure(index: number, problem: string): ConsistencyStampFailure {
-  return `authored_conflict_surface[${index}]_${problem}`;
+  return `consistency_authored_conflict_surface_${index}_${problem}`;
 }
 
-function recompose_consistency_failure(value: any): string {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return "consistency_not_object";
-  const keys = Object.keys(value).sort();
-  const required = ["case_locator", "case_quote", "incompatibility", "premises", "schema", "spec_clauses", "spec_locator", "spec_quote", "verdict"].sort();
-  const optional = [AUTHORED_CONFLICT_KEY, "missing_preconditions"];
-  const allowed = new Set([...required, ...optional]);
-  if (keys.some((k) => !allowed.has(k))) return "consistency_keys_invalid";
-  for (const k of required) {
-    if (!(k in value)) return "consistency_keys_invalid";
+const _SCENARIO1_DISPOSITIONS = new Set(["contradicts", "consistent", "not_applicable"]);
+const _CLAUSE_KEYS = new Set(["text", "disposition", "reason"]);
+
+function _is_plain_object(value: any): boolean {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function _same_keys(value: any, keys: Set<string>): boolean {
+  const own = Object.keys(value);
+  return own.length === keys.size && own.every((key) => keys.has(key));
+}
+
+function _type_name(value: any): string {
+  if (Array.isArray(value)) return "array";
+  if (value === null) return "NoneType";
+  if (value === undefined) return "NoneType";
+  return typeof value;
+}
+
+function _clause_shape_failure_one(clause: any): string {
+  if (!_is_plain_object(clause) || !_same_keys(clause, _CLAUSE_KEYS)) return "scenario1_clauses_invalid";
+  const disposition = clause.disposition;
+  if (typeof clause.text !== "string" || !clause.text.trim()
+      || !_SCENARIO1_DISPOSITIONS.has(String(disposition)) || typeof clause.reason !== "string") {
+    return "scenario1_clauses_invalid";
   }
-  if (value.schema !== "ist.consistency-material") return "consistency_schema_invalid";
-  if (!["consistent", "conflict"].includes(String(value.verdict))) return "consistency_verdict_invalid";
-  for (const k of ["spec_locator", "spec_quote", "case_locator", "case_quote", "incompatibility"]) {
-    if (typeof value[k] !== "string" || !value[k].trim()) return "consistency_text_field_invalid";
+  if (disposition === "not_applicable" && !String(clause.reason).trim()) {
+    return "scenario1_clause_reason_missing";
   }
   return "";
 }
 
-function clause_coverage_failure(specQuote: string, clauses: any): string {
-  if (clauses === null || clauses === undefined) return "";
-  if (!Array.isArray(clauses) || clauses.some((c) => typeof c !== "string" || !c.trim())) {
-    return "consistency_spec_clauses_invalid";
+function _clause_gap_locus(specQuote: string, clauses: any[]): [string, number, [number, number] | null] {
+  const normalizedQuote = _norm_ws(specQuote);
+  const fragments = clauses.map((clause) => String(clause.text).replace(/\s+/g, " "));
+  fragments[0] = fragments[0].replace(/^ +/, "");
+  fragments[fragments.length - 1] = fragments[fragments.length - 1].replace(/ +$/, "");
+  let cursor = 0;
+  for (let ordinal = 0; ordinal < fragments.length; ordinal++) {
+    let fragment = fragments[ordinal];
+    if (ordinal && fragments[ordinal - 1].endsWith(" ")) fragment = fragment.replace(/^ +/, "");
+    const index = normalizedQuote.indexOf(fragment, cursor);
+    if (index < 0) return ["scenario1_clause_outside_quote", ordinal + 1, null];
+    if (index > cursor) return ["scenario1_clause_gap", ordinal + 1, [cursor + 1, index]];
+    cursor = index + fragment.length;
   }
-  const quote = String(specQuote || "");
-  for (const clause of clauses) {
-    if (!quote.includes(clause)) return "consistency_spec_clause_not_covered";
+  if (cursor < normalizedQuote.length) {
+    return ["scenario1_clause_gap", fragments.length, [cursor + 1, normalizedQuote.length]];
   }
-  return "";
+  return ["", 0, null];
+}
+
+function _clause_gap_failure(specQuote: string, clauses: any[]): string {
+  return _clause_gap_locus(specQuote, clauses)[0];
+}
+
+export function clause_coverage_locus(specQuote: string, clauses: any): [string, number, [number, number] | null] {
+  if (!Array.isArray(clauses) || !clauses.length || clauses.some((item: any) => !_is_plain_object(item))) {
+    return ["scenario1_clauses_invalid", 0, null];
+  }
+  for (let index = 0; index < clauses.length; index++) {
+    const failure = _clause_shape_failure_one(clauses[index]);
+    if (failure) return [failure, index + 1, null];
+  }
+  return _clause_gap_locus(specQuote, clauses);
+}
+
+export function clause_coverage_failure(specQuote: string, clauses: any): string {
+  return clause_coverage_locus(specQuote, clauses)[0];
 }
 
 function _scenario1_clause_failure(specQuote: string, clauses: any): string {
-  if (clauses === null || clauses === undefined) return "scenario1_clause_consistent_branch";
-  const failure = clause_coverage_failure(specQuote, clauses);
-  return failure || "scenario1_clause_consistent_branch";
+  if (!Array.isArray(clauses) || !clauses.length || clauses.some((item: any) => !_is_plain_object(item))) {
+    return "scenario1_clauses_invalid";
+  }
+  let seenContradiction = false;
+  for (const clause of clauses) {
+    const failure = _clause_shape_failure_one(clause);
+    if (failure) return failure;
+    if (clause.disposition === "consistent") return "scenario1_clause_consistent_branch";
+    if (clause.disposition === "contradicts") seenContradiction = true;
+  }
+  if (!seenContradiction) return "scenario1_clause_no_contradiction";
+  return _clause_gap_failure(specQuote, clauses);
+}
+
+function _authored_conflict_shape_report(value: any): [string, string] {
+  if (value === null || value === undefined) return ["", ""];
+  if (!_is_plain_object(value)) {
+    return ["consistency_authored_conflict_invalid",
+      `${AUTHORED_CONFLICT_KEY} is a ${_type_name(value)}; when present it is an object with exactly surfaces and incompatibility`];
+  }
+  const extra = Object.keys(value).filter((k) => k !== "surfaces" && k !== "incompatibility").sort();
+  if (extra.length) {
+    return ["consistency_authored_conflict_invalid",
+      `${AUTHORED_CONFLICT_KEY} carries key(s) outside the legal set: ${extra.join(", ")}; the legal keys are incompatibility, surfaces`];
+  }
+  if (typeof value.incompatibility !== "string" || !value.incompatibility.trim()) {
+    return ["consistency_authored_conflict_incompatibility_missing",
+      `${AUTHORED_CONFLICT_KEY}.incompatibility is ${JSON.stringify(value.incompatibility ?? null)}; it is one sentence saying why the cited authored surfaces cannot both be what this case verifies`];
+  }
+  const surfaces = value.surfaces;
+  if (!Array.isArray(surfaces)) {
+    return ["consistency_authored_conflict_surfaces_invalid",
+      `${AUTHORED_CONFLICT_KEY}.surfaces is a ${_type_name(surfaces)}; it is an array of {locator, quote} objects`];
+  }
+  if (surfaces.length < AUTHORED_CONFLICT_MIN_SURFACES) {
+    return ["consistency_authored_conflict_surfaces_insufficient",
+      `${AUTHORED_CONFLICT_KEY}.surfaces cites ${surfaces.length} authored surface(s); a contradiction inside one case needs at least ${AUTHORED_CONFLICT_MIN_SURFACES} distinct authored locators. One surface alone is a missing definition, not a contradiction`];
+  }
+  if (surfaces.length > AUTHORED_CONFLICT_MAX_SURFACES) {
+    return ["consistency_authored_conflict_invalid",
+      `${AUTHORED_CONFLICT_KEY}.surfaces cites ${surfaces.length} authored surfaces; at most ${AUTHORED_CONFLICT_MAX_SURFACES} are judged`];
+  }
+  const seen: string[] = [];
+  for (let index = 0; index < surfaces.length; index++) {
+    const surface = surfaces[index];
+    if (!_is_plain_object(surface)
+        || Object.keys(surface).some((k) => !AUTHORED_CONFLICT_SURFACE_KEYS.has(k))
+        || !("locator" in surface)) {
+      return [conflict_surface_stamp_failure(index, "invalid"),
+        `${AUTHORED_CONFLICT_KEY}.surfaces[${index}] is exactly {locator, quote}, where quote may be omitted because the engine stamps it from the locator; got `
+        + (_is_plain_object(surface) || Array.isArray(surface)
+          ? Object.keys(surface).map((key) => String(key).slice(0, 80)).join(", ")
+          : `a ${_type_name(surface)}`)];
+    }
+    if (typeof surface.locator !== "string" || !surface.locator.trim()) {
+      return [conflict_surface_stamp_failure(index, "invalid"),
+        `${AUTHORED_CONFLICT_KEY}.surfaces[${index}].locator is ${JSON.stringify(surface.locator ?? null)}; it names one authored surface of this case (title, step:<n>, expectation:<label> or orphan_note:<n>)`];
+    }
+    if (surface.quote !== null && surface.quote !== undefined && typeof surface.quote !== "string") {
+      return [conflict_surface_stamp_failure(index, "invalid"),
+        `${AUTHORED_CONFLICT_KEY}.surfaces[${index}].quote is a ${_type_name(surface.quote)}; when present it is a string and the engine overwrites it with the bytes its locator resolves to`];
+    }
+    if (seen.includes(surface.locator.trim())) {
+      return ["consistency_authored_conflict_surfaces_not_distinct",
+        `${AUTHORED_CONFLICT_KEY}.surfaces names ${JSON.stringify(surface.locator.trim())} twice; a contradiction needs two different authored surfaces, so the locators are pairwise distinct`];
+    }
+    seen.push(surface.locator.trim());
+  }
+  return ["", ""];
+}
+
+export function recompose_consistency_shape_report(value: any): [string, string] {
+  if (value === null || value === undefined) return ["", ""];
+  if (!_is_plain_object(value)) {
+    return ["consistency_conclusion_invalid",
+      `the consistency field is a ${_type_name(value)}, not an ${RECOMPOSE_CONSISTENCY_SCHEMA} object`];
+  }
+  const extra = Object.keys(value).filter((k) => !_RECOMPOSE_CONSISTENCY_KEYS.has(k)).sort();
+  if (extra.length) {
+    return ["consistency_conclusion_invalid",
+      `it carries key(s) outside the legal set: ${extra.join(", ")}; the legal keys are ${[..._RECOMPOSE_CONSISTENCY_KEYS].sort().join(", ")}`];
+  }
+  if (value.schema !== RECOMPOSE_CONSISTENCY_SCHEMA) {
+    return ["consistency_conclusion_invalid",
+      `its schema key is ${JSON.stringify(value.schema ?? null)}; it must be present and exactly ${JSON.stringify(RECOMPOSE_CONSISTENCY_SCHEMA)}`];
+  }
+  const verdict = value.verdict;
+  if (!RECOMPOSE_CONSISTENCY_VERDICTS.has(String(verdict))) {
+    return ["consistency_conclusion_invalid",
+      `its verdict is ${JSON.stringify(verdict ?? null)}; it must be one of ${[...RECOMPOSE_CONSISTENCY_VERDICTS].sort().join(", ")}`];
+  }
+  for (const field of ["spec_locator", "case_locator"]) {
+    if (typeof value[field] !== "string") {
+      return ["consistency_conclusion_invalid", `${field} is ${JSON.stringify(value[field] ?? null)}; it must be present and a string`];
+    }
+  }
+  for (const field of ["spec_quote", "case_quote"]) {
+    if (field in value && typeof value[field] !== "string") {
+      return ["consistency_conclusion_invalid", `${field} is ${JSON.stringify(value[field] ?? null)}; when present it must be a string`];
+    }
+  }
+  const missing = value.missing_preconditions || [];
+  if (!Array.isArray(missing) || missing.some((item: any) => typeof item !== "string" || !item.trim())) {
+    return ["consistency_conclusion_invalid", "missing_preconditions must be a list of non-empty strings"];
+  }
+  const [conflictFailure, conflictReason] = _authored_conflict_shape_report(value[AUTHORED_CONFLICT_KEY]);
+  if (conflictFailure) return [conflictFailure, conflictReason];
+  if (verdict === "underdetermined") {
+    if (!missing.length) {
+      return ["consistency_underdetermined_without_preconditions",
+        "the underdetermined verdict requires at least one entry in missing_preconditions"];
+    }
+    return ["", ""];
+  }
+  if (missing.length) {
+    return ["consistency_conclusion_invalid",
+      `missing_preconditions is only legal on the underdetermined verdict, and this conclusion states ${JSON.stringify(String(verdict))}`];
+  }
+  if (verdict === "mutually_exclusive") {
+    const clauseFailure = clause_coverage_failure(String(value.spec_quote ?? ""), value.spec_clauses);
+    if (clauseFailure) return [clauseFailure, `spec_clauses does not tile spec_quote (${clauseFailure})`];
+    return ["", ""];
+  }
+  return ["", ""];
+}
+
+export function recompose_consistency_failure(value: any): string {
+  return recompose_consistency_shape_report(value)[0];
 }
 
 function _criterion_disclosure_message(normalizedClaim: any): string {
@@ -81,19 +278,19 @@ const DISCLOSURE_LOAD_SCHEMA = "ist.mindmap.disclosure-load";
 export class MachineMindmapError extends Error {}
 
 const _SHA256_RE = /^[0-9a-f]{64}$/;
-const _LOCATOR_TOKEN = "[0-9A-Za-z\\u4e00-\\u9fff_-]+";
-const _ORIGIN_STEP_RE = /^step:([0-9A-Za-z\u4e00-\u9fff_-]+)$/;
-const _ORIGIN_EXPECT_RE = /^expectation:([0-9A-Za-z\u4e00-\u9fff_-]+)$/;
-const _ORIGIN_SPEC_RE = /^spec:([^:]+):(\d+-\d+)$/;
-const _ORIGIN_DEFECT_SPEC_RE = /^defect:([A-Za-z0-9_-]+):([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+)$/;
+const _LOCATOR_TOKEN = "[A-Za-z0-9_-]+";
+const _ORIGIN_STEP_RE = /^step:([A-Za-z0-9_-]+)$/;
+const _ORIGIN_EXPECT_RE = /^expectation:([A-Za-z0-9_-]+)$/;
+const _ORIGIN_SPEC_RE = /^spec:([^/\\:]+):(\d+(?:-\d+)?)$/;
+const _ORIGIN_DEFECT_SPEC_RE = /^defect:([A-Za-z0-9_-]+):([A-Za-z0-9_-]+):(title|description)$/i;
 const _CARD_BUCKETS = new Set(["exp_recipe", "step_recipe"]);
 const _SOURCE_STATUSES = new Set(["complete", "incomplete"]);
 const _TYPED_ASSERTION_STATUSES = new Set(["pending", "ready"]);
 const _SCENARIO2_REASON = "scenario2_incomplete_case";
 const _SCENARIO2_SOURCE_FIELDS = ["intent", "steps", "expectation"];
 const _VALUE_GROUNDING = "author_sealed_text";
-const _CONSISTENCY_DRAFT_SCHEMA = "ist.consistency-draft";
-export const _CONSISTENCY_MATERIAL_SCHEMA = "ist.consistency-material";
+export const _CONSISTENCY_DRAFT_SCHEMA = "ist.consistency-verdict";
+export const _CONSISTENCY_MATERIAL_SCHEMA = "ist.consistency-verdict-material";
 export const _CONSISTENCY_MATERIAL_KEYS = new Set([
   "schema", "autoid", "verdict", "spec_locator", "spec_quote", "spec_clauses",
   "case_locator", "case_quote", "incompatibility", "premises",
@@ -1209,7 +1406,7 @@ export function authored_expectation_step(mindmapText: string, opts: { autoid: s
 export function _mindmap_anchor_map(mindmapText: string): Record<string, Record<string, string[]>> {
   let roots: any;
   try {
-    roots = JSON.parse(String(mindmapText || "").replace(/^﻿﻿/u, ""));
+    roots = JSON.parse(String(mindmapText || "").replace(/^﻿‿+/u, ""));
   } catch {
     return {};
   }
